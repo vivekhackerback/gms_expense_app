@@ -475,37 +475,65 @@ export const deleteParty = (id) => {
 // -------------------------------------------------------------
 // Categories
 // -------------------------------------------------------------
-export const getCategories = () => {
+export const getCategories = ({ includeDeleted = false } = {}) => {
   const db = getDatabase();
-  return db.getAllSync(`
+  let sql = `
     SELECT 
       c.id,
       c.name,
       c.icon,
       c.color,
       c.is_custom as isCustom,
+      COALESCE(c.is_deleted, 0) as isDeleted,
       c.created_at as createdAt,
       COUNT(t.id) as usageCount
     FROM categories c
     LEFT JOIN transactions t ON c.id = t.category_id
-    GROUP BY c.id
-    ORDER BY c.is_custom ASC, c.id ASC;
-  `);
+  `;
+
+  if (!includeDeleted) {
+    sql += ` WHERE COALESCE(c.is_deleted, 0) = 0`;
+  }
+
+  sql += ` GROUP BY c.id ORDER BY c.is_custom ASC, c.id ASC;`;
+  return db.getAllSync(sql);
 };
 
 export const addCategory = ({ name, icon = 'grid-outline', color = '#64748B' }) => {
   const db = getDatabase();
   const now = new Date().toISOString();
+  const cleanName = name.trim();
+
+  // Check if a category with this name already exists (e.g. soft-deleted)
+  const existing = db.getFirstSync('SELECT id, is_deleted FROM categories WHERE LOWER(name) = LOWER(?);', [cleanName]);
+  if (existing) {
+    db.runSync(
+      'UPDATE categories SET is_deleted = 0, icon = ?, color = ? WHERE id = ?;',
+      [icon, color, existing.id]
+    );
+    return db.getFirstSync('SELECT * FROM categories WHERE id = ?;', [existing.id]);
+  }
+
   const res = db.runSync(
-    `INSERT INTO categories (name, icon, color, is_custom, created_at) VALUES (?, ?, ?, 1, ?);`,
-    [name.trim(), icon, color, now]
+    `INSERT INTO categories (name, icon, color, is_custom, is_deleted, created_at) VALUES (?, ?, ?, 1, 0, ?);`,
+    [cleanName, icon, color, now]
   );
   return db.getFirstSync('SELECT * FROM categories WHERE id = ?;', [res.lastInsertRowId]);
 };
 
+export const updateCategory = (id, { name, icon, color }) => {
+  const db = getDatabase();
+  db.runSync(
+    `UPDATE categories SET name = ?, icon = ?, color = ? WHERE id = ?;`,
+    [name.trim(), icon, color, id]
+  );
+  return db.getFirstSync('SELECT * FROM categories WHERE id = ?;', [id]);
+};
+
+// Soft delete category so existing transactions maintain their category details without disruption
 export const deleteCategory = (id) => {
   const db = getDatabase();
-  db.runSync('DELETE FROM categories WHERE id = ? AND is_custom = 1;', [id]);
+  db.runSync('UPDATE categories SET is_deleted = 1 WHERE id = ?;', [id]);
   return true;
 };
 

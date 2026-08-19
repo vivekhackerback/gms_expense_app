@@ -19,6 +19,7 @@ import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { pickImagesFromGallery, takePhotoWithCamera } from '../services/imageService';
+import { formatFullDateTime, formatInputWithCommas, numberToWords } from '../utils/formatters';
 
 export const AddTransactionModal = () => {
   const insets = useSafeAreaInsets();
@@ -34,33 +35,43 @@ export const AddTransactionModal = () => {
     openFullScreenImage,
   } = useApp();
 
-  const [amount, setAmount] = useState('');
+  const [displayAmount, setDisplayAmount] = useState('');
   const [type, setType] = useState('gave'); // 'gave' | 'got'
   const [paymentMode, setPaymentMode] = useState('cash'); // 'cash' | 'online'
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString());
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [selectedPartyId, setSelectedPartyId] = useState(null);
   const [note, setNote] = useState('');
   const [images, setImages] = useState([]); // [{ localUri, fileName }]
   
-  // Quick Party Creation inline
+  // Inline Party Creator
   const [isAddingPartyInline, setIsAddingPartyInline] = useState(false);
   const [inlinePartyName, setInlinePartyName] = useState('');
+
+  // Date Picker Modal state
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [tempYear, setTempYear] = useState(new Date().getFullYear());
+  const [tempMonth, setTempMonth] = useState(new Date().getMonth() + 1);
+  const [tempDay, setTempDay] = useState(new Date().getDate());
 
   // Sync state with open defaults or editing item
   useEffect(() => {
     if (isAddTransactionOpen) {
       if (editingTransaction) {
-        setAmount(String(editingTransaction.amount || ''));
+        const raw = String(editingTransaction.amount || '');
+        setDisplayAmount(formatInputWithCommas(raw));
         setType(editingTransaction.type || 'gave');
         setPaymentMode(editingTransaction.paymentMode || 'cash');
+        setSelectedDate(editingTransaction.transactionDate || new Date().toISOString());
         setSelectedCategoryId(editingTransaction.categoryId || null);
         setSelectedPartyId(editingTransaction.partyId || null);
         setNote(editingTransaction.note || '');
         setImages(editingTransaction.images || []);
       } else {
-        setAmount('');
+        setDisplayAmount('');
         setType(addTransactionDefaults.type || 'gave');
         setPaymentMode(addTransactionDefaults.paymentMode || 'cash');
+        setSelectedDate(new Date().toISOString());
         setSelectedCategoryId(categories[0]?.id || null);
         setSelectedPartyId(addTransactionDefaults.partyId || null);
         setNote('');
@@ -68,10 +79,25 @@ export const AddTransactionModal = () => {
       }
       setIsAddingPartyInline(false);
       setInlinePartyName('');
+      setIsDatePickerOpen(false);
     }
   }, [isAddTransactionOpen, editingTransaction, addTransactionDefaults, categories]);
 
   if (!isAddTransactionOpen) return null;
+
+  const isGave = type === 'gave';
+  const cardBg = isGave ? '#FEF2F2' : '#ECFDF5';
+  const cardBorder = isGave ? '#FEE2E2' : '#D1FAE5';
+  const primaryColor = isGave ? Colors.gave : Colors.got;
+  const saveBtnBg = isGave ? Colors.gaveDark : Colors.gotDark;
+
+  // Real-time amount in words
+  const wordsRepresentation = numberToWords(displayAmount);
+
+  const handleAmountChange = (text) => {
+    const formatted = formatInputWithCommas(text);
+    setDisplayAmount(formatted);
+  };
 
   const handlePickGallery = async () => {
     const picked = await pickImagesFromGallery();
@@ -102,10 +128,44 @@ export const AddTransactionModal = () => {
     setIsAddingPartyInline(false);
   };
 
+  // Date selection helpers
+  const setQuickDate = (daysAgo) => {
+    const d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    setSelectedDate(d.toISOString());
+    setIsDatePickerOpen(false);
+  };
+
+  const openCustomDatePicker = () => {
+    const current = new Date(selectedDate);
+    setTempYear(current.getFullYear());
+    setTempMonth(current.getMonth() + 1);
+    setTempDay(current.getDate());
+    setIsDatePickerOpen(true);
+  };
+
+  const applyCustomDate = () => {
+    try {
+      const d = new Date(tempYear, tempMonth - 1, tempDay, 12, 0, 0);
+      setSelectedDate(d.toISOString());
+      setIsDatePickerOpen(false);
+    } catch (e) {
+      Alert.alert('Invalid Date', 'Please enter a valid day, month, and year.');
+    }
+  };
+
+  const { date: formattedDate } = formatFullDateTime(selectedDate);
+  const isToday = new Date(selectedDate).toDateString() === new Date().toDateString();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday = new Date(selectedDate).toDateString() === yesterday.toDateString();
+  const dateLabel = isToday ? 'Today' : isYesterday ? 'Yesterday' : formattedDate;
+
   const handleSave = () => {
-    const numAmount = parseFloat(amount);
+    const cleanNumStr = displayAmount.replace(/,/g, '');
+    const numAmount = parseFloat(cleanNumStr);
     if (isNaN(numAmount) || numAmount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid amount greater than ₹0.');
+      Alert.alert('Invalid Amount', 'Please enter an amount greater than ₹0.');
       return;
     }
 
@@ -117,7 +177,7 @@ export const AddTransactionModal = () => {
         categoryId: selectedCategoryId,
         partyId: selectedPartyId,
         note: note.trim(),
-        transactionDate: editingTransaction?.transactionDate || new Date().toISOString(),
+        transactionDate: selectedDate,
         images,
       });
       closeAddTransaction();
@@ -130,7 +190,6 @@ export const AddTransactionModal = () => {
     <Modal
       visible={isAddTransactionOpen}
       animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={closeAddTransaction}
     >
       <SafeAreaView style={styles.container}>
@@ -138,8 +197,8 @@ export const AddTransactionModal = () => {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1 }}
         >
-          {/* Header */}
-          <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
+          {/* Compact Top Header with Zero Waste Space */}
+          <View style={[styles.header, { paddingTop: Math.max(insets.top, 8) }]}>
             <TouchableOpacity onPress={closeAddTransaction} style={styles.closeBtn} activeOpacity={0.7}>
               <Ionicons name="close" size={24} color={Colors.textPrimary} />
             </TouchableOpacity>
@@ -155,319 +214,343 @@ export const AddTransactionModal = () => {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {/* Amount Hero Input */}
-            <View style={styles.amountContainer}>
-              <Text style={styles.currencySymbol}>₹</Text>
-              <TextInput
-                style={styles.amountInput}
-                placeholder="0"
-                placeholderTextColor={Colors.textMuted}
-                value={amount}
-                onChangeText={(val) => {
-                  // Allow numbers and one decimal point only
-                  const sanitized = val.replace(/[^0-9.]/g, '');
-                  setAmount(sanitized);
-                }}
-                keyboardType="numeric"
-                autoFocus={!editingTransaction}
-                selectTextOnFocus
-              />
-            </View>
-
-            {/* Transaction Type: [ You Gave ] [ You Got ] */}
-            <Text style={styles.sectionLabel}>TRANSACTION TYPE</Text>
-            <View style={styles.toggleRow}>
-              <TouchableOpacity
-                style={[
-                  styles.typeButton,
-                  type === 'gave' && styles.typeButtonGaveActive,
-                ]}
-                onPress={() => setType('gave')}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="arrow-up-circle"
-                  size={20}
-                  color={type === 'gave' ? '#FFFFFF' : Colors.gave}
-                  style={{ marginRight: 6 }}
-                />
-                <Text
-                  style={[
-                    styles.typeButtonText,
-                    type === 'gave' && styles.typeButtonTextActive,
-                    { color: type === 'gave' ? '#FFFFFF' : Colors.gaveDark },
-                  ]}
-                >
-                  You Gave
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.typeButton,
-                  type === 'got' && styles.typeButtonGotActive,
-                ]}
-                onPress={() => setType('got')}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="arrow-down-circle"
-                  size={20}
-                  color={type === 'got' ? '#FFFFFF' : Colors.got}
-                  style={{ marginRight: 6 }}
-                />
-                <Text
-                  style={[
-                    styles.typeButtonText,
-                    type === 'got' && styles.typeButtonTextActive,
-                    { color: type === 'got' ? '#FFFFFF' : Colors.gotDark },
-                  ]}
-                >
-                  You Got
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Payment Mode: [ Cash ] [ Online ] */}
-            <Text style={styles.sectionLabel}>PAYMENT MODE</Text>
-            <View style={styles.toggleRow}>
-              <TouchableOpacity
-                style={[
-                  styles.modeButton,
-                  paymentMode === 'cash' && styles.modeButtonCashActive,
-                ]}
-                onPress={() => setPaymentMode('cash')}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="cash-outline"
-                  size={18}
-                  color={paymentMode === 'cash' ? '#FFFFFF' : '#B45309'}
-                  style={{ marginRight: 6 }}
-                />
-                <Text
-                  style={[
-                    styles.modeButtonText,
-                    paymentMode === 'cash' && styles.modeButtonTextActive,
-                    { color: paymentMode === 'cash' ? '#FFFFFF' : '#B45309' },
-                  ]}
-                >
-                  Cash
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.modeButton,
-                  paymentMode === 'online' && styles.modeButtonOnlineActive,
-                ]}
-                onPress={() => setPaymentMode('online')}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="card-outline"
-                  size={18}
-                  color={paymentMode === 'online' ? '#FFFFFF' : '#1D4ED8'}
-                  style={{ marginRight: 6 }}
-                />
-                <Text
-                  style={[
-                    styles.modeButtonText,
-                    paymentMode === 'online' && styles.modeButtonTextActive,
-                    { color: paymentMode === 'online' ? '#FFFFFF' : '#1D4ED8' },
-                  ]}
-                >
-                  Online
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Category Selector */}
-            <Text style={styles.sectionLabel}>CATEGORY</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.categoryScroll}
-            >
-              {categories.map((cat) => {
-                const isSelected = selectedCategoryId === cat.id;
-                return (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[
-                      styles.categoryChip,
-                      isSelected && [styles.selectedCategoryChip, { borderColor: cat.color || Colors.primary }],
-                    ]}
-                    onPress={() => setSelectedCategoryId(cat.id)}
-                    activeOpacity={0.7}
-                  >
-                    <View
-                      style={[
-                        styles.catIconCircle,
-                        { backgroundColor: isSelected ? (cat.color || Colors.primary) : Colors.surfaceSubtle },
-                      ]}
-                    >
-                      <Ionicons
-                        name={cat.icon || 'grid-outline'}
-                        size={16}
-                        color={isSelected ? '#FFFFFF' : (cat.color || Colors.textSecondary)}
-                      />
-                    </View>
-                    <Text
-                      style={[
-                        styles.categoryChipText,
-                        isSelected && { fontWeight: Typography.fontWeights.bold, color: Colors.textPrimary },
-                      ]}
-                    >
-                      {cat.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            {/* Party Selector (Optional) */}
-            <View style={styles.partyHeaderRow}>
-              <Text style={styles.sectionLabel}>PARTY (OPTIONAL)</Text>
-              {!isAddingPartyInline && (
-                <TouchableOpacity
-                  onPress={() => setIsAddingPartyInline(true)}
-                  style={styles.addPartyQuickBtn}
-                >
-                  <Ionicons name="add" size={16} color={Colors.accent} />
-                  <Text style={styles.addPartyQuickText}>New Party</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {isAddingPartyInline ? (
-              <View style={styles.inlinePartyForm}>
-                <TextInput
-                  style={styles.inlinePartyInput}
-                  placeholder="Enter Party Name..."
-                  placeholderTextColor={Colors.textMuted}
-                  value={inlinePartyName}
-                  onChangeText={setInlinePartyName}
-                  autoFocus
-                />
-                <TouchableOpacity
-                  style={styles.inlinePartySaveBtn}
-                  onPress={handleAddPartyInline}
-                >
-                  <Text style={styles.inlinePartySaveText}>Add</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.inlinePartyCancelBtn}
-                  onPress={() => {
-                    setIsAddingPartyInline(false);
-                    setInlinePartyName('');
-                  }}
-                >
-                  <Ionicons name="close" size={18} color={Colors.textMuted} />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.partyScroll}
-              >
+            {/* 1. Hero Amount Card with Dynamic Type Styling */}
+            <View style={[styles.heroCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+              {/* Type Switcher: [ You Gave ] [ You Got ] */}
+              <View style={styles.typeSwitcherRow}>
                 <TouchableOpacity
                   style={[
-                    styles.partyChip,
-                    selectedPartyId === null && styles.selectedPartyChip,
+                    styles.typeTab,
+                    isGave && styles.typeTabGaveActive,
                   ]}
-                  onPress={() => setSelectedPartyId(null)}
-                  activeOpacity={0.7}
+                  onPress={() => setType('gave')}
+                  activeOpacity={0.85}
                 >
+                  <Ionicons
+                    name="arrow-up-circle"
+                    size={18}
+                    color={isGave ? '#FFFFFF' : Colors.gave}
+                    style={{ marginRight: 6 }}
+                  />
                   <Text
                     style={[
-                      styles.partyChipText,
-                      selectedPartyId === null && styles.selectedPartyChipText,
+                      styles.typeTabText,
+                      isGave && styles.typeTabTextActive,
+                      { color: isGave ? '#FFFFFF' : Colors.gaveDark },
                     ]}
                   >
-                    None
+                    You Gave
                   </Text>
                 </TouchableOpacity>
 
-                {parties.map((p) => {
-                  const isSelected = selectedPartyId === p.id;
+                <TouchableOpacity
+                  style={[
+                    styles.typeTab,
+                    !isGave && styles.typeTabGotActive,
+                  ]}
+                  onPress={() => setType('got')}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="arrow-down-circle"
+                    size={18}
+                    color={!isGave ? '#FFFFFF' : Colors.got}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text
+                    style={[
+                      styles.typeTabText,
+                      !isGave && styles.typeTabTextActive,
+                      { color: !isGave ? '#FFFFFF' : Colors.gotDark },
+                    ]}
+                  >
+                    You Got
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Comma-Formatted Amount Input with Dynamic Colors */}
+              <View style={styles.amountBox}>
+                <Text style={[styles.currencySymbol, { color: primaryColor }]}>₹</Text>
+                <TextInput
+                  style={[styles.amountInput, { color: primaryColor }]}
+                  placeholder="0"
+                  placeholderTextColor={isGave ? '#FCA5A5' : '#86EFAC'}
+                  value={displayAmount}
+                  onChangeText={handleAmountChange}
+                  keyboardType="numeric"
+                  autoFocus={!editingTransaction}
+                  selectTextOnFocus
+                />
+              </View>
+
+              {/* Amount In Words Display */}
+              {wordsRepresentation ? (
+                <View style={styles.wordsContainer}>
+                  <Text style={[styles.wordsText, { color: primaryColor }]} numberOfLines={2}>
+                    {wordsRepresentation}
+                  </Text>
+                </View>
+              ) : null}
+
+              {/* Bottom Meta Row: Payment Mode + Date Selector */}
+              <View style={styles.metaRow}>
+                {/* Cash vs Online Mode Toggle */}
+                <View style={styles.modeGroup}>
+                  <TouchableOpacity
+                    style={[
+                      styles.modePill,
+                      paymentMode === 'cash' && styles.modePillCashActive,
+                    ]}
+                    onPress={() => setPaymentMode('cash')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="cash-outline"
+                      size={15}
+                      color={paymentMode === 'cash' ? '#FFFFFF' : '#B45309'}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text
+                      style={[
+                        styles.modePillText,
+                        paymentMode === 'cash' && styles.modePillTextActive,
+                        { color: paymentMode === 'cash' ? '#FFFFFF' : '#B45309' },
+                      ]}
+                    >
+                      Cash
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.modePill,
+                      paymentMode === 'online' && styles.modePillOnlineActive,
+                    ]}
+                    onPress={() => setPaymentMode('online')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="card-outline"
+                      size={15}
+                      color={paymentMode === 'online' ? '#FFFFFF' : '#1D4ED8'}
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text
+                      style={[
+                        styles.modePillText,
+                        paymentMode === 'online' && styles.modePillTextActive,
+                        { color: paymentMode === 'online' ? '#FFFFFF' : '#1D4ED8' },
+                      ]}
+                    >
+                      Online
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Date Selector Pill */}
+                <TouchableOpacity
+                  style={styles.datePickerPill}
+                  onPress={openCustomDatePicker}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="calendar-outline" size={15} color={Colors.primary} style={{ marginRight: 5 }} />
+                  <Text style={styles.datePickerText}>{dateLabel}</Text>
+                  <Ionicons name="chevron-down" size={13} color={Colors.textMuted} style={{ marginLeft: 2 }} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* 2. Category Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>CATEGORY</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsScroll}
+              >
+                {categories.map((cat) => {
+                  const isSelected = selectedCategoryId === cat.id;
                   return (
                     <TouchableOpacity
-                      key={p.id}
+                      key={cat.id}
                       style={[
-                        styles.partyChip,
-                        isSelected && styles.selectedPartyChip,
+                        styles.categoryChip,
+                        isSelected && [styles.selectedCategoryChip, { borderColor: cat.color || Colors.primary }],
                       ]}
-                      onPress={() => setSelectedPartyId(p.id)}
+                      onPress={() => setSelectedCategoryId(cat.id)}
                       activeOpacity={0.7}
                     >
-                      <Text
+                      <View
                         style={[
-                          styles.partyChipText,
-                          isSelected && styles.selectedPartyChipText,
+                          styles.catIconWrap,
+                          { backgroundColor: isSelected ? (cat.color || Colors.primary) : Colors.surfaceSubtle },
                         ]}
                       >
-                        {p.name}
+                        <Ionicons
+                          name={cat.icon || 'grid-outline'}
+                          size={15}
+                          color={isSelected ? '#FFFFFF' : (cat.color || Colors.textSecondary)}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.categoryChipText,
+                          isSelected && { fontWeight: Typography.fontWeights.bold, color: Colors.textPrimary },
+                        ]}
+                      >
+                        {cat.name}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
               </ScrollView>
-            )}
+            </View>
 
-            {/* Note Input */}
-            <Text style={styles.sectionLabel}>NOTE / DESCRIPTION (OPTIONAL)</Text>
-            <TextInput
-              style={styles.noteInput}
-              placeholder="e.g. Lunch with team, monthly internet bill..."
-              placeholderTextColor={Colors.textMuted}
-              value={note}
-              onChangeText={setNote}
-              multiline
-              numberOfLines={2}
-            />
+            {/* 3. Party Section (Optional) */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionLabel}>PARTY / CONTACT (OPTIONAL)</Text>
+                {!isAddingPartyInline && (
+                  <TouchableOpacity
+                    onPress={() => setIsAddingPartyInline(true)}
+                    style={styles.inlineAddPartyBtn}
+                  >
+                    <Ionicons name="add" size={16} color={Colors.accent} />
+                    <Text style={styles.inlineAddPartyText}>New Party</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
 
-            {/* Photos & Receipts (Multiple Support) */}
-            <Text style={styles.sectionLabel}>PHOTOS / BILLS</Text>
-            <View style={styles.photosContainer}>
-              <View style={styles.photoActionsRow}>
+              {isAddingPartyInline ? (
+                <View style={styles.inlinePartyForm}>
+                  <TextInput
+                    style={styles.inlinePartyInput}
+                    placeholder="Enter party / contact name..."
+                    placeholderTextColor={Colors.textMuted}
+                    value={inlinePartyName}
+                    onChangeText={setInlinePartyName}
+                    autoFocus
+                  />
+                  <TouchableOpacity style={styles.inlinePartySaveBtn} onPress={handleAddPartyInline}>
+                    <Text style={styles.inlinePartySaveText}>Add</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setIsAddingPartyInline(false);
+                      setInlinePartyName('');
+                    }}
+                    style={{ padding: 6 }}
+                  >
+                    <Ionicons name="close" size={20} color={Colors.textMuted} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.chipsScroll}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.partyChip,
+                      selectedPartyId === null && styles.selectedPartyChip,
+                    ]}
+                    onPress={() => setSelectedPartyId(null)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.partyChipText,
+                        selectedPartyId === null && styles.selectedPartyChipText,
+                      ]}
+                    >
+                      None
+                    </Text>
+                  </TouchableOpacity>
+
+                  {parties.map((p) => {
+                    const isSelected = selectedPartyId === p.id;
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        style={[
+                          styles.partyChip,
+                          isSelected && styles.selectedPartyChip,
+                        ]}
+                        onPress={() => setSelectedPartyId(p.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.partyChipText,
+                            isSelected && styles.selectedPartyChipText,
+                          ]}
+                        >
+                          {p.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
+
+            {/* 4. Note & Photos Section */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>NOTE & RECEIPTS</Text>
+              
+              <TextInput
+                style={styles.noteInput}
+                placeholder="Add a note or description (optional)..."
+                placeholderTextColor={Colors.textMuted}
+                value={note}
+                onChangeText={setNote}
+              />
+
+              {/* Photo Action Row */}
+              <View style={styles.photosActionRow}>
                 <TouchableOpacity
-                  style={styles.addPhotoBtn}
+                  style={styles.addPhotoAction}
                   onPress={handleCaptureCamera}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="camera-outline" size={20} color={Colors.primary} />
-                  <Text style={styles.addPhotoText}>Camera</Text>
+                  <Ionicons name="camera-outline" size={18} color={Colors.primary} style={{ marginRight: 6 }} />
+                  <Text style={styles.addPhotoActionText}>Camera</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.addPhotoBtn}
+                  style={styles.addPhotoAction}
                   onPress={handlePickGallery}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="images-outline" size={20} color={Colors.primary} />
-                  <Text style={styles.addPhotoText}>Gallery</Text>
+                  <Ionicons name="images-outline" size={18} color={Colors.primary} style={{ marginRight: 6 }} />
+                  <Text style={styles.addPhotoActionText}>Gallery</Text>
                 </TouchableOpacity>
+
+                {images.length > 0 && (
+                  <View style={styles.photoCountBadge}>
+                    <Ionicons name="image" size={14} color={Colors.primary} style={{ marginRight: 4 }} />
+                    <Text style={styles.photoCountText}>{images.length} attached</Text>
+                  </View>
+                )}
               </View>
 
+              {/* Thumbnail Gallery */}
               {images.length > 0 && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbnailsScroll}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbnailScrollView}>
                   {images.map((img, index) => {
                     const uri = typeof img === 'string' ? img : (img.localUri || img.uri);
                     return (
-                      <View key={index} style={styles.thumbnailWrapper}>
-                        <TouchableOpacity
-                          onPress={() => openFullScreenImage(uri)}
-                          activeOpacity={0.9}
-                        >
-                          <Image source={{ uri }} style={styles.thumbnailImage} />
+                      <View key={index} style={styles.thumbWrapper}>
+                        <TouchableOpacity onPress={() => openFullScreenImage(uri)} activeOpacity={0.85}>
+                          <Image source={{ uri }} style={styles.thumbImage} />
                         </TouchableOpacity>
                         <TouchableOpacity
-                          style={styles.removeImageBadge}
+                          style={styles.removeThumbBadge}
                           onPress={() => handleRemoveImage(index)}
                         >
-                          <Ionicons name="close" size={14} color="#FFFFFF" />
+                          <Ionicons name="close" size={12} color="#FFFFFF" />
                         </TouchableOpacity>
                       </View>
                     );
@@ -476,9 +559,9 @@ export const AddTransactionModal = () => {
               )}
             </View>
 
-            {/* Save Transaction Button */}
+            {/* 5. Dynamic Theme Save Transaction Button (Red for Gave, Green for Got) */}
             <TouchableOpacity
-              style={[styles.saveButton, Shadows.md]}
+              style={[styles.saveButton, { backgroundColor: saveBtnBg }, Shadows.md]}
               onPress={handleSave}
               activeOpacity={0.85}
             >
@@ -486,6 +569,98 @@ export const AddTransactionModal = () => {
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
+
+        {/* Date Selector Modal */}
+        <Modal
+          visible={isDatePickerOpen}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setIsDatePickerOpen(false)}
+        >
+          <View style={styles.dateModalBackdrop}>
+            <View style={[styles.dateModalCard, Shadows.lg]}>
+              <Text style={styles.dateModalTitle}>Select Transaction Date</Text>
+
+              {/* Quick Select Buttons */}
+              <View style={styles.quickDateRow}>
+                <TouchableOpacity
+                  style={[styles.quickDateBtn, isToday && styles.quickDateBtnActive]}
+                  onPress={() => setQuickDate(0)}
+                >
+                  <Text style={[styles.quickDateText, isToday && styles.quickDateTextActive]}>
+                    Today
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.quickDateBtn, isYesterday && styles.quickDateBtnActive]}
+                  onPress={() => setQuickDate(1)}
+                >
+                  <Text style={[styles.quickDateText, isYesterday && styles.quickDateTextActive]}>
+                    Yesterday
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Custom Date Inputs */}
+              <Text style={styles.customDateSub}>Custom Date (DD / MM / YYYY)</Text>
+              <View style={styles.customDateInputsRow}>
+                <View style={styles.dateInputBox}>
+                  <Text style={styles.dateInputLabel}>Day</Text>
+                  <TextInput
+                    style={styles.dateField}
+                    value={String(tempDay)}
+                    onChangeText={(val) => setTempDay(parseInt(val) || 1)}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                </View>
+
+                <Text style={styles.dateSlash}>/</Text>
+
+                <View style={styles.dateInputBox}>
+                  <Text style={styles.dateInputLabel}>Month</Text>
+                  <TextInput
+                    style={styles.dateField}
+                    value={String(tempMonth)}
+                    onChangeText={(val) => setTempMonth(parseInt(val) || 1)}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                </View>
+
+                <Text style={styles.dateSlash}>/</Text>
+
+                <View style={styles.dateInputBox}>
+                  <Text style={styles.dateInputLabel}>Year</Text>
+                  <TextInput
+                    style={[styles.dateField, { width: 68 }]}
+                    value={String(tempYear)}
+                    onChangeText={(val) => setTempYear(parseInt(val) || 2026)}
+                    keyboardType="number-pad"
+                    maxLength={4}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.dateModalActions}>
+                <TouchableOpacity
+                  style={styles.dateCancelBtn}
+                  onPress={() => setIsDatePickerOpen(false)}
+                >
+                  <Text style={styles.dateCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.dateApplyBtn}
+                  onPress={applyCustomDate}
+                >
+                  <Text style={styles.dateApplyText}>Set Date</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </Modal>
   );
@@ -501,7 +676,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+    paddingBottom: Spacing.sm,
     backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
@@ -518,104 +693,162 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing.xxxl * 2,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xxxl,
+    gap: Spacing.md,
   },
-  amountContainer: {
+  // Hero Card with Dynamic Type Styling
+  heroCard: {
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    borderWidth: 1.5,
+    ...Shadows.sm,
+  },
+  typeSwitcherRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  typeTab: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surface,
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing.xl,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: Spacing.xl,
-    ...Shadows.sm,
+    paddingVertical: Spacing.md - 3,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  typeTabGaveActive: {
+    backgroundColor: Colors.gave,
+    borderColor: Colors.gave,
+  },
+  typeTabGotActive: {
+    backgroundColor: Colors.got,
+    borderColor: Colors.got,
+  },
+  typeTabText: {
+    fontSize: Typography.fontSizes.md,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  typeTabTextActive: {
+    color: '#FFFFFF',
+  },
+  amountBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.xs,
+    marginTop: 4,
   },
   currencySymbol: {
     fontSize: Typography.fontSizes.amountHero,
     fontWeight: Typography.fontWeights.bold,
-    color: Colors.textPrimary,
-    marginRight: Spacing.sm,
+    marginRight: Spacing.xs,
   },
   amountInput: {
     fontSize: Typography.fontSizes.amountHero,
     fontWeight: Typography.fontWeights.bold,
-    color: Colors.textPrimary,
-    minWidth: 120,
+    minWidth: 140,
     textAlign: 'left',
+    paddingVertical: 0,
+  },
+  wordsContainer: {
+    alignItems: 'center',
+    paddingHorizontal: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  wordsText: {
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.bold,
+    textAlign: 'center',
+    textTransform: 'capitalize',
+    letterSpacing: 0.2,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+  },
+  modeGroup: {
+    flexDirection: 'row',
+    gap: Spacing.xs + 2,
+  },
+  modePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  modePillCashActive: {
+    backgroundColor: Colors.cash,
+    borderColor: Colors.cash,
+  },
+  modePillOnlineActive: {
+    backgroundColor: Colors.online,
+    borderColor: Colors.online,
+  },
+  modePillText: {
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  modePillTextActive: {
+    color: '#FFFFFF',
+  },
+  datePickerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  datePickerText: {
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.textPrimary,
+  },
+  // Form Sections
+  section: {
+    gap: Spacing.xs + 2,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   sectionLabel: {
     fontSize: Typography.fontSizes.xs,
     fontWeight: Typography.fontWeights.bold,
     color: Colors.textSecondary,
     letterSpacing: 0.8,
-    marginBottom: Spacing.sm,
-    marginTop: Spacing.sm,
+    marginLeft: 2,
   },
-  toggleRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.lg,
-  },
-  typeButton: {
-    flex: 1,
+  inlineAddPartyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.surface,
-    borderWidth: 2,
-    borderColor: Colors.border,
+    gap: 2,
+    paddingHorizontal: Spacing.xs,
   },
-  typeButtonGaveActive: {
-    backgroundColor: Colors.gave,
-    borderColor: Colors.gave,
-  },
-  typeButtonGotActive: {
-    backgroundColor: Colors.got,
-    borderColor: Colors.got,
-  },
-  typeButtonText: {
-    fontSize: Typography.fontSizes.md,
+  inlineAddPartyText: {
+    fontSize: Typography.fontSizes.xs,
+    color: Colors.accent,
     fontWeight: Typography.fontWeights.bold,
   },
-  typeButtonTextActive: {
-    color: '#FFFFFF',
-  },
-  modeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: Colors.surface,
-    borderWidth: 2,
-    borderColor: Colors.border,
-  },
-  modeButtonCashActive: {
-    backgroundColor: Colors.cash,
-    borderColor: Colors.cash,
-  },
-  modeButtonOnlineActive: {
-    backgroundColor: Colors.online,
-    borderColor: Colors.online,
-  },
-  modeButtonText: {
-    fontSize: Typography.fontSizes.md,
-    fontWeight: Typography.fontWeights.bold,
-  },
-  modeButtonTextActive: {
-    color: '#FFFFFF',
-  },
-  categoryScroll: {
+  chipsScroll: {
     gap: Spacing.sm,
-    paddingBottom: Spacing.sm,
-    marginBottom: Spacing.md,
+    paddingVertical: 2,
   },
   categoryChip: {
     flexDirection: 'row',
@@ -626,56 +859,31 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     borderWidth: 1,
     borderColor: Colors.border,
-    marginRight: Spacing.xs,
   },
   selectedCategoryChip: {
     backgroundColor: Colors.surfaceSubtle,
-    borderWidth: 2,
+    borderWidth: 1.5,
   },
-  catIconCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  catIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: Spacing.sm,
+    marginRight: Spacing.xs,
   },
   categoryChipText: {
     fontSize: Typography.fontSizes.sm,
     color: Colors.textSecondary,
     fontWeight: Typography.fontWeights.medium,
   },
-  partyHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.xs,
-  },
-  addPartyQuickBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    paddingVertical: 2,
-    paddingHorizontal: Spacing.xs,
-  },
-  addPartyQuickText: {
-    fontSize: Typography.fontSizes.xs,
-    color: Colors.accent,
-    fontWeight: Typography.fontWeights.semibold,
-  },
-  partyScroll: {
-    gap: Spacing.sm,
-    paddingBottom: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
   partyChip: {
     backgroundColor: Colors.surface,
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.sm + 1,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
     borderColor: Colors.border,
-    marginRight: Spacing.xs,
   },
   selectedPartyChip: {
     backgroundColor: Colors.primary,
@@ -694,109 +902,224 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
-    marginBottom: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
   },
   inlinePartyInput: {
     flex: 1,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    fontSize: Typography.fontSizes.sm,
+    fontSize: Typography.fontSizes.md,
     color: Colors.textPrimary,
+    paddingVertical: Spacing.xs,
   },
   inlinePartySaveBtn: {
     backgroundColor: Colors.primary,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm + 2,
+    paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.md,
   },
   inlinePartySaveText: {
     color: '#FFFFFF',
-    fontWeight: Typography.fontWeights.bold,
     fontSize: Typography.fontSizes.xs,
-  },
-  inlinePartyCancelBtn: {
-    padding: Spacing.xs,
+    fontWeight: Typography.fontWeights.bold,
   },
   noteInput: {
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md - 2,
     fontSize: Typography.fontSizes.md,
     color: Colors.textPrimary,
-    minHeight: 64,
-    textAlignVertical: 'top',
-    marginBottom: Spacing.lg,
   },
-  photosContainer: {
-    marginBottom: Spacing.xl,
-  },
-  photoActionsRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  addPhotoBtn: {
-    flex: 1,
+  photosActionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
+    gap: Spacing.md,
+    marginTop: 4,
+  },
+  addPhotoAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
     borderStyle: 'dashed',
-    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm + 2,
     borderRadius: BorderRadius.lg,
   },
-  addPhotoText: {
+  addPhotoActionText: {
     fontSize: Typography.fontSizes.sm,
     fontWeight: Typography.fontWeights.semibold,
     color: Colors.primary,
   },
-  thumbnailsScroll: {
+  photoCountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surfaceSubtle,
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
+  },
+  photoCountText: {
+    fontSize: Typography.fontSizes.xs,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.textSecondary,
+  },
+  thumbnailScrollView: {
     flexDirection: 'row',
     marginTop: Spacing.xs,
   },
-  thumbnailWrapper: {
+  thumbWrapper: {
     position: 'relative',
     marginRight: Spacing.md,
   },
-  thumbnailImage: {
-    width: 72,
-    height: 72,
+  thumbImage: {
+    width: 60,
+    height: 60,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  removeImageBadge: {
+  removeThumbBadge: {
     position: 'absolute',
-    top: -6,
-    right: -6,
+    top: -5,
+    right: -5,
     backgroundColor: Colors.danger,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
   saveButton: {
-    backgroundColor: Colors.primaryDark,
-    paddingVertical: Spacing.lg,
+    paddingVertical: Spacing.lg - 2,
     borderRadius: BorderRadius.xl,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: Spacing.md,
+    marginTop: Spacing.xs,
   },
   saveButtonText: {
     color: '#FFFFFF',
     fontSize: Typography.fontSizes.lg,
     fontWeight: Typography.fontWeights.bold,
     letterSpacing: 0.2,
+  },
+  // Date Modal Styling
+  dateModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
+  dateModalCard: {
+    backgroundColor: Colors.surface,
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+  },
+  dateModalTitle: {
+    fontSize: Typography.fontSizes.lg,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+    marginBottom: Spacing.md,
+    textAlign: 'center',
+  },
+  quickDateRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  quickDateBtn: {
+    flex: 1,
+    paddingVertical: Spacing.md - 2,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.surfaceSubtle,
+    alignItems: 'center',
+  },
+  quickDateBtnActive: {
+    backgroundColor: Colors.primary,
+  },
+  quickDateText: {
+    fontSize: Typography.fontSizes.sm,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.textSecondary,
+  },
+  quickDateTextActive: {
+    color: '#FFFFFF',
+    fontWeight: Typography.fontWeights.bold,
+  },
+  customDateSub: {
+    fontSize: Typography.fontSizes.xs,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  customDateInputsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.xl,
+  },
+  dateInputBox: {
+    alignItems: 'center',
+  },
+  dateInputLabel: {
+    fontSize: Typography.fontSizes.xs - 1,
+    color: Colors.textMuted,
+    marginBottom: 4,
+  },
+  dateField: {
+    width: 58,
+    height: 44,
+    backgroundColor: Colors.surfaceSubtle,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    textAlign: 'center',
+    fontSize: Typography.fontSizes.md,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+  },
+  dateSlash: {
+    fontSize: Typography.fontSizes.lg,
+    color: Colors.textMuted,
+    marginTop: 16,
+  },
+  dateModalActions: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  dateCancelBtn: {
+    flex: 1,
+    paddingVertical: Spacing.md - 2,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.surfaceSubtle,
+    alignItems: 'center',
+  },
+  dateCancelText: {
+    fontSize: Typography.fontSizes.md,
+    color: Colors.textSecondary,
+    fontWeight: Typography.fontWeights.semibold,
+  },
+  dateApplyBtn: {
+    flex: 1,
+    paddingVertical: Spacing.md - 2,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+  },
+  dateApplyText: {
+    fontSize: Typography.fontSizes.md,
+    color: '#FFFFFF',
+    fontWeight: Typography.fontWeights.bold,
   },
 });

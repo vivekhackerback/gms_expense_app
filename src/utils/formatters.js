@@ -111,3 +111,109 @@ export const getDateRangePreset = (presetKey) => {
       return { startDate: null, endDate: null, label: 'All Time' };
   }
 };
+
+// Formats user input with Indian commas on-the-fly (e.g. 125000 -> 1,25,000)
+export const formatInputWithCommas = (val) => {
+  if (!val) return '';
+  // Remove non-digit and non-decimal chars
+  const clean = val.replace(/[^0-9.]/g, '');
+  if (!clean) return '';
+
+  const parts = clean.split('.');
+  let integerPart = parts[0];
+  const decimalPart = parts[1];
+
+  // Remove leading zeros if not followed by decimal
+  if (integerPart.length > 1 && integerPart.startsWith('0')) {
+    integerPart = integerPart.replace(/^0+/, '') || '0';
+  }
+
+  // Format integer with Indian numbering system
+  if (integerPart) {
+    let lastThree = integerPart.substring(integerPart.length - 3);
+    const otherNumbers = integerPart.substring(0, integerPart.length - 3);
+    if (otherNumbers !== '') {
+      lastThree = ',' + lastThree;
+    }
+    integerPart = otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + lastThree;
+  }
+
+  if (parts.length > 1) {
+    // Limit decimal to 2 digits
+    return `${integerPart}.${decimalPart.substring(0, 2)}`;
+  }
+  return integerPart;
+};
+
+// Converts number to Indian Words (Rupees and Paise)
+export const numberToWords = (num) => {
+  if (num === null || num === undefined || num === '') return '';
+  const val = typeof num === 'string' ? parseFloat(num.replace(/,/g, '')) : num;
+  if (isNaN(val) || val <= 0) return '';
+
+  const ones = [
+    '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+    'Seventeen', 'Eighteen', 'Nineteen'
+  ];
+
+  const tens = [
+    '', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'
+  ];
+
+  const convertLessThanOneThousand = (n) => {
+    let current = '';
+    if (n >= 100) {
+      current += ones[Math.floor(n / 100)] + ' Hundred ';
+      n %= 100;
+    }
+    if (n >= 20) {
+      current += tens[Math.floor(n / 10)] + (n % 10 !== 0 ? '-' + ones[n % 10] : '') + ' ';
+    } else if (n > 0) {
+      current += ones[n] + ' ';
+    }
+    return current.trim();
+  };
+
+  const integerPart = Math.floor(val);
+  const decimalPart = Math.round((val - integerPart) * 100);
+
+  if (integerPart === 0 && decimalPart === 0) return '';
+
+  let words = '';
+
+  const crore = Math.floor(integerPart / 10000000);
+  const lakh = Math.floor((integerPart % 10000000) / 100000);
+  const thousand = Math.floor((integerPart % 100000) / 1000);
+  const remainder = integerPart % 1000;
+
+  if (crore > 0) {
+    words += convertLessThanOneThousand(crore) + ' Crore ';
+  }
+  if (lakh > 0) {
+    words += convertLessThanOneThousand(lakh) + ' Lakh ';
+  }
+  if (thousand > 0) {
+    words += convertLessThanOneThousand(thousand) + ' Thousand ';
+  }
+  if (remainder > 0) {
+    words += convertLessThanOneThousand(remainder) + ' ';
+  }
+
+  words = words.trim();
+  if (words.length > 0) {
+    words += ' Rupees';
+  }
+
+  if (decimalPart > 0) {
+    const paiseWords = convertLessThanOneThousand(decimalPart);
+    if (words.length > 0) {
+      words += ' and ' + paiseWords + ' Paise';
+    } else {
+      words = paiseWords + ' Paise';
+    }
+  }
+
+  return words;
+};
+

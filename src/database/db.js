@@ -29,6 +29,7 @@ export const initDatabase = () => {
       icon TEXT DEFAULT 'grid-outline',
       color TEXT DEFAULT '#64748B',
       is_custom INTEGER DEFAULT 0,
+      is_deleted INTEGER DEFAULT 0,
       created_at TEXT NOT NULL
     );
 
@@ -93,6 +94,13 @@ export const initDatabase = () => {
     CREATE INDEX IF NOT EXISTS idx_tx_images_tx ON transaction_images(transaction_uuid);
     CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_queue(status);
   `);
+
+  // Migration for is_deleted column if database was previously created
+  try {
+    db.execSync('ALTER TABLE categories ADD COLUMN is_deleted INTEGER DEFAULT 0;');
+  } catch (e) {
+    // Column already exists
+  }
 
   // Seed default categories if not already present
   const existingCategories = db.getAllSync('SELECT COUNT(*) as count FROM categories;');

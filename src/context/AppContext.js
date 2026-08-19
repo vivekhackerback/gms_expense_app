@@ -13,6 +13,7 @@ import {
   updateParty as dbUpdateParty,
   deleteParty as dbDeleteParty,
   addCategory as dbAddCategory,
+  updateCategory as dbUpdateCategory,
   deleteCategory as dbDeleteCategory,
 } from '../database/queries';
 import { checkNetworkConnectivity, processSyncQueue } from '../services/syncService';
@@ -178,7 +179,12 @@ export const AppProvider = ({ children }) => {
 
   // Category Operations
   const saveCategory = (data) => {
-    const result = dbAddCategory(data);
+    let result;
+    if (data.id) {
+      result = dbUpdateCategory(data.id, data);
+    } else {
+      result = dbAddCategory(data);
+    }
     refreshAll();
     return result;
   };
