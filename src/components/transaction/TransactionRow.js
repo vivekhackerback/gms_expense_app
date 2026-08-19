@@ -2,218 +2,290 @@ import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors } from '../../constants/colors';
-import { Typography, Spacing, BorderRadius } from '../../constants/theme';
-import { formatCurrency, formatTimeOnly } from '../../utils/formatters';
+import { Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
+import { formatCurrency, formatFullDateTime } from '../../utils/formatters';
 
 export const TransactionRow = ({ item, onPress }) => {
   const isGave = item.type === 'gave';
   const typeText = isGave ? 'You Gave' : 'You Got';
   const modeText = item.paymentMode === 'cash' ? 'Cash' : 'Online';
-  const timeText = formatTimeOnly(item.transactionDate || item.createdAt);
+  const isCash = item.paymentMode === 'cash';
   
-  const title = item.partyName 
+  const { date, time } = formatFullDateTime(item.transactionDate || item.createdAt);
+  
+  const primaryTitle = item.partyName 
     ? item.partyName 
-    : (item.categoryName || 'General');
+    : (item.categoryName || 'General Transaction');
 
-  const subtitleCategory = item.partyName && item.categoryName ? ` · ${item.categoryName}` : '';
+  const showCategorySub = Boolean(item.partyName && item.categoryName);
   const hasImages = item.imageCount > 0;
+
+  const cardBg = isGave ? '#FEF2F2' : '#ECFDF5';
+  const cardBorder = isGave ? '#FEE2E2' : '#D1FAE5';
+  const accentColor = isGave ? '#EF4444' : '#10B981';
+  const amountColor = isGave ? '#DC2626' : '#059669';
+  const typeBadgeBg = isGave ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)';
+  const typeBadgeText = isGave ? '#DC2626' : '#059669';
 
   return (
     <TouchableOpacity
-      style={styles.card}
+      style={[
+        styles.cardStrip,
+        { backgroundColor: cardBg, borderColor: cardBorder },
+        Shadows.sm,
+      ]}
       onPress={() => onPress && onPress(item)}
-      activeOpacity={0.7}
+      activeOpacity={0.75}
     >
-      <View style={styles.leftSection}>
-        {/* Category / Mode Icon */}
-        <View
-          style={[
-            styles.iconContainer,
-            { backgroundColor: isGave ? Colors.gaveBg : Colors.gotBg },
-          ]}
-        >
-          <Ionicons
-            name={item.categoryIcon || (isGave ? 'arrow-up' : 'arrow-down')}
-            size={20}
-            color={isGave ? Colors.gave : Colors.got}
-          />
-        </View>
+      {/* Left Colored Status Accent Bar */}
+      <View style={[styles.leftAccentBar, { backgroundColor: accentColor }]} />
 
-        <View style={styles.infoContainer}>
-          <Text style={styles.title} numberOfLines={1}>
-            {title}
-          </Text>
-
-          <View style={styles.metaRow}>
-            <Text
-              style={[
-                styles.typeLabel,
-                { color: isGave ? Colors.gaveDark : Colors.gotDark },
-              ]}
-            >
-              {typeText}
-            </Text>
-            <Text style={styles.metaDot}> · </Text>
-            
-            <View
-              style={[
-                styles.modeBadge,
-                item.paymentMode === 'cash' ? styles.cashBadge : styles.onlineBadge,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.modeText,
-                  item.paymentMode === 'cash' ? styles.cashText : styles.onlineText,
-                ]}
-              >
-                {modeText}
+      <View style={styles.contentContainer}>
+        {/* Top Header Row: Category Badge + Mode + Date/Time */}
+        <View style={styles.topRow}>
+          <View style={styles.topBadgesLeft}>
+            {/* Category Badge */}
+            <View style={styles.categoryBadge}>
+              <Ionicons
+                name={item.categoryIcon || (isGave ? 'arrow-up-circle' : 'arrow-down-circle')}
+                size={13}
+                color={item.categoryColor || Colors.primary}
+                style={{ marginRight: 4 }}
+              />
+              <Text style={[styles.categoryBadgeText, { color: item.categoryColor || Colors.textPrimary }]}>
+                {item.categoryName || 'General'}
               </Text>
             </View>
 
-            {subtitleCategory ? (
-              <Text style={styles.categorySubText} numberOfLines={1}>
-                {subtitleCategory}
+            {/* Payment Method Badge */}
+            <View style={[styles.modeBadge, isCash ? styles.cashModeBadge : styles.onlineModeBadge]}>
+              <Ionicons
+                name={isCash ? 'cash-outline' : 'card-outline'}
+                size={12}
+                color={isCash ? '#B45309' : '#1D4ED8'}
+                style={{ marginRight: 3 }}
+              />
+              <Text style={[styles.modeBadgeText, isCash ? styles.cashModeText : styles.onlineModeText]}>
+                {modeText}
               </Text>
-            ) : null}
-
-            {hasImages && (
-              <View style={styles.imageIndicator}>
-                <Ionicons name="image-outline" size={12} color={Colors.textSecondary} />
-                <Text style={styles.imageCountText}>{item.imageCount}</Text>
-              </View>
-            )}
+            </View>
           </View>
 
-          {item.note ? (
-            <Text style={styles.noteText} numberOfLines={1}>
+          {/* Date & Time */}
+          <View style={styles.dateContainer}>
+            <Ionicons name="time-outline" size={12} color={Colors.textMuted} style={{ marginRight: 3 }} />
+            <Text style={styles.dateText}>{date} · {time}</Text>
+          </View>
+        </View>
+
+        {/* Middle Main Row: Party/Title + Type Indicator + Amount */}
+        <View style={styles.mainRow}>
+          <View style={styles.titleInfoColumn}>
+            <Text style={styles.primaryTitle} numberOfLines={1}>
+              {primaryTitle}
+            </Text>
+
+            <View style={styles.typeIndicatorRow}>
+              {/* You Gave / You Got Indicator Badge */}
+              <View style={[styles.typePill, { backgroundColor: typeBadgeBg }]}>
+                <Ionicons
+                  name={isGave ? 'arrow-up' : 'arrow-down'}
+                  size={12}
+                  color={typeBadgeText}
+                  style={{ marginRight: 2 }}
+                />
+                <Text style={[styles.typePillText, { color: typeBadgeText }]}>
+                  {typeText}
+                </Text>
+              </View>
+
+              {showCategorySub && (
+                <Text style={styles.categorySubText} numberOfLines={1}>
+                  · {item.categoryName}
+                </Text>
+              )}
+
+              {hasImages && (
+                <View style={styles.photoIndicator}>
+                  <Ionicons name="camera-outline" size={11} color={Colors.textSecondary} />
+                  <Text style={styles.photoIndicatorText}>{item.imageCount}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Amount Display */}
+          <View style={styles.amountColumn}>
+            <Text style={[styles.amountText, { color: amountColor }]}>
+              {isGave ? '-' : '+'}{formatCurrency(item.amount)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Bottom Note/Remark Row (if note exists) */}
+        {item.note ? (
+          <View style={styles.noteRow}>
+            <Ionicons name="chatbubble-ellipses-outline" size={12} color={Colors.textMuted} style={{ marginRight: 4, marginTop: 1 }} />
+            <Text style={styles.noteText} numberOfLines={2}>
               {item.note}
             </Text>
-          ) : null}
-        </View>
-      </View>
-
-      <View style={styles.rightSection}>
-        <Text
-          style={[
-            styles.amount,
-            { color: isGave ? Colors.gave : Colors.got },
-          ]}
-        >
-          {isGave ? '-' : '+'}{formatCurrency(item.amount)}
-        </Text>
-        <Text style={styles.timeText}>{timeText}</Text>
+          </View>
+        ) : null}
       </View>
     </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
-  card: {
+  cardStrip: {
+    flexDirection: 'row',
+    borderRadius: BorderRadius.lg,
+    marginHorizontal: Spacing.lg,
+    marginVertical: 5,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  leftAccentBar: {
+    width: 5,
+  },
+  contentContainer: {
+    flex: 1,
+    paddingVertical: Spacing.md - 2,
+    paddingHorizontal: Spacing.md,
+  },
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.surface,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    marginBottom: 6,
   },
-  leftSection: {
+  topBadgesLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
-    marginRight: Spacing.md,
+    gap: 6,
+    flexWrap: 'wrap',
   },
-  iconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: Spacing.md,
-  },
-  infoContainer: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: Typography.fontSizes.md,
-    fontWeight: Typography.fontWeights.semibold,
-    color: Colors.textPrimary,
-    marginBottom: 2,
-  },
-  metaRow: {
+  categoryBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'nowrap',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs + 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
   },
-  typeLabel: {
-    fontSize: Typography.fontSizes.xs,
+  categoryBadgeText: {
+    fontSize: 11,
     fontWeight: Typography.fontWeights.bold,
   },
-  metaDot: {
-    fontSize: Typography.fontSizes.xs,
-    color: Colors.textMuted,
-  },
   modeBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: BorderRadius.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs + 2,
   },
-  cashBadge: {
+  cashModeBadge: {
     backgroundColor: Colors.cashLight,
   },
-  onlineBadge: {
+  onlineModeBadge: {
     backgroundColor: Colors.onlineLight,
   },
-  modeText: {
+  modeBadgeText: {
     fontSize: 10,
     fontWeight: Typography.fontWeights.bold,
   },
-  cashText: {
+  cashModeText: {
     color: '#B45309',
   },
-  onlineText: {
+  onlineModeText: {
     color: '#1D4ED8',
+  },
+  dateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dateText: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    fontWeight: Typography.fontWeights.medium,
+  },
+  mainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  titleInfoColumn: {
+    flex: 1,
+    marginRight: Spacing.md,
+  },
+  primaryTitle: {
+    fontSize: Typography.fontSizes.md + 0.5,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+    marginBottom: 3,
+  },
+  typeIndicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 5,
+  },
+  typePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: BorderRadius.xs,
+  },
+  typePillText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
   },
   categorySubText: {
     fontSize: Typography.fontSizes.xs,
     color: Colors.textSecondary,
   },
-  imageIndicator: {
+  photoIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: Spacing.sm,
-    backgroundColor: Colors.surfaceSubtle,
+    backgroundColor: 'rgba(0,0,0,0.04)',
     paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: BorderRadius.xs,
     gap: 2,
   },
-  imageCountText: {
+  photoIndicatorText: {
     fontSize: 10,
     color: Colors.textSecondary,
-    fontWeight: Typography.fontWeights.semibold,
+    fontWeight: Typography.fontWeights.bold,
   },
-  noteText: {
-    fontSize: Typography.fontSizes.xs,
-    color: Colors.textMuted,
-    marginTop: 2,
-    fontStyle: 'italic',
-  },
-  rightSection: {
+  amountColumn: {
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
-  amount: {
-    fontSize: Typography.fontSizes.lg,
+  amountText: {
+    fontSize: Typography.fontSizes.xl - 1,
     fontWeight: Typography.fontWeights.bold,
-    letterSpacing: -0.2,
-    marginBottom: 2,
+    letterSpacing: -0.3,
   },
-  timeText: {
+  noteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.65)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.xs + 2,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.04)',
+  },
+  noteText: {
+    flex: 1,
     fontSize: Typography.fontSizes.xs,
-    color: Colors.textMuted,
+    color: Colors.textSecondary,
+    fontStyle: 'italic',
+    lineHeight: 16,
   },
 });
