@@ -15,7 +15,7 @@ import { Colors } from '../../constants/colors';
 import { Typography, Shadows, BorderRadius } from '../../constants/theme';
 import { useApp } from '../../context/AppContext';
 
-const LONG_PRESS_THRESHOLD = 2000; // 2000ms (2 seconds)
+const LONG_PRESS_THRESHOLD = 700; // 700ms threshold
 
 export const FloatingAddButton = ({ style }) => {
   const insets = useSafeAreaInsets();
@@ -31,7 +31,7 @@ export const FloatingAddButton = ({ style }) => {
   const animScale = useRef(new Animated.Value(1)).current;
   const animRipple = useRef(new Animated.Value(0)).current;
   const animTooltip = useRef(new Animated.Value(0)).current;
-  const holdProgress = useRef(new Animated.Value(0)).current; // 0 to 1 during 2s hold
+  const holdProgress = useRef(new Animated.Value(0)).current;
 
   // Reliable Haptic Feedback triggering ONCE on real Android & iOS hardware
   const triggerHaptic = () => {
@@ -53,24 +53,12 @@ export const FloatingAddButton = ({ style }) => {
   };
 
   const startHoldAnimation = () => {
-    // Breathing scale animation during the 2s hold
-    Animated.sequence([
-      Animated.timing(animScale, {
-        toValue: 1.08,
-        duration: 700,
-        useNativeDriver: false,
-      }),
-      Animated.timing(animScale, {
-        toValue: 1.04,
-        duration: 600,
-        useNativeDriver: false,
-      }),
-      Animated.timing(animScale, {
-        toValue: 1.12,
-        duration: 700,
-        useNativeDriver: false,
-      }),
-    ]).start();
+    // Smooth anticipatory scale during the 700ms hold
+    Animated.timing(animScale, {
+      toValue: 1.10,
+      duration: LONG_PRESS_THRESHOLD,
+      useNativeDriver: false,
+    }).start();
 
     // Progress timer filling up
     Animated.timing(holdProgress, {
