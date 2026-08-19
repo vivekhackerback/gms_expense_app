@@ -209,7 +209,7 @@ export const getTransactionById = (id) => {
   );
 
   return {
-    ...transaction,
+    ...tx,
     images: images || [],
   };
 };

@@ -1,11 +1,18 @@
 // Currency formatter
-export const formatCurrency = (amount) => {
-  const num = Math.abs(Number(amount) || 0);
+export const formatCurrency = (amount, options = {}) => {
+  const rawNum = Number(amount) || 0;
+  const isNegative = rawNum < 0;
+  const num = Math.abs(rawNum);
+
   // Format with Indian numbering system (lakhs/crores)
   const formatted = num.toLocaleString('en-IN', {
     maximumFractionDigits: 2,
     minimumFractionDigits: 0,
   });
+
+  if (isNegative) {
+    return `-₹${formatted}`;
+  }
   return `₹${formatted}`;
 };
 

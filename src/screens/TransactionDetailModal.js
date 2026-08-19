@@ -133,8 +133,14 @@ export const TransactionDetailModal = () => {
                   { color: isGave ? Colors.gave : Colors.got },
                 ]}
               >
-                {isGave ? '-' : '+'}{formatCurrency(transaction.amount)}
+                {isGave ? '-' : '+'}{formatCurrency(Math.abs(transaction.amount))}
               </Text>
+              {transaction.runningBalance !== undefined && transaction.runningBalance !== null && (
+                <View style={styles.runningBalBadge}>
+                  <Text style={styles.runningBalLabel}>Running Balance:</Text>
+                  <Text style={styles.runningBalVal}>{formatCurrency(transaction.runningBalance)}</Text>
+                </View>
+              )}
             </View>
 
             <View style={styles.modeAndDateRow}>
@@ -461,5 +467,27 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSizes.md,
     fontWeight: Typography.fontWeights.bold,
     color: Colors.danger,
+  },
+  runningBalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    paddingHorizontal: Spacing.sm + 4,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  runningBalLabel: {
+    fontSize: Typography.fontSizes.xs,
+    color: Colors.textSecondary,
+    marginRight: 4,
+  },
+  runningBalVal: {
+    fontSize: Typography.fontSizes.xs,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
   },
 });

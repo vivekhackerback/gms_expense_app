@@ -138,7 +138,7 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
           {/* Right Column: Amount + Running Balance after Transaction */}
           <View style={styles.amountColumn}>
             <Text style={[styles.amountText, { color: amountColor }]}>
-              {isGave ? '-' : '+'}{formatCurrency(item.amount)}
+              {isGave ? '-' : '+'}{formatCurrency(Math.abs(item.amount))}
             </Text>
 
             {/* Running Balance Display */}
