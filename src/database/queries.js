@@ -88,74 +88,79 @@ export const getTransactions = ({
   const db = getDatabase();
 
   let sql = `
-    SELECT 
-      t.id,
-      t.uuid,
-      t.party_id as partyId,
-      t.category_id as categoryId,
-      t.type,
-      t.payment_mode as paymentMode,
-      t.amount,
-      t.note,
-      t.transaction_date as transactionDate,
-      t.created_at as createdAt,
-      t.updated_at as updatedAt,
-      t.sync_status as syncStatus,
-      p.name as partyName,
-      p.phone as partyPhone,
-      c.name as categoryName,
-      c.icon as categoryIcon,
-      c.color as categoryColor,
-      (SELECT COUNT(*) FROM transaction_images ti WHERE ti.transaction_id = t.id) as imageCount
-    FROM transactions t
-    LEFT JOIN parties p ON t.party_id = p.id
-    LEFT JOIN categories c ON t.category_id = c.id
+    WITH RankedTransactions AS (
+      SELECT 
+        t.id,
+        t.uuid,
+        t.party_id as partyId,
+        t.category_id as categoryId,
+        t.type,
+        t.payment_mode as paymentMode,
+        t.amount,
+        t.note,
+        t.transaction_date as transactionDate,
+        t.created_at as createdAt,
+        t.updated_at as updatedAt,
+        t.sync_status as syncStatus,
+        p.name as partyName,
+        p.phone as partyPhone,
+        c.name as categoryName,
+        c.icon as categoryIcon,
+        c.color as categoryColor,
+        (SELECT COUNT(*) FROM transaction_images ti WHERE ti.transaction_id = t.id) as imageCount,
+        SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE -t.amount END) 
+          OVER (ORDER BY datetime(t.transaction_date) ASC, datetime(t.created_at) ASC, t.id ASC) as runningBalance
+      FROM transactions t
+      LEFT JOIN parties p ON t.party_id = p.id
+      LEFT JOIN categories c ON t.category_id = c.id
+    )
+    SELECT * FROM RankedTransactions
     WHERE 1=1
   `;
   const params = [];
 
   if (filterType) {
-    sql += ` AND t.type = ?`;
+    sql += ` AND type = ?`;
     params.push(filterType);
   }
 
   if (filterMode) {
-    sql += ` AND t.payment_mode = ?`;
+    sql += ` AND paymentMode = ?`;
     params.push(filterMode);
   }
 
   if (partyId) {
-    sql += ` AND t.party_id = ?`;
+    sql += ` AND partyId = ?`;
     params.push(partyId);
   }
 
   if (categoryId) {
-    sql += ` AND t.category_id = ?`;
+    sql += ` AND categoryId = ?`;
     params.push(categoryId);
   }
 
   if (startDate) {
-    sql += ` AND date(t.transaction_date) >= date(?)`;
+    sql += ` AND date(transactionDate) >= date(?)`;
     params.push(startDate);
   }
 
   if (endDate) {
-    sql += ` AND date(t.transaction_date) <= date(?)`;
+    sql += ` AND date(transactionDate) <= date(?)`;
     params.push(endDate);
   }
 
   if (search && search.trim().length > 0) {
     const term = `%${search.trim()}%`;
     sql += ` AND (
-      p.name LIKE ? OR 
-      c.name LIKE ? OR 
-      t.note LIKE ? OR 
-      CAST(t.amount AS TEXT) LIKE ?
+      partyName LIKE ? OR 
+      categoryName LIKE ? OR 
+      note LIKE ? OR 
+      CAST(amount AS TEXT) LIKE ?
     )`;
     params.push(term, term, term, term);
   }
 
-  sql += ` ORDER BY datetime(t.transaction_date) DESC, t.id DESC`;
+  sql += ` ORDER BY datetime(transactionDate) DESC, id DESC`;
 
   if (limit) {
     sql += ` LIMIT ? OFFSET ?`;
@@ -168,37 +173,38 @@ export const getTransactions = ({
 export const getTransactionById = (id) => {
   const db = getDatabase();
   const sql = `
-    SELECT 
-      t.id,
-      t.uuid,
-      t.party_id as partyId,
-      t.category_id as categoryId,
-      t.type,
-      t.payment_mode as paymentMode,
-      t.amount,
-      t.note,
-      t.transaction_date as transactionDate,
-      t.created_at as createdAt,
-      t.updated_at as updatedAt,
-      t.sync_status as syncStatus,
-      p.name as partyName,
-      p.phone as partyPhone,
-      c.name as categoryName,
-      c.icon as categoryIcon,
-      c.color as categoryColor
-    FROM transactions t
-    LEFT JOIN parties p ON t.party_id = p.id
-    LEFT JOIN categories c ON t.category_id = c.id
-    WHERE t.id = ?;
+    WITH RankedTransactions AS (
+      SELECT 
+        t.id,
+        t.uuid,
+        t.party_id as partyId,
+        t.category_id as categoryId,
+        t.type,
+        t.payment_mode as paymentMode,
+        t.amount,
+        t.note,
+        t.transaction_date as transactionDate,
+        t.created_at as createdAt,
+        t.updated_at as updatedAt,
+        t.sync_status as syncStatus,
+        p.name as partyName,
+        p.phone as partyPhone,
+        c.name as categoryName,
+        c.icon as categoryIcon,
+        c.color as categoryColor,
+        SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE -t.amount END) 
+          OVER (ORDER BY datetime(t.transaction_date) ASC, datetime(t.created_at) ASC, t.id ASC) as runningBalance
+      FROM transactions t
+      LEFT JOIN parties p ON t.party_id = p.id
+      LEFT JOIN categories c ON t.category_id = c.id
+    )
+    SELECT * FROM RankedTransactions WHERE id = ?;
   `;
-  const transaction = db.getFirstSync(sql, [id]);
-  if (!transaction) return null;
+  const tx = db.getFirstSync(sql, [id]);
+  if (!tx) return null;
 
-  // Get attached images
   const images = db.getAllSync(
-    `SELECT id, transaction_id, transaction_uuid, local_uri as localUri, file_name as fileName, upload_status as uploadStatus, created_at as createdAt 
-     FROM transaction_images 
-     WHERE transaction_id = ? ORDER BY id ASC;`,
+    'SELECT id, local_uri as localUri, file_name as fileName, upload_status as uploadStatus FROM transaction_images WHERE transaction_id = ?;',
     [id]
   );
 

@@ -88,7 +88,7 @@ export const formatTimeOnly = (dateString) => {
 };
 
 // Date Range Helpers for Filters and Reports
-export const getDateRangePreset = (presetKey) => {
+export const getDateRangePreset = (presetKey, customStart = null, customEnd = null) => {
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
 
@@ -96,25 +96,71 @@ export const getDateRangePreset = (presetKey) => {
     case 'today':
       return { startDate: todayStr, endDate: todayStr, label: 'Today' };
 
-    case 'week': {
+    case 'yesterday': {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      return { startDate: yesterdayStr, endDate: yesterdayStr, label: 'Yesterday' };
+    }
+
+    case 'week':
+    case 'this_week': {
       const firstDayOfWeek = new Date(now);
       const day = now.getDay();
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday as first day
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday
       firstDayOfWeek.setDate(diff);
       const startStr = firstDayOfWeek.toISOString().split('T')[0];
       return { startDate: startStr, endDate: todayStr, label: 'This Week' };
     }
 
-    case 'month': {
+    case 'last_week': {
+      const firstDayOfThisWeek = new Date(now);
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      firstDayOfThisWeek.setDate(diff);
+
+      const endOfLastWeek = new Date(firstDayOfThisWeek);
+      endOfLastWeek.setDate(endOfLastWeek.getDate() - 1); // Sunday
+
+      const startOfLastWeek = new Date(endOfLastWeek);
+      startOfLastWeek.setDate(startOfLastWeek.getDate() - 6); // Monday
+
+      return {
+        startDate: startOfLastWeek.toISOString().split('T')[0],
+        endDate: endOfLastWeek.toISOString().split('T')[0],
+        label: 'Last Week',
+      };
+    }
+
+    case 'month':
+    case 'this_month': {
       const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const startStr = firstDayOfMonth.toISOString().split('T')[0];
       return { startDate: startStr, endDate: todayStr, label: 'This Month' };
+    }
+
+    case 'last_month': {
+      const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      return {
+        startDate: firstDayOfLastMonth.toISOString().split('T')[0],
+        endDate: lastDayOfLastMonth.toISOString().split('T')[0],
+        label: 'Last Month',
+      };
     }
 
     case 'year': {
       const firstDayOfYear = new Date(now.getFullYear(), 0, 1);
       const startStr = firstDayOfYear.toISOString().split('T')[0];
       return { startDate: startStr, endDate: todayStr, label: 'This Year' };
+    }
+
+    case 'custom': {
+      return {
+        startDate: customStart || todayStr,
+        endDate: customEnd || todayStr,
+        label: 'Custom Range',
+      };
     }
 
     case 'all':

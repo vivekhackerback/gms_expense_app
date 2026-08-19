@@ -33,7 +33,7 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
     cardBorder = '#E5E7EB';
   }
 
-  // Everything else remains 100% identical to normal styling:
+  // Visual styling elements:
   const accentColor = isGave ? '#EF4444' : '#10B981';
   const amountColor = isGave ? '#DC2626' : '#059669';
   const typeBadgeBg = isGave ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)';
@@ -43,6 +43,8 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
   const modeBadgeBg = isCash ? Colors.cashLight : Colors.onlineLight;
   const modeBadgeTextColor = isCash ? '#B45309' : '#1D4ED8';
   const modeBadgeIconColor = isCash ? '#B45309' : '#1D4ED8';
+
+  const hasRunningBalance = item.runningBalance !== undefined && item.runningBalance !== null;
 
   return (
     <TouchableOpacity
@@ -95,7 +97,7 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
           </View>
         </View>
 
-        {/* Middle Main Row: Title/Party + Type Pill + Amount */}
+        {/* Middle Main Row: Title/Party + Type Pill + Amount + Running Balance */}
         <View style={styles.mainRow}>
           <View style={styles.titleInfoColumn}>
             <Text style={styles.primaryTitle} numberOfLines={1}>
@@ -133,11 +135,21 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
             </View>
           </View>
 
-          {/* Amount Display with Dynamic Red/Green Color */}
+          {/* Right Column: Amount + Running Balance after Transaction */}
           <View style={styles.amountColumn}>
             <Text style={[styles.amountText, { color: amountColor }]}>
               {isGave ? '-' : '+'}{formatCurrency(item.amount)}
             </Text>
+
+            {/* Running Balance Display */}
+            {hasRunningBalance && (
+              <View style={styles.runningBalanceRow}>
+                <Text style={styles.runningBalanceLabel}>Bal:</Text>
+                <Text style={styles.runningBalanceValue}>
+                  {formatCurrency(item.runningBalance)}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -295,6 +307,28 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSizes.xl - 1,
     fontWeight: Typography.fontWeights.bold,
     letterSpacing: -0.3,
+  },
+  runningBalanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: BorderRadius.xs,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  runningBalanceLabel: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginRight: 3,
+    fontWeight: Typography.fontWeights.medium,
+  },
+  runningBalanceValue: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    fontWeight: Typography.fontWeights.bold,
   },
   noteContainer: {
     flexDirection: 'row',

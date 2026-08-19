@@ -1,15 +1,18 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
   TouchableOpacity,
+  Modal,
+  TextInput,
+  Alert,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
-import { Typography, Spacing, BorderRadius } from '../constants/theme';
+import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { Header } from '../components/common/Header';
 import { SearchInput } from '../components/common/SearchInput';
 import { TransactionList } from '../components/transaction/TransactionList';
@@ -27,8 +30,12 @@ const TYPE_MODE_FILTERS = [
 const DATE_FILTERS = [
   { id: 'all', label: 'All Time' },
   { id: 'today', label: 'Today' },
-  { id: 'week', label: 'This Week' },
-  { id: 'month', label: 'This Month' },
+  { id: 'yesterday', label: 'Yesterday' },
+  { id: 'this_week', label: 'This Week' },
+  { id: 'last_week', label: 'Last Week' },
+  { id: 'this_month', label: 'This Month' },
+  { id: 'last_month', label: 'Last Month' },
+  { id: 'custom', label: 'Custom Range 📅' },
 ];
 
 export const TransactionsScreen = () => {
@@ -40,6 +47,20 @@ export const TransactionsScreen = () => {
   const [transactions, setTransactions] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Custom Date Range Modal State
+  const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
+  const [customStartDate, setCustomStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [customEndDate, setCustomEndDate] = useState(new Date().toISOString().split('T')[0]);
+
+  // Temp Date inputs for custom modal
+  const [startDay, setStartDay] = useState(1);
+  const [startMonth, setStartMonth] = useState(new Date().getMonth() + 1);
+  const [startYear, setStartYear] = useState(new Date().getFullYear());
+
+  const [endDay, setEndDay] = useState(new Date().getDate());
+  const [endMonth, setEndMonth] = useState(new Date().getMonth() + 1);
+  const [endYear, setEndYear] = useState(new Date().getFullYear());
+
   const loadTransactions = useCallback(() => {
     let filterType = null;
     let filterMode = null;
@@ -49,10 +70,14 @@ export const TransactionsScreen = () => {
     else if (selectedFilter === 'cash') filterMode = 'cash';
     else if (selectedFilter === 'online') filterMode = 'online';
 
-    const { startDate, endDate } = getDateRangePreset(selectedDateFilter);
+    const { startDate, endDate } = getDateRangePreset(
+      selectedDateFilter,
+      customStartDate,
+      customEndDate
+    );
 
     const items = getTransactions({
-      limit: 100,
+      limit: 150,
       filterType,
       filterMode,
       startDate,
@@ -61,7 +86,7 @@ export const TransactionsScreen = () => {
     });
 
     setTransactions(items);
-  }, [selectedFilter, selectedDateFilter, search]);
+  }, [selectedFilter, selectedDateFilter, customStartDate, customEndDate, search]);
 
   useEffect(() => {
     loadTransactions();
@@ -71,6 +96,63 @@ export const TransactionsScreen = () => {
     setRefreshing(true);
     loadTransactions();
     setRefreshing(false);
+  };
+
+  const handleDateFilterPress = (filterId) => {
+    if (filterId === 'custom') {
+      // Pre-fill modal with current custom or default dates
+      const now = new Date();
+      setEndDay(now.getDate());
+      setEndMonth(now.getMonth() + 1);
+      setEndYear(now.getFullYear());
+
+      const start = new Date();
+      start.setDate(1); // 1st of current month as start default
+      setStartDay(1);
+      setStartMonth(start.getMonth() + 1);
+      setStartYear(start.getFullYear());
+
+      setIsCustomModalOpen(true);
+    } else {
+      setSelectedDateFilter(filterId);
+    }
+  };
+
+  const applyCustomRange = () => {
+    try {
+      const sMonthStr = String(startMonth).padStart(2, '0');
+      const sDayStr = String(startDay).padStart(2, '0');
+      const eMonthStr = String(endMonth).padStart(2, '0');
+      const eDayStr = String(endDay).padStart(2, '0');
+
+      const sDateStr = `${startYear}-${sMonthStr}-${sDayStr}`;
+      const eDateStr = `${endYear}-${eMonthStr}-${eDayStr}`;
+
+      if (sDateStr > eDateStr) {
+        Alert.alert('Invalid Range', 'Start Date cannot be later than End Date.');
+        return;
+      }
+
+      setCustomStartDate(sDateStr);
+      setCustomEndDate(eDateStr);
+      setSelectedDateFilter('custom');
+      setIsCustomModalOpen(false);
+    } catch (e) {
+      Alert.alert('Invalid Date', 'Please enter valid numbers for days, months, and years.');
+    }
+  };
+
+  const setPresetInModal = (daysBack) => {
+    const now = new Date();
+    setEndDay(now.getDate());
+    setEndMonth(now.getMonth() + 1);
+    setEndYear(now.getFullYear());
+
+    const past = new Date();
+    past.setDate(past.getDate() - daysBack);
+    setStartDay(past.getDate());
+    setStartMonth(past.getMonth() + 1);
+    setStartYear(past.getFullYear());
   };
 
   return (
@@ -117,7 +199,7 @@ export const TransactionsScreen = () => {
           })}
         </ScrollView>
 
-        {/* Date Filter Pills */}
+        {/* Date Filter Pills (Today, Yesterday, This Week, Last Week, This Month, Last Month, Custom) */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -132,7 +214,7 @@ export const TransactionsScreen = () => {
                   styles.dateFilterPill,
                   isSelected && styles.dateFilterPillActive,
                 ]}
-                onPress={() => setSelectedDateFilter(d.id)}
+                onPress={() => handleDateFilterPress(d.id)}
                 activeOpacity={0.7}
               >
                 <Text
@@ -141,7 +223,9 @@ export const TransactionsScreen = () => {
                     isSelected && styles.dateFilterTextActive,
                   ]}
                 >
-                  {d.label}
+                  {d.id === 'custom' && selectedDateFilter === 'custom'
+                    ? `📅 ${customStartDate} to ${customEndDate}`
+                    : d.label}
                 </Text>
               </TouchableOpacity>
             );
@@ -162,11 +246,144 @@ export const TransactionsScreen = () => {
             <Text style={styles.emptySubtitle}>
               {search
                 ? `No transactions matched "${search}".`
-                : 'No transactions found for the selected filters.'}
+                : 'No transactions found for the selected date range and filters.'}
             </Text>
           </View>
         }
       />
+
+      {/* Custom Date Range Picker Modal */}
+      <Modal
+        visible={isCustomModalOpen}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsCustomModalOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, Shadows.lg]}>
+            <View style={styles.modalHeaderRow}>
+              <Ionicons name="calendar" size={22} color={Colors.primary} />
+              <Text style={styles.modalTitle}>Custom Date Range</Text>
+            </View>
+
+            {/* Quick Helper Chips */}
+            <Text style={styles.modalSubLabel}>QUICK SHORTCUTS</Text>
+            <View style={styles.quickShortcutsRow}>
+              <TouchableOpacity
+                style={styles.quickShortcutChip}
+                onPress={() => setPresetInModal(7)}
+              >
+                <Text style={styles.quickShortcutText}>Last 7 Days</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.quickShortcutChip}
+                onPress={() => setPresetInModal(30)}
+              >
+                <Text style={styles.quickShortcutText}>Last 30 Days</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.quickShortcutChip}
+                onPress={() => setPresetInModal(90)}
+              >
+                <Text style={styles.quickShortcutText}>Last 90 Days</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* START DATE */}
+            <Text style={styles.modalSubLabel}>START DATE (DD / MM / YYYY)</Text>
+            <View style={styles.dateInputsRow}>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateSub}>Day</Text>
+                <TextInput
+                  style={styles.dateField}
+                  value={String(startDay)}
+                  onChangeText={(val) => setStartDay(parseInt(val) || 1)}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+              </View>
+              <Text style={styles.slash}>/</Text>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateSub}>Month</Text>
+                <TextInput
+                  style={styles.dateField}
+                  value={String(startMonth)}
+                  onChangeText={(val) => setStartMonth(parseInt(val) || 1)}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+              </View>
+              <Text style={styles.slash}>/</Text>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateSub}>Year</Text>
+                <TextInput
+                  style={[styles.dateField, { width: 68 }]}
+                  value={String(startYear)}
+                  onChangeText={(val) => setStartYear(parseInt(val) || 2026)}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                />
+              </View>
+            </View>
+
+            {/* END DATE */}
+            <Text style={styles.modalSubLabel}>END DATE (DD / MM / YYYY)</Text>
+            <View style={styles.dateInputsRow}>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateSub}>Day</Text>
+                <TextInput
+                  style={styles.dateField}
+                  value={String(endDay)}
+                  onChangeText={(val) => setEndDay(parseInt(val) || 1)}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+              </View>
+              <Text style={styles.slash}>/</Text>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateSub}>Month</Text>
+                <TextInput
+                  style={styles.dateField}
+                  value={String(endMonth)}
+                  onChangeText={(val) => setEndMonth(parseInt(val) || 1)}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                />
+              </View>
+              <Text style={styles.slash}>/</Text>
+              <View style={styles.dateBox}>
+                <Text style={styles.dateSub}>Year</Text>
+                <TextInput
+                  style={[styles.dateField, { width: 68 }]}
+                  value={String(endYear)}
+                  onChangeText={(val) => setEndYear(parseInt(val) || 2026)}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                />
+              </View>
+            </View>
+
+            {/* Modal Actions */}
+            <View style={styles.modalActionsRow}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setIsCustomModalOpen(false)}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.applyBtn}
+                onPress={applyCustomRange}
+              >
+                <Text style={styles.applyBtnText}>Apply Filter</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -178,19 +395,19 @@ const styles = StyleSheet.create({
   },
   topFilterSection: {
     backgroundColor: Colors.surface,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
+    paddingTop: Spacing.sm,
     paddingBottom: Spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: Colors.borderLight,
   },
   searchBar: {
+    marginHorizontal: Spacing.lg,
     marginBottom: Spacing.sm,
   },
   filterScroll: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    paddingVertical: 4,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.xs + 2,
+    marginBottom: Spacing.xs + 2,
   },
   filterPill: {
     paddingHorizontal: Spacing.md,
@@ -201,8 +418,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.borderLight,
   },
   filterPillActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: Colors.primaryDark,
+    borderColor: Colors.primaryDark,
   },
   filterPillText: {
     fontSize: Typography.fontSizes.xs + 1,
@@ -214,44 +431,165 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeights.bold,
   },
   dateFilterScroll: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    paddingTop: 6,
-    paddingBottom: 4,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.xs + 2,
+    paddingTop: 2,
   },
   dateFilterPill: {
-    paddingHorizontal: Spacing.sm + 2,
-    paddingVertical: 4,
+    paddingHorizontal: Spacing.sm + 4,
+    paddingVertical: 5,
     borderRadius: BorderRadius.sm,
-    backgroundColor: 'transparent',
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   dateFilterPillActive: {
-    backgroundColor: Colors.surfaceSubtle,
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
   },
   dateFilterText: {
     fontSize: Typography.fontSizes.xs,
-    color: Colors.textMuted,
     fontWeight: Typography.fontWeights.medium,
+    color: Colors.textSecondary,
   },
   dateFilterTextActive: {
-    color: Colors.textPrimary,
+    color: '#FFFFFF',
     fontWeight: Typography.fontWeights.bold,
   },
   emptyState: {
-    padding: Spacing.xxxl,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: Spacing.xxxl,
+    marginTop: Spacing.xxl,
   },
   emptyTitle: {
     fontSize: Typography.fontSizes.lg,
     fontWeight: Typography.fontWeights.bold,
     color: Colors.textPrimary,
     marginTop: Spacing.md,
+    marginBottom: Spacing.xs,
   },
   emptySubtitle: {
     fontSize: Typography.fontSizes.sm,
     color: Colors.textSecondary,
     textAlign: 'center',
-    marginTop: Spacing.xs,
+    lineHeight: 20,
+    maxWidth: 280,
+  },
+  // Custom Date Modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
+  modalCard: {
+    backgroundColor: Colors.surface,
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: Spacing.md,
+  },
+  modalTitle: {
+    fontSize: Typography.fontSizes.lg,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+  },
+  modalSubLabel: {
+    fontSize: 10,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textSecondary,
+    letterSpacing: 0.8,
+    marginTop: Spacing.sm,
+    marginBottom: 4,
+  },
+  quickShortcutsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 6,
+  },
+  quickShortcutChip: {
+    flex: 1,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.xs + 2,
+    backgroundColor: Colors.surfaceSubtle,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    alignItems: 'center',
+  },
+  quickShortcutText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.primary,
+  },
+  dateInputsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: Spacing.xs,
+  },
+  dateBox: {
+    alignItems: 'center',
+  },
+  dateSub: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginBottom: 2,
+  },
+  dateField: {
+    width: 56,
+    height: 40,
+    backgroundColor: Colors.surfaceSubtle,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    textAlign: 'center',
+    fontSize: Typography.fontSizes.md,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+  },
+  slash: {
+    fontSize: Typography.fontSizes.lg,
+    color: Colors.textMuted,
+    marginTop: 12,
+  },
+  modalActionsRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginTop: Spacing.lg,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: Spacing.md - 2,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.surfaceSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtnText: {
+    fontSize: Typography.fontSizes.md,
+    color: Colors.textSecondary,
+    fontWeight: Typography.fontWeights.semibold,
+  },
+  applyBtn: {
+    flex: 1.5,
+    paddingVertical: Spacing.md - 2,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  applyBtnText: {
+    fontSize: Typography.fontSizes.md,
+    color: '#FFFFFF',
+    fontWeight: Typography.fontWeights.bold,
   },
 });
