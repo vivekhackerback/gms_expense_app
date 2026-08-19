@@ -1,18 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors } from '../../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
 import { formatCurrency, formatFullDateTime } from '../../utils/formatters';
 
-export const TransactionRow = ({ item, onPress }) => {
+export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => {
+  const [isNoteExpanded, setIsNoteExpanded] = useState(false);
+
   const isGave = item.type === 'gave';
   const typeText = isGave ? 'You Gave' : 'You Got';
   const modeText = item.paymentMode === 'cash' ? 'Cash' : 'Online';
   const isCash = item.paymentMode === 'cash';
   
   const { date, time } = formatFullDateTime(item.transactionDate || item.createdAt);
-  
+
   const primaryTitle = item.partyName 
     ? item.partyName 
     : (item.categoryName || 'General Transaction');
@@ -20,9 +22,18 @@ export const TransactionRow = ({ item, onPress }) => {
   const showCategorySub = Boolean(item.partyName && item.categoryName);
   const hasImages = item.imageCount > 0;
 
-  const cardBg = isGave ? '#FEF2F2' : '#ECFDF5';
-  const cardBorder = isGave ? '#FEE2E2' : '#D1FAE5';
-  const accentColor = isGave ? '#EF4444' : '#10B981';
+  // Background styling:
+  // If isRecentYesterday (Recent Transactions section on Home Screen), use a very light, subtle, muted background
+  let cardBg = isGave ? '#FEF2F2' : '#ECFDF5';
+  let cardBorder = isGave ? '#FEE2E2' : '#D1FAE5';
+  let accentColor = isGave ? '#EF4444' : '#10B981';
+
+  if (isRecentYesterday) {
+    cardBg = isGave ? '#FAF4F4' : '#F1F8F5';
+    cardBorder = isGave ? '#EEDDDD' : '#D5E8DF';
+    accentColor = isGave ? '#E57373' : '#4DB6AC';
+  }
+
   const amountColor = isGave ? '#DC2626' : '#059669';
   const typeBadgeBg = isGave ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)';
   const typeBadgeText = isGave ? '#DC2626' : '#059669';
@@ -32,16 +43,17 @@ export const TransactionRow = ({ item, onPress }) => {
       style={[
         styles.cardStrip,
         { backgroundColor: cardBg, borderColor: cardBorder },
+        isRecentYesterday && styles.yesterdayCardBorder,
         Shadows.sm,
       ]}
       onPress={() => onPress && onPress(item)}
       activeOpacity={0.75}
     >
-      {/* Left Colored Status Accent Bar */}
+      {/* Left Status Color Bar */}
       <View style={[styles.leftAccentBar, { backgroundColor: accentColor }]} />
 
       <View style={styles.contentContainer}>
-        {/* Top Header Row: Category Badge + Mode + Date/Time */}
+        {/* Top Header Row: Category Badge + Mode + Date Badge */}
         <View style={styles.topRow}>
           <View style={styles.topBadgesLeft}>
             {/* Category Badge */}
@@ -71,14 +83,19 @@ export const TransactionRow = ({ item, onPress }) => {
             </View>
           </View>
 
-          {/* Date & Time */}
+          {/* Date & Time with Yesterday/Today Tag */}
           <View style={styles.dateContainer}>
+            {isYesterday && (
+              <View style={styles.yesterdayTag}>
+                <Text style={styles.yesterdayTagText}>Yesterday</Text>
+              </View>
+            )}
             <Ionicons name="time-outline" size={12} color={Colors.textMuted} style={{ marginRight: 3 }} />
-            <Text style={styles.dateText}>{date} · {time}</Text>
+            <Text style={styles.dateText}>{isToday ? `Today · ${time}` : isYesterday ? time : `${date} · ${time}`}</Text>
           </View>
         </View>
 
-        {/* Middle Main Row: Party/Title + Type Indicator + Amount */}
+        {/* Middle Main Row: Title/Party + Type Pill + Amount */}
         <View style={styles.mainRow}>
           <View style={styles.titleInfoColumn}>
             <Text style={styles.primaryTitle} numberOfLines={1}>
@@ -107,8 +124,8 @@ export const TransactionRow = ({ item, onPress }) => {
 
               {hasImages && (
                 <View style={styles.photoIndicator}>
-                  <Ionicons name="camera-outline" size={11} color={Colors.textSecondary} />
-                  <Text style={styles.photoIndicatorText}>{item.imageCount}</Text>
+                  <Ionicons name="camera" size={11} color={Colors.primary} />
+                  <Text style={styles.photoIndicatorText}>{item.imageCount} photo{item.imageCount > 1 ? 's' : ''}</Text>
                 </View>
               )}
             </View>
@@ -122,14 +139,31 @@ export const TransactionRow = ({ item, onPress }) => {
           </View>
         </View>
 
-        {/* Bottom Note/Remark Row (if note exists) */}
+        {/* Prominent, Clearly Visible Transaction Note/Remark */}
         {item.note ? (
-          <View style={styles.noteRow}>
-            <Ionicons name="chatbubble-ellipses-outline" size={12} color={Colors.textMuted} style={{ marginRight: 4, marginTop: 1 }} />
-            <Text style={styles.noteText} numberOfLines={2}>
+          <TouchableOpacity
+            style={styles.noteContainer}
+            onPress={() => setIsNoteExpanded(!isNoteExpanded)}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="document-text-outline"
+              size={13}
+              color={Colors.textSecondary}
+              style={{ marginRight: 5, marginTop: 1 }}
+            />
+            <Text
+              style={styles.noteText}
+              numberOfLines={isNoteExpanded ? undefined : 2}
+            >
               {item.note}
             </Text>
-          </View>
+            {item.note.length > 70 && (
+              <Text style={styles.expandNoteHint}>
+                {isNoteExpanded ? ' (less)' : ' ...more'}
+              </Text>
+            )}
+          </TouchableOpacity>
         ) : null}
       </View>
     </TouchableOpacity>
@@ -142,15 +176,18 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     marginHorizontal: Spacing.lg,
     marginVertical: 5,
-    borderWidth: 1,
+    borderWidth: 1.2,
     overflow: 'hidden',
+  },
+  yesterdayCardBorder: {
+    borderStyle: 'solid',
   },
   leftAccentBar: {
     width: 5,
   },
   contentContainer: {
     flex: 1,
-    paddingVertical: Spacing.md - 2,
+    paddingVertical: Spacing.md - 1,
     paddingHorizontal: Spacing.md,
   },
   topRow: {
@@ -206,6 +243,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  yesterdayTag: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: BorderRadius.xs,
+    marginRight: 5,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  yesterdayTagText: {
+    fontSize: 9,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#64748B',
+    textTransform: 'uppercase',
+  },
   dateText: {
     fontSize: 11,
     color: Colors.textSecondary,
@@ -250,15 +302,17 @@ const styles = StyleSheet.create({
   photoIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.04)',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
     borderRadius: BorderRadius.xs,
-    gap: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    gap: 3,
   },
   photoIndicatorText: {
     fontSize: 10,
-    color: Colors.textSecondary,
+    color: Colors.primary,
     fontWeight: Typography.fontWeights.bold,
   },
   amountColumn: {
@@ -270,22 +324,27 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeights.bold,
     letterSpacing: -0.3,
   },
-  noteRow: {
+  noteContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: 'rgba(255,255,255,0.65)',
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.xs + 2,
-    marginTop: 6,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.sm,
+    marginTop: 7,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.04)',
+    borderColor: 'rgba(0,0,0,0.06)',
   },
   noteText: {
     flex: 1,
+    fontSize: Typography.fontSizes.xs + 1,
+    color: Colors.textPrimary,
+    lineHeight: 18,
+    fontWeight: Typography.fontWeights.medium,
+  },
+  expandNoteHint: {
     fontSize: Typography.fontSizes.xs,
-    color: Colors.textSecondary,
-    fontStyle: 'italic',
-    lineHeight: 16,
+    color: Colors.primary,
+    fontWeight: Typography.fontWeights.bold,
   },
 });

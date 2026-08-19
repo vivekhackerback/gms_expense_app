@@ -17,6 +17,7 @@ export const generateUUID = () => {
 // -------------------------------------------------------------
 export const getBalances = () => {
   const db = getDatabase();
+  const todayStr = new Date().toISOString().split('T')[0];
   
   const query = `
     SELECT
@@ -25,17 +26,21 @@ export const getBalances = () => {
       COALESCE(SUM(CASE WHEN payment_mode = 'online' AND type = 'got' THEN amount ELSE 0 END), 0) as online_got,
       COALESCE(SUM(CASE WHEN payment_mode = 'online' AND type = 'gave' THEN amount ELSE 0 END), 0) as online_gave,
       COALESCE(SUM(CASE WHEN type = 'got' THEN amount ELSE 0 END), 0) as total_got,
-      COALESCE(SUM(CASE WHEN type = 'gave' THEN amount ELSE 0 END), 0) as total_gave
+      COALESCE(SUM(CASE WHEN type = 'gave' THEN amount ELSE 0 END), 0) as total_gave,
+      COALESCE(SUM(CASE WHEN type = 'got' AND date(transaction_date) = date(?) THEN amount ELSE 0 END), 0) as today_got,
+      COALESCE(SUM(CASE WHEN type = 'gave' AND date(transaction_date) = date(?) THEN amount ELSE 0 END), 0) as today_gave
     FROM transactions;
   `;
 
-  const row = db.getFirstSync(query) || {
+  const row = db.getFirstSync(query, [todayStr, todayStr]) || {
     cash_got: 0,
     cash_gave: 0,
     online_got: 0,
     online_gave: 0,
     total_got: 0,
     total_gave: 0,
+    today_got: 0,
+    today_gave: 0,
   };
 
   const cashGot = Number(row.cash_got);
@@ -44,6 +49,8 @@ export const getBalances = () => {
   const onlineGave = Number(row.online_gave);
   const totalGot = Number(row.total_got);
   const totalGave = Number(row.total_gave);
+  const todayGot = Number(row.today_got);
+  const todayGave = Number(row.today_gave);
 
   const cashBalance = cashGot - cashGave;
   const onlineBalance = onlineGot - onlineGave;
@@ -59,6 +66,8 @@ export const getBalances = () => {
     totalGot,
     totalGave,
     totalBalance,
+    todayGot,
+    todayGave,
   };
 };
 

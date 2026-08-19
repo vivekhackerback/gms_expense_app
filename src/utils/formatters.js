@@ -64,6 +64,17 @@ export const formatFullDateTime = (dateString) => {
   };
 };
 
+export const formatDayNameFullDate = (dateString) => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const fullMonths = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  return `${days[date.getDay()]}, ${date.getDate()} ${fullMonths[date.getMonth()]} ${date.getFullYear()}`;
+};
+
 export const formatTimeOnly = (dateString) => {
   if (!dateString) return '';
   const date = new Date(dateString);

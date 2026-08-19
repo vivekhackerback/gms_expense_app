@@ -35,6 +35,8 @@ export const AppProvider = ({ children }) => {
     totalGot: 0,
     totalGave: 0,
     totalBalance: 0,
+    todayGot: 0,
+    todayGave: 0,
   });
   const [recentTransactions, setRecentTransactions] = useState([]);
   const [parties, setParties] = useState([]);
@@ -63,7 +65,7 @@ export const AppProvider = ({ children }) => {
       const newBalances = getBalances();
       setBalances(newBalances);
 
-      const recent = getTransactions({ limit: 10 });
+      const recent = getTransactions({ limit: 25 });
       setRecentTransactions(recent);
 
       const allParties = getParties();

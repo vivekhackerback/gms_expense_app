@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, View, Text, SectionList, RefreshControl } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors } from '../../constants/colors';
-import { Typography, Spacing } from '../../constants/theme';
+import { Typography, Spacing, BorderRadius } from '../../constants/theme';
 import { formatDateGroup } from '../../utils/formatters';
 import { TransactionRow } from './TransactionRow';
 
@@ -31,11 +32,33 @@ export const TransactionList = ({
     }));
   }, [transactions]);
 
-  const renderSectionHeader = ({ section: { title } }) => (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-    </View>
-  );
+  const renderSectionHeader = ({ section: { title } }) => {
+    const isToday = title === 'Today';
+    const isYesterday = title === 'Yesterday';
+
+    return (
+      <View style={styles.sectionHeaderWrap}>
+        <View style={[styles.sectionBadge, isToday && styles.todayBadge, isYesterday && styles.yesterdayBadge]}>
+          <View
+            style={[
+              styles.sectionDot,
+              isToday && styles.todayDot,
+              isYesterday && styles.yesterdayDot,
+            ]}
+          />
+          <Text
+            style={[
+              styles.sectionTitle,
+              isToday && styles.todayText,
+              isYesterday && styles.yesterdayText,
+            ]}
+          >
+            {title}
+          </Text>
+        </View>
+      </View>
+    );
+  };
 
   const renderItem = ({ item }) => (
     <TransactionRow item={item} onPress={onTransactionPress} />
@@ -70,18 +93,55 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 140, // Generous clearance for floating button & bottom tabs
   },
-  sectionHeader: {
+  sectionHeaderWrap: {
     backgroundColor: Colors.background,
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sectionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  todayBadge: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  yesterdayBadge: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  sectionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.textMuted,
+    marginRight: 6,
+  },
+  todayDot: {
+    backgroundColor: '#10B981',
+  },
+  yesterdayDot: {
+    backgroundColor: '#64748B',
   },
   sectionTitle: {
-    fontSize: Typography.fontSizes.xs + 1,
+    fontSize: 11,
     fontWeight: Typography.fontWeights.bold,
     color: Colors.textSecondary,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
+  },
+  todayText: {
+    color: '#065F46',
+  },
+  yesterdayText: {
+    color: '#334155',
   },
 });
