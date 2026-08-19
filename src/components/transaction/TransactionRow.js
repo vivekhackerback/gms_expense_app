@@ -23,27 +23,32 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
   const hasImages = item.imageCount > 0;
 
   // Background styling:
-  // If isRecentYesterday (Recent Transactions section on Home Screen), use a very light, subtle, muted background
+  // For TODAY or View Transactions page: light red for Gave, light green for Got
+  // For YESTERDAY only in Recent Transactions: very light gray background
   let cardBg = isGave ? '#FEF2F2' : '#ECFDF5';
   let cardBorder = isGave ? '#FEE2E2' : '#D1FAE5';
-  let accentColor = isGave ? '#EF4444' : '#10B981';
 
   if (isRecentYesterday) {
-    cardBg = isGave ? '#FAF4F4' : '#F1F8F5';
-    cardBorder = isGave ? '#EEDDDD' : '#D5E8DF';
-    accentColor = isGave ? '#E57373' : '#4DB6AC';
+    cardBg = '#F3F4F6'; // Very light gray background for yesterday
+    cardBorder = '#E5E7EB';
   }
 
+  // Everything else remains 100% identical to normal styling:
+  const accentColor = isGave ? '#EF4444' : '#10B981';
   const amountColor = isGave ? '#DC2626' : '#059669';
   const typeBadgeBg = isGave ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)';
   const typeBadgeText = isGave ? '#DC2626' : '#059669';
+  const catBadgeTextColor = item.categoryColor || Colors.textPrimary;
+  const catBadgeIconColor = item.categoryColor || Colors.primary;
+  const modeBadgeBg = isCash ? Colors.cashLight : Colors.onlineLight;
+  const modeBadgeTextColor = isCash ? '#B45309' : '#1D4ED8';
+  const modeBadgeIconColor = isCash ? '#B45309' : '#1D4ED8';
 
   return (
     <TouchableOpacity
       style={[
         styles.cardStrip,
         { backgroundColor: cardBg, borderColor: cardBorder },
-        isRecentYesterday && styles.yesterdayCardBorder,
         Shadows.sm,
       ]}
       onPress={() => onPress && onPress(item)}
@@ -53,7 +58,7 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
       <View style={[styles.leftAccentBar, { backgroundColor: accentColor }]} />
 
       <View style={styles.contentContainer}>
-        {/* Top Header Row: Category Badge + Mode + Date Badge */}
+        {/* Top Header Row: Category Badge + Mode + Date */}
         <View style={styles.topRow}>
           <View style={styles.topBadgesLeft}>
             {/* Category Badge */}
@@ -61,37 +66,32 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
               <Ionicons
                 name={item.categoryIcon || (isGave ? 'arrow-up-circle' : 'arrow-down-circle')}
                 size={13}
-                color={item.categoryColor || Colors.primary}
+                color={catBadgeIconColor}
                 style={{ marginRight: 4 }}
               />
-              <Text style={[styles.categoryBadgeText, { color: item.categoryColor || Colors.textPrimary }]}>
+              <Text style={[styles.categoryBadgeText, { color: catBadgeTextColor }]}>
                 {item.categoryName || 'General'}
               </Text>
             </View>
 
             {/* Payment Method Badge */}
-            <View style={[styles.modeBadge, isCash ? styles.cashModeBadge : styles.onlineModeBadge]}>
+            <View style={[styles.modeBadge, { backgroundColor: modeBadgeBg }]}>
               <Ionicons
                 name={isCash ? 'cash-outline' : 'card-outline'}
                 size={12}
-                color={isCash ? '#B45309' : '#1D4ED8'}
+                color={modeBadgeIconColor}
                 style={{ marginRight: 3 }}
               />
-              <Text style={[styles.modeBadgeText, isCash ? styles.cashModeText : styles.onlineModeText]}>
+              <Text style={[styles.modeBadgeText, { color: modeBadgeTextColor }]}>
                 {modeText}
               </Text>
             </View>
           </View>
 
-          {/* Date & Time with Yesterday/Today Tag */}
+          {/* Date & Time */}
           <View style={styles.dateContainer}>
-            {isYesterday && (
-              <View style={styles.yesterdayTag}>
-                <Text style={styles.yesterdayTagText}>Yesterday</Text>
-              </View>
-            )}
             <Ionicons name="time-outline" size={12} color={Colors.textMuted} style={{ marginRight: 3 }} />
-            <Text style={styles.dateText}>{isToday ? `Today · ${time}` : isYesterday ? time : `${date} · ${time}`}</Text>
+            <Text style={styles.dateText}>{date} · {time}</Text>
           </View>
         </View>
 
@@ -125,13 +125,15 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
               {hasImages && (
                 <View style={styles.photoIndicator}>
                   <Ionicons name="camera" size={11} color={Colors.primary} />
-                  <Text style={styles.photoIndicatorText}>{item.imageCount} photo{item.imageCount > 1 ? 's' : ''}</Text>
+                  <Text style={styles.photoIndicatorText}>
+                    {item.imageCount} photo{item.imageCount > 1 ? 's' : ''}
+                  </Text>
                 </View>
               )}
             </View>
           </View>
 
-          {/* Amount Display */}
+          {/* Amount Display with Dynamic Red/Green Color */}
           <View style={styles.amountColumn}>
             <Text style={[styles.amountText, { color: amountColor }]}>
               {isGave ? '-' : '+'}{formatCurrency(item.amount)}
@@ -179,9 +181,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.2,
     overflow: 'hidden',
   },
-  yesterdayCardBorder: {
-    borderStyle: 'solid',
-  },
   leftAccentBar: {
     width: 5,
   },
@@ -223,40 +222,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: BorderRadius.xs + 2,
   },
-  cashModeBadge: {
-    backgroundColor: Colors.cashLight,
-  },
-  onlineModeBadge: {
-    backgroundColor: Colors.onlineLight,
-  },
   modeBadgeText: {
     fontSize: 10,
     fontWeight: Typography.fontWeights.bold,
   },
-  cashModeText: {
-    color: '#B45309',
-  },
-  onlineModeText: {
-    color: '#1D4ED8',
-  },
   dateContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  yesterdayTag: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: BorderRadius.xs,
-    marginRight: 5,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  yesterdayTagText: {
-    fontSize: 9,
-    fontWeight: Typography.fontWeights.bold,
-    color: '#64748B',
-    textTransform: 'uppercase',
   },
   dateText: {
     fontSize: 11,
