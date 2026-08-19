@@ -4,13 +4,12 @@ import {
   View,
   Text,
   Modal,
-  SafeAreaView,
   TouchableOpacity,
   ScrollView,
   Image,
   Alert,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';

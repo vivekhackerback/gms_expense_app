@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, View, Image, TouchableOpacity, Modal, SafeAreaView, Dimensions } from 'react-native';
+import { StyleSheet, View, Image, TouchableOpacity, Modal, Dimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../../context/AppContext';
 import { Colors } from '../../constants/colors';
