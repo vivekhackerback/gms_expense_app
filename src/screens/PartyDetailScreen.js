@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
@@ -17,6 +18,7 @@ import { getPartyById, getTransactions } from '../database/queries';
 import { TransactionList } from '../components/transaction/TransactionList';
 
 export const PartyDetailScreen = () => {
+  const insets = useSafeAreaInsets();
   const {
     activePartyId,
     closePartyDetails,
@@ -143,7 +145,7 @@ export const PartyDetailScreen = () => {
     >
       <SafeAreaView style={styles.container}>
         {/* Top Header */}
-        <View style={styles.navHeader}>
+        <View style={[styles.navHeader, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
           <TouchableOpacity onPress={closePartyDetails} style={styles.navBackBtn} activeOpacity={0.7}>
             <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
           </TouchableOpacity>

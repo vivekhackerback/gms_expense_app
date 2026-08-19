@@ -1,11 +1,13 @@
 import React from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors } from '../../constants/colors';
 import { Shadows } from '../../constants/theme';
 import { useApp } from '../../context/AppContext';
 
 export const FloatingAddButton = ({ style, onPress }) => {
+  const insets = useSafeAreaInsets();
   const { openAddTransaction } = useApp();
 
   const handlePress = () => {
@@ -13,9 +15,11 @@ export const FloatingAddButton = ({ style, onPress }) => {
     else openAddTransaction();
   };
 
+  const bottomPosition = Math.max(insets.bottom, Platform.OS === 'android' ? 14 : 10) + 70;
+
   return (
     <TouchableOpacity
-      style={[styles.button, Shadows.floating, style]}
+      style={[styles.button, Shadows.floating, { bottom: bottomPosition }, style]}
       onPress={handlePress}
       activeOpacity={0.85}
     >
@@ -26,14 +30,13 @@ export const FloatingAddButton = ({ style, onPress }) => {
 
 const styles = StyleSheet.create({
   button: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: Colors.primary,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: Colors.primaryDark,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'absolute',
-    bottom: 24,
     right: 20,
     zIndex: 99,
   },

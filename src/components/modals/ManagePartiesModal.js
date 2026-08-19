@@ -10,6 +10,7 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../../context/AppContext';
 import { Colors } from '../../constants/colors';
@@ -17,6 +18,7 @@ import { Typography, Spacing, BorderRadius } from '../../constants/theme';
 import { PartyRow } from '../khata/PartyRow';
 
 export const ManagePartiesModal = () => {
+  const insets = useSafeAreaInsets();
   const {
     isManagePartiesOpen,
     setIsManagePartiesOpen,
@@ -63,7 +65,7 @@ export const ManagePartiesModal = () => {
       onRequestClose={() => setIsManagePartiesOpen(false)}
     >
       <SafeAreaView style={styles.container}>
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
           <TouchableOpacity
             style={styles.closeBtn}
             onPress={() => {

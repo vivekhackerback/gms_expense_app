@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors } from '../../constants/colors';
 import { Typography, Spacing } from '../../constants/theme';
@@ -13,8 +14,10 @@ export const Header = ({
   rightElement,
   showSync = true,
 }) => {
+  const insets = useSafeAreaInsets();
+
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
       <View style={styles.leftContainer}>
         {showBack && (
           <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.7}>

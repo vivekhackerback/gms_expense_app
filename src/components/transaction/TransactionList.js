@@ -68,7 +68,7 @@ export const TransactionList = ({
 
 const styles = StyleSheet.create({
   listContent: {
-    paddingBottom: 90, // Leave room for floating button & bottom tabs
+    paddingBottom: 140, // Generous clearance for floating button & bottom tabs
   },
   sectionHeader: {
     backgroundColor: Colors.background,

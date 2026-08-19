@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
@@ -20,6 +21,7 @@ import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { pickImagesFromGallery, takePhotoWithCamera } from '../services/imageService';
 
 export const AddTransactionModal = () => {
+  const insets = useSafeAreaInsets();
   const {
     isAddTransactionOpen,
     addTransactionDefaults,
@@ -137,7 +139,7 @@ export const AddTransactionModal = () => {
           style={{ flex: 1 }}
         >
           {/* Header */}
-          <View style={styles.header}>
+          <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
             <TouchableOpacity onPress={closeAddTransaction} style={styles.closeBtn} activeOpacity={0.7}>
               <Ionicons name="close" size={24} color={Colors.textPrimary} />
             </TouchableOpacity>

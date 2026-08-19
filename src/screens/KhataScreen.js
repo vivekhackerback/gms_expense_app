@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeights.bold,
   },
   listContent: {
-    paddingBottom: 90,
+    paddingBottom: 140,
   },
   emptyState: {
     padding: Spacing.xxxl,

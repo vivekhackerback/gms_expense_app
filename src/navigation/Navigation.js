@@ -4,9 +4,9 @@ import {
   View,
   Text,
   TouchableOpacity,
-  SafeAreaView,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
@@ -37,6 +37,7 @@ const TABS = [
 ];
 
 export const Navigation = () => {
+  const insets = useSafeAreaInsets();
   const { activeTab, setActiveTab, openAddTransaction } = useApp();
 
   const renderActiveScreen = () => {
@@ -56,6 +57,8 @@ export const Navigation = () => {
     }
   };
 
+  const bottomPadding = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 8);
+
   return (
     <View style={styles.container}>
       <View style={styles.screenContainer}>
@@ -67,8 +70,8 @@ export const Navigation = () => {
         <FloatingAddButton onPress={() => openAddTransaction()} />
       )}
 
-      {/* Bottom Navigation Bar */}
-      <SafeAreaView style={styles.bottomBarWrapper}>
+      {/* Bottom Navigation Bar with Safe Area Bottom Insets */}
+      <View style={[styles.bottomBarWrapper, { paddingBottom: bottomPadding }]}>
         <View style={styles.bottomBar}>
           {TABS.map((tab) => {
             const isActive = activeTab === tab.name;
@@ -78,10 +81,11 @@ export const Navigation = () => {
                 style={styles.tabItem}
                 onPress={() => setActiveTab(tab.name)}
                 activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
               >
                 <Ionicons
                   name={isActive ? tab.iconActive : tab.icon}
-                  size={22}
+                  size={23}
                   color={isActive ? Colors.primaryDark : Colors.textMuted}
                 />
                 <Text
@@ -97,7 +101,7 @@ export const Navigation = () => {
             );
           })}
         </View>
-      </SafeAreaView>
+      </View>
 
       {/* Modals and Overlays */}
       <AddTransactionModal />
@@ -126,17 +130,18 @@ const styles = StyleSheet.create({
   },
   bottomBar: {
     flexDirection: 'row',
-    height: Platform.OS === 'ios' ? 52 : 58,
+    height: 60,
     alignItems: 'center',
     justifyContent: 'space-around',
     paddingHorizontal: Spacing.sm,
     backgroundColor: Colors.surface,
+    paddingTop: 6,
   },
   tabItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
   tabLabel: {
     fontSize: Typography.fontSizes.xs,

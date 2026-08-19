@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: Spacing.lg,
-    paddingBottom: 90,
+    paddingBottom: 140,
     gap: Spacing.lg,
   },
   syncStatusCard: {

@@ -10,6 +10,7 @@ import {
   Image,
   Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
@@ -18,6 +19,7 @@ import { formatCurrency, formatFullDateTime } from '../utils/formatters';
 import { getTransactionById } from '../database/queries';
 
 export const TransactionDetailModal = () => {
+  const insets = useSafeAreaInsets();
   const {
     viewingTransactionId,
     closeTransactionDetails,
@@ -77,7 +79,7 @@ export const TransactionDetailModal = () => {
     >
       <SafeAreaView style={styles.container}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
           <TouchableOpacity onPress={closeTransactionDetails} style={styles.closeBtn} activeOpacity={0.7}>
             <Ionicons name="close" size={24} color={Colors.textPrimary} />
           </TouchableOpacity>
