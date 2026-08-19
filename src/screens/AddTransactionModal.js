@@ -68,7 +68,7 @@ export const AddTransactionModal = () => {
         setImages(editingTransaction.images || []);
       } else {
         setDisplayAmount('');
-        setType(addTransactionDefaults.type || 'gave');
+        setType(addTransactionDefaults.type || 'got');
         setPaymentMode(addTransactionDefaults.paymentMode || 'cash');
         setSelectedDate(new Date().toISOString());
         setSelectedCategoryId(categories[0]?.id || null);

@@ -67,7 +67,7 @@ export const Navigation = () => {
 
       {/* Floating Add Action Button on Home, Transactions, and Khata tabs */}
       {(activeTab === 'Home' || activeTab === 'Transactions' || activeTab === 'Khata') && (
-        <FloatingAddButton onPress={() => openAddTransaction()} />
+        <FloatingAddButton />
       )}
 
       {/* Bottom Navigation Bar with Safe Area Bottom Insets */}

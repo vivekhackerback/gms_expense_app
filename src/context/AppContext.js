@@ -101,10 +101,14 @@ export const AppProvider = ({ children }) => {
   // Modal Actions
   const openAddTransaction = (options = {}) => {
     setEditingTransaction(null);
+    const initialType = options.type || options.defaultType || 'got';
+    const initialMode = options.paymentMode || options.defaultMode || 'cash';
+    const initialPartyId = options.partyId !== undefined ? options.partyId : (options.defaultPartyId || null);
+
     setAddTransactionDefaults({
-      type: options.defaultType || 'gave',
-      paymentMode: options.defaultMode || 'cash',
-      partyId: options.defaultPartyId || null,
+      type: initialType,
+      paymentMode: initialMode,
+      partyId: initialPartyId,
     });
     setIsAddTransactionOpen(true);
   };
