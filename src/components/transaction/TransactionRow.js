@@ -45,6 +45,17 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
   const modeBadgeIconColor = isCash ? '#B45309' : '#1D4ED8';
 
   const hasRunningBalance = item.runningBalance !== undefined && item.runningBalance !== null;
+  const numBalance = hasRunningBalance ? Number(item.runningBalance) : 0;
+  let balanceTextColor = Colors.textSecondary;
+  if (hasRunningBalance) {
+    if (numBalance < 0) {
+      balanceTextColor = Colors.gaveDark || '#DC2626'; // RED for negative balance
+    } else if (numBalance > 0) {
+      balanceTextColor = Colors.gotDark || '#059669';  // GREEN for positive balance
+    } else {
+      balanceTextColor = Colors.textSecondary;        // Neutral/default for zero
+    }
+  }
 
   return (
     <TouchableOpacity
@@ -145,7 +156,7 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
             {hasRunningBalance && (
               <View style={styles.runningBalanceRow}>
                 <Text style={styles.runningBalanceLabel}>Bal:</Text>
-                <Text style={styles.runningBalanceValue}>
+                <Text style={[styles.runningBalanceValue, { color: balanceTextColor }]}>
                   {formatCurrency(item.runningBalance)}
                 </Text>
               </View>

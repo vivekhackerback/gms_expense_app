@@ -16,6 +16,7 @@ import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { Header } from '../components/common/Header';
 import { SearchInput } from '../components/common/SearchInput';
 import { TransactionList } from '../components/transaction/TransactionList';
+import { ExportPdfModal } from '../components/transaction/ExportPdfModal';
 import { getTransactions } from '../database/queries';
 import { getDateRangePreset } from '../utils/formatters';
 
@@ -49,6 +50,7 @@ export const TransactionsScreen = () => {
 
   // Custom Date Range Modal State
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
+  const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
   const [customStartDate, setCustomStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [customEndDate, setCustomEndDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -157,7 +159,19 @@ export const TransactionsScreen = () => {
 
   return (
     <View style={styles.container}>
-      <Header title="Transactions" />
+      <Header
+        title="Transactions"
+        rightElement={
+          <TouchableOpacity
+            style={styles.headerPdfBtn}
+            onPress={() => setIsExportPdfOpen(true)}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="document-text-outline" size={16} color="#DC2626" style={{ marginRight: 4 }} />
+            <Text style={styles.headerPdfBtnText}>Export PDF</Text>
+          </TouchableOpacity>
+        }
+      />
 
       {/* Search Bar & Filters */}
       <View style={styles.topFilterSection}>
@@ -384,6 +398,13 @@ export const TransactionsScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* PDF Export Modal */}
+      <ExportPdfModal
+        visible={isExportPdfOpen}
+        onClose={() => setIsExportPdfOpen(false)}
+        initialDateFilter={selectedDateFilter}
+      />
     </View>
   );
 };
@@ -591,5 +612,20 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSizes.md,
     color: '#FFFFFF',
     fontWeight: Typography.fontWeights.bold,
+  },
+  headerPdfBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  headerPdfBtnText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#DC2626',
   },
 });

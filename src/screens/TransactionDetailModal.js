@@ -138,7 +138,21 @@ export const TransactionDetailModal = () => {
               {transaction.runningBalance !== undefined && transaction.runningBalance !== null && (
                 <View style={styles.runningBalBadge}>
                   <Text style={styles.runningBalLabel}>Running Balance:</Text>
-                  <Text style={styles.runningBalVal}>{formatCurrency(transaction.runningBalance)}</Text>
+                  <Text
+                    style={[
+                      styles.runningBalVal,
+                      {
+                        color:
+                          Number(transaction.runningBalance) < 0
+                            ? Colors.gaveDark
+                            : Number(transaction.runningBalance) > 0
+                            ? Colors.gotDark
+                            : Colors.textPrimary,
+                      },
+                    ]}
+                  >
+                    {formatCurrency(transaction.runningBalance)}
+                  </Text>
                 </View>
               )}
             </View>

@@ -29,6 +29,8 @@ export const Colors = {
   // Accent & Net
   accent: '#6366F1',         // Indigo
   accentLight: '#EEF2FF',
+  balancePositive: '#059669', // Emerald Green for positive balance
+  balanceNegative: '#DC2626', // Crimson Red for negative balance
   
   // Typography & Borders
   textPrimary: '#0F172A',    // Slate 900

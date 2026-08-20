@@ -13,6 +13,7 @@ import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { formatCurrency, getDateRangePreset } from '../utils/formatters';
 import { Header } from '../components/common/Header';
+import { ExportPdfModal } from '../components/transaction/ExportPdfModal';
 import { getReportsSummary, getCategoryBreakdown } from '../database/queries';
 import { exportTransactionsToCSV } from '../services/exportService';
 
@@ -43,6 +44,7 @@ export const ReportsScreen = () => {
   const [categoryBreakdown, setCategoryBreakdown] = useState([]);
   const [categoryTypeTab, setCategoryTypeTab] = useState('gave'); // 'gave' | 'got'
   const [refreshing, setRefreshing] = useState(false);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
   const loadReport = useCallback(() => {
     const { startDate, endDate } = getDateRangePreset(selectedPeriod);
@@ -75,13 +77,24 @@ export const ReportsScreen = () => {
       <Header
         title="Reports & Analytics"
         rightElement={
-          <TouchableOpacity
-            style={styles.exportBtn}
-            onPress={handleExportCSV}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="download-outline" size={18} color={Colors.primary} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.headerPdfBtn}
+              onPress={() => setIsPdfModalOpen(true)}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="document-text-outline" size={15} color="#DC2626" style={{ marginRight: 3 }} />
+              <Text style={styles.headerPdfBtnText}>PDF</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.exportBtn}
+              onPress={handleExportCSV}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="download-outline" size={17} color={Colors.primary} />
+            </TouchableOpacity>
+          </View>
         }
       />
 
@@ -328,6 +341,13 @@ export const ReportsScreen = () => {
           )}
         </View>
       </ScrollView>
+
+      {/* PDF Export Modal */}
+      <ExportPdfModal
+        visible={isPdfModalOpen}
+        onClose={() => setIsPdfModalOpen(false)}
+        initialDateFilter={selectedPeriod}
+      />
     </View>
   );
 };
@@ -336,6 +356,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  headerPdfBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  headerPdfBtnText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#DC2626',
   },
   exportBtn: {
     padding: Spacing.xs,
