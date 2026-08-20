@@ -1,4 +1,5 @@
 import { getDatabase } from './db';
+import { getCurrentTimestamp, toUnixTimestamp } from '../utils/formatters';
 
 // Helper for generating UUID fallback
 export const generateUUID = () => {
@@ -17,7 +18,13 @@ export const generateUUID = () => {
 // -------------------------------------------------------------
 export const getBalances = () => {
   const db = getDatabase();
-  const todayStr = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const startToday = new Date(now);
+  startToday.setHours(0, 0, 0, 0);
+  const startTodayTs = Math.floor(startToday.getTime() / 1000);
+  const endToday = new Date(now);
+  endToday.setHours(23, 59, 59, 999);
+  const endTodayTs = Math.floor(endToday.getTime() / 1000);
   
   const query = `
     SELECT
@@ -27,12 +34,12 @@ export const getBalances = () => {
       COALESCE(SUM(CASE WHEN payment_mode = 'online' AND type = 'gave' THEN amount ELSE 0 END), 0) as online_gave,
       COALESCE(SUM(CASE WHEN type = 'got' THEN amount ELSE 0 END), 0) as total_got,
       COALESCE(SUM(CASE WHEN type = 'gave' THEN amount ELSE 0 END), 0) as total_gave,
-      COALESCE(SUM(CASE WHEN type = 'got' AND date(transaction_date) = date(?) THEN amount ELSE 0 END), 0) as today_got,
-      COALESCE(SUM(CASE WHEN type = 'gave' AND date(transaction_date) = date(?) THEN amount ELSE 0 END), 0) as today_gave
+      COALESCE(SUM(CASE WHEN type = 'got' AND transaction_date >= ? AND transaction_date <= ? THEN amount ELSE 0 END), 0) as today_got,
+      COALESCE(SUM(CASE WHEN type = 'gave' AND transaction_date >= ? AND transaction_date <= ? THEN amount ELSE 0 END), 0) as today_gave
     FROM transactions;
   `;
 
-  const row = db.getFirstSync(query, [todayStr, todayStr]) || {
+  const row = db.getFirstSync(query, [startTodayTs, endTodayTs, startTodayTs, endTodayTs]) || {
     cash_got: 0,
     cash_gave: 0,
     online_got: 0,
@@ -79,8 +86,8 @@ export const getTransactions = ({
   offset = 0,
   filterType = null,      // 'gave' | 'got' | null
   filterMode = null,      // 'cash' | 'online' | null
-  startDate = null,       // YYYY-MM-DD
-  endDate = null,         // YYYY-MM-DD
+  startDate = null,       // YYYY-MM-DD or Unix timestamp
+  endDate = null,         // YYYY-MM-DD or Unix timestamp
   search = null,          // search string
   partyId = null,
   categoryId = null,
@@ -109,7 +116,7 @@ export const getTransactions = ({
         c.color as categoryColor,
         (SELECT COUNT(*) FROM transaction_images ti WHERE ti.transaction_id = t.id) as imageCount,
         SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE -t.amount END) 
-          OVER (ORDER BY datetime(t.transaction_date) ASC, datetime(t.created_at) ASC, t.id ASC) as runningBalance
+          OVER (ORDER BY t.transaction_date ASC, t.created_at ASC, t.id ASC) as runningBalance
       FROM transactions t
       LEFT JOIN parties p ON t.party_id = p.id
       LEFT JOIN categories c ON t.category_id = c.id
@@ -140,13 +147,18 @@ export const getTransactions = ({
   }
 
   if (startDate) {
-    sql += ` AND date(transactionDate) >= date(?)`;
-    params.push(startDate);
+    const startTs = typeof startDate === 'number' ? startDate : toUnixTimestamp(startDate);
+    sql += ` AND transactionDate >= ?`;
+    params.push(startTs);
   }
 
   if (endDate) {
-    sql += ` AND date(transactionDate) <= date(?)`;
-    params.push(endDate);
+    let endTs = typeof endDate === 'number' ? endDate : toUnixTimestamp(endDate);
+    if (typeof endDate === 'string' && endDate.length === 10) {
+      endTs += 86399; // full end of day
+    }
+    sql += ` AND transactionDate <= ?`;
+    params.push(endTs);
   }
 
   if (search && search.trim().length > 0) {
@@ -160,14 +172,25 @@ export const getTransactions = ({
     params.push(term, term, term, term);
   }
 
-  sql += ` ORDER BY datetime(transactionDate) DESC, id DESC`;
+  sql += ` ORDER BY transactionDate DESC, createdAt DESC, id DESC LIMIT ? OFFSET ?;`;
+  params.push(limit, offset);
 
-  if (limit) {
-    sql += ` LIMIT ? OFFSET ?`;
-    params.push(limit, offset);
-  }
+  const transactions = db.getAllSync(sql, params);
 
-  return db.getAllSync(sql, params);
+  // Fetch images for transactions in batch
+  return transactions.map((tx) => {
+    let images = [];
+    if (tx.imageCount > 0) {
+      images = db.getAllSync(
+        'SELECT id, local_uri as localUri, file_name as fileName, upload_status as uploadStatus FROM transaction_images WHERE transaction_id = ?;',
+        [tx.id]
+      );
+    }
+    return {
+      ...tx,
+      images,
+    };
+  });
 };
 
 export const getTransactionById = (id) => {
@@ -227,8 +250,8 @@ export const addTransaction = ({
 }) => {
   const db = getDatabase();
   const txUuid = uuid || generateUUID();
-  const now = new Date().toISOString();
-  const txDate = transactionDate || now;
+  const now = getCurrentTimestamp();
+  const txDate = transactionDate ? toUnixTimestamp(transactionDate) : now;
   const numAmount = parseFloat(amount) || 0;
 
   let insertedId = null;
@@ -306,7 +329,8 @@ export const updateTransaction = (
   }
 ) => {
   const db = getDatabase();
-  const now = new Date().toISOString();
+  const now = getCurrentTimestamp();
+  const txDate = transactionDate ? toUnixTimestamp(transactionDate) : null;
   const numAmount = parseFloat(amount) || 0;
 
   db.withTransactionSync(() => {
@@ -335,7 +359,7 @@ export const updateTransaction = (
         paymentMode,
         numAmount,
         note ? note.trim() : '',
-        transactionDate,
+        txDate,
         now,
         id,
       ]
@@ -463,7 +487,7 @@ export const getPartyById = (id) => {
 
 export const addParty = ({ name, phone = '' }) => {
   const db = getDatabase();
-  const now = new Date().toISOString();
+  const now = getCurrentTimestamp();
   const res = db.runSync(
     `INSERT INTO parties (name, phone, created_at, updated_at) VALUES (?, ?, ?, ?);`,
     [name.trim(), phone ? phone.trim() : '', now, now]
@@ -473,7 +497,7 @@ export const addParty = ({ name, phone = '' }) => {
 
 export const updateParty = (id, { name, phone = '' }) => {
   const db = getDatabase();
-  const now = new Date().toISOString();
+  const now = getCurrentTimestamp();
   db.runSync(
     `UPDATE parties SET name = ?, phone = ?, updated_at = ? WHERE id = ?;`,
     [name.trim(), phone ? phone.trim() : '', now, id]
@@ -516,7 +540,7 @@ export const getCategories = ({ includeDeleted = false } = {}) => {
 
 export const addCategory = ({ name, icon = 'grid-outline', color = '#64748B' }) => {
   const db = getDatabase();
-  const now = new Date().toISOString();
+  const now = getCurrentTimestamp();
   const cleanName = name.trim();
 
   // Check if a category with this name already exists (e.g. soft-deleted)
@@ -573,13 +597,18 @@ export const getReportsSummary = (startDate = null, endDate = null) => {
   const params = [];
 
   if (startDate) {
-    sql += ` AND date(transaction_date) >= date(?)`;
-    params.push(startDate);
+    const startTs = typeof startDate === 'number' ? startDate : toUnixTimestamp(startDate);
+    sql += ` AND transaction_date >= ?`;
+    params.push(startTs);
   }
 
   if (endDate) {
-    sql += ` AND date(transaction_date) <= date(?)`;
-    params.push(endDate);
+    let endTs = typeof endDate === 'number' ? endDate : toUnixTimestamp(endDate);
+    if (typeof endDate === 'string' && endDate.length === 10) {
+      endTs += 86399;
+    }
+    sql += ` AND transaction_date <= ?`;
+    params.push(endTs);
   }
 
   const row = db.getFirstSync(sql, params) || {};
@@ -622,13 +651,18 @@ export const getCategoryBreakdown = (startDate = null, endDate = null, type = 'g
   const params = [type];
 
   if (startDate) {
-    sql += ` AND date(t.transaction_date) >= date(?)`;
-    params.push(startDate);
+    const startTs = typeof startDate === 'number' ? startDate : toUnixTimestamp(startDate);
+    sql += ` AND t.transaction_date >= ?`;
+    params.push(startTs);
   }
 
   if (endDate) {
-    sql += ` AND date(t.transaction_date) <= date(?)`;
-    params.push(endDate);
+    let endTs = typeof endDate === 'number' ? endDate : toUnixTimestamp(endDate);
+    if (typeof endDate === 'string' && endDate.length === 10) {
+      endTs += 86399;
+    }
+    sql += ` AND t.transaction_date <= ?`;
+    params.push(endTs);
   }
 
   sql += ` GROUP BY c.id, c.name, c.icon, c.color ORDER BY totalAmount DESC;`;
@@ -787,7 +821,7 @@ export const getDetailedBackupReportStats = () => {
 export const addBackupActivityLog = (actionType, status, message, details = '') => {
   try {
     const db = getDatabase();
-    const now = new Date().toISOString();
+    const now = getCurrentTimestamp();
     db.runSync(
       `INSERT INTO backup_activity_logs (timestamp, action_type, status, message, details) VALUES (?, ?, ?, ?, ?);`,
       [now, actionType, status, message, details ? String(details) : '']
@@ -843,7 +877,7 @@ export const markTransactionsUploading = (uuids = []) => {
 
 export const markTransactionsFailed = (uuids = []) => {
   const db = getDatabase();
-  const now = new Date().toISOString();
+  const now = getCurrentTimestamp();
   if (!uuids || uuids.length === 0) {
     db.runSync("UPDATE transactions SET sync_status = 'failed' WHERE sync_status = 'uploading';");
   } else {
@@ -851,7 +885,7 @@ export const markTransactionsFailed = (uuids = []) => {
       db.runSync("UPDATE transactions SET sync_status = 'failed' WHERE uuid = ?;", [uuid]);
     }
   }
-  db.runSync("INSERT INTO settings (key, value) VALUES ('last_failed_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
+  db.runSync("INSERT INTO settings (key, value) VALUES ('last_failed_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [String(now)]);
 };
 
 /**
@@ -859,7 +893,7 @@ export const markTransactionsFailed = (uuids = []) => {
  */
 export const markTransactionsServerConfirmed = (confirmedRecords = []) => {
   const db = getDatabase();
-  const now = new Date().toISOString();
+  const now = getCurrentTimestamp();
 
   db.withTransactionSync(() => {
     if (confirmedRecords.length === 0) {
@@ -877,7 +911,7 @@ export const markTransactionsServerConfirmed = (confirmedRecords = []) => {
         );
       }
     }
-    db.runSync("INSERT INTO settings (key, value) VALUES ('last_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
+    db.runSync("INSERT INTO settings (key, value) VALUES ('last_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [String(now)]);
   });
 };
 
@@ -912,7 +946,7 @@ export const markImagesFailed = (ids = []) => {
  */
 export const markImagesServerConfirmed = (confirmedImages = []) => {
   const db = getDatabase();
-  const now = new Date().toISOString();
+  const now = getCurrentTimestamp();
 
   db.withTransactionSync(() => {
     if (confirmedImages.length === 0) {
@@ -925,7 +959,7 @@ export const markImagesServerConfirmed = (confirmedImages = []) => {
         );
       }
     }
-    db.runSync("INSERT INTO settings (key, value) VALUES ('last_image_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
+    db.runSync("INSERT INTO settings (key, value) VALUES ('last_image_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [String(now)]);
   });
 };
 
@@ -941,7 +975,7 @@ export const getPendingTransactions = (limit = 50) => {
     LEFT JOIN parties p ON t.party_id = p.id
     LEFT JOIN categories c ON t.category_id = c.id
     WHERE t.sync_status = 'pending' OR t.sync_status = 'uploading' OR t.sync_status = 'failed' OR t.sync_status IS NULL
-    ORDER BY datetime(t.created_at) ASC
+    ORDER BY t.created_at ASC, t.id ASC
     LIMIT ?;
   `, [limit]);
 };

@@ -16,10 +16,73 @@ export const formatCurrency = (amount, options = {}) => {
   return `₹${formatted}`;
 };
 
-// Date formatters
-export const formatDateGroup = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
+// -------------------------------------------------------------
+// Unix Timestamp & Timezone Helpers (Asia/Kolkata / IST)
+// -------------------------------------------------------------
+
+export const IST_TIMEZONE = 'Asia/Kolkata';
+
+/**
+ * Returns current Unix timestamp in SECONDS
+ */
+export const getCurrentTimestamp = () => {
+  return Math.floor(Date.now() / 1000);
+};
+
+/**
+ * Converts any date representation (Unix timestamp in seconds/ms, ISO string, Date object)
+ * to a standardized integer Unix timestamp in SECONDS.
+ */
+export const toUnixTimestamp = (input) => {
+  if (input === null || input === undefined || input === '') {
+    return getCurrentTimestamp();
+  }
+  if (typeof input === 'number') {
+    // If milliseconds (> 100 billion), convert to seconds
+    return input > 100000000000 ? Math.floor(input / 1000) : Math.floor(input);
+  }
+  if (typeof input === 'string') {
+    // If numeric string
+    const num = Number(input);
+    if (!isNaN(num) && num > 0) {
+      return num > 100000000000 ? Math.floor(num / 1000) : Math.floor(num);
+    }
+    // Parse ISO / date string
+    const parsed = new Date(input).getTime();
+    return isNaN(parsed) ? getCurrentTimestamp() : Math.floor(parsed / 1000);
+  }
+  if (input instanceof Date) {
+    return Math.floor(input.getTime() / 1000);
+  }
+  return getCurrentTimestamp();
+};
+
+/**
+ * Converts any date input to a Javascript Date object
+ */
+export const parseToDate = (input) => {
+  if (!input && input !== 0) return new Date();
+  if (input instanceof Date) return input;
+  if (typeof input === 'number') {
+    return new Date(input < 100000000000 ? input * 1000 : input);
+  }
+  if (typeof input === 'string') {
+    const num = Number(input);
+    if (!isNaN(num) && num > 0) {
+      return new Date(num < 100000000000 ? num * 1000 : num);
+    }
+    return new Date(input);
+  }
+  return new Date();
+};
+
+// -------------------------------------------------------------
+// Date Formatters (Display in User's Timezone / Asia/Kolkata)
+// -------------------------------------------------------------
+
+export const formatDateGroup = (dateInput) => {
+  if (!dateInput && dateInput !== 0) return '';
+  const date = parseToDate(dateInput);
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
@@ -47,9 +110,9 @@ export const formatDateGroup = (dateString) => {
   return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
 };
 
-export const formatFullDateTime = (dateString) => {
-  if (!dateString) return { date: '', time: '' };
-  const date = new Date(dateString);
+export const formatFullDateTime = (dateInput) => {
+  if (!dateInput && dateInput !== 0) return { date: '', time: '', combined: '' };
+  const date = parseToDate(dateInput);
   const months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
@@ -71,9 +134,9 @@ export const formatFullDateTime = (dateString) => {
   };
 };
 
-export const formatDayNameFullDate = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
+export const formatDayNameFullDate = (dateInput) => {
+  if (!dateInput && dateInput !== 0) return '';
+  const date = parseToDate(dateInput);
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const fullMonths = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -82,9 +145,9 @@ export const formatDayNameFullDate = (dateString) => {
   return `${days[date.getDay()]}, ${date.getDate()} ${fullMonths[date.getMonth()]} ${date.getFullYear()}`;
 };
 
-export const formatTimeOnly = (dateString) => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
+export const formatTimeOnly = (dateInput) => {
+  if (!dateInput && dateInput !== 0) return '';
+  const date = parseToDate(dateInput);
   let hours = date.getHours();
   const minutes = date.getMinutes();
   const ampm = hours >= 12 ? 'PM' : 'AM';
@@ -94,20 +157,54 @@ export const formatTimeOnly = (dateString) => {
   return `${hours}:${minutesFormatted} ${ampm}`;
 };
 
-// Date Range Helpers for Filters and Reports
+// Formats Unix timestamp to standard YYYY-MM-DD string
+export const formatToDateString = (dateInput) => {
+  const d = parseToDate(dateInput);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// Date Range Helpers for Filters and Reports using Unix Timestamps
 export const getDateRangePreset = (presetKey, customStart = null, customEnd = null) => {
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
+  const todayStr = formatToDateString(now);
+
+  const getStartOfDayTs = (d) => {
+    const copy = new Date(d);
+    copy.setHours(0, 0, 0, 0);
+    return Math.floor(copy.getTime() / 1000);
+  };
+
+  const getEndOfDayTs = (d) => {
+    const copy = new Date(d);
+    copy.setHours(23, 59, 59, 999);
+    return Math.floor(copy.getTime() / 1000);
+  };
 
   switch (presetKey) {
-    case 'today':
-      return { startDate: todayStr, endDate: todayStr, label: 'Today' };
+    case 'today': {
+      return {
+        startDate: todayStr,
+        endDate: todayStr,
+        startTimestamp: getStartOfDayTs(now),
+        endTimestamp: getEndOfDayTs(now),
+        label: 'Today',
+      };
+    }
 
     case 'yesterday': {
       const yesterday = new Date(now);
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-      return { startDate: yesterdayStr, endDate: yesterdayStr, label: 'Yesterday' };
+      const yesterdayStr = formatToDateString(yesterday);
+      return {
+        startDate: yesterdayStr,
+        endDate: yesterdayStr,
+        startTimestamp: getStartOfDayTs(yesterday),
+        endTimestamp: getEndOfDayTs(yesterday),
+        label: 'Yesterday',
+      };
     }
 
     case 'week':
@@ -116,8 +213,14 @@ export const getDateRangePreset = (presetKey, customStart = null, customEnd = nu
       const day = now.getDay();
       const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday
       firstDayOfWeek.setDate(diff);
-      const startStr = firstDayOfWeek.toISOString().split('T')[0];
-      return { startDate: startStr, endDate: todayStr, label: 'This Week' };
+      const startStr = formatToDateString(firstDayOfWeek);
+      return {
+        startDate: startStr,
+        endDate: todayStr,
+        startTimestamp: getStartOfDayTs(firstDayOfWeek),
+        endTimestamp: getEndOfDayTs(now),
+        label: 'This Week',
+      };
     }
 
     case 'last_week': {
@@ -133,8 +236,10 @@ export const getDateRangePreset = (presetKey, customStart = null, customEnd = nu
       startOfLastWeek.setDate(startOfLastWeek.getDate() - 6); // Monday
 
       return {
-        startDate: startOfLastWeek.toISOString().split('T')[0],
-        endDate: endOfLastWeek.toISOString().split('T')[0],
+        startDate: formatToDateString(startOfLastWeek),
+        endDate: formatToDateString(endOfLastWeek),
+        startTimestamp: getStartOfDayTs(startOfLastWeek),
+        endTimestamp: getEndOfDayTs(endOfLastWeek),
         label: 'Last Week',
       };
     }
@@ -142,37 +247,59 @@ export const getDateRangePreset = (presetKey, customStart = null, customEnd = nu
     case 'month':
     case 'this_month': {
       const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startStr = firstDayOfMonth.toISOString().split('T')[0];
-      return { startDate: startStr, endDate: todayStr, label: 'This Month' };
+      return {
+        startDate: formatToDateString(firstDayOfMonth),
+        endDate: todayStr,
+        startTimestamp: getStartOfDayTs(firstDayOfMonth),
+        endTimestamp: getEndOfDayTs(now),
+        label: 'This Month',
+      };
     }
 
     case 'last_month': {
       const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
       return {
-        startDate: firstDayOfLastMonth.toISOString().split('T')[0],
-        endDate: lastDayOfLastMonth.toISOString().split('T')[0],
+        startDate: formatToDateString(firstDayOfLastMonth),
+        endDate: formatToDateString(lastDayOfLastMonth),
+        startTimestamp: getStartOfDayTs(firstDayOfLastMonth),
+        endTimestamp: getEndOfDayTs(lastDayOfLastMonth),
         label: 'Last Month',
       };
     }
 
     case 'year': {
       const firstDayOfYear = new Date(now.getFullYear(), 0, 1);
-      const startStr = firstDayOfYear.toISOString().split('T')[0];
-      return { startDate: startStr, endDate: todayStr, label: 'This Year' };
+      return {
+        startDate: formatToDateString(firstDayOfYear),
+        endDate: todayStr,
+        startTimestamp: getStartOfDayTs(firstDayOfYear),
+        endTimestamp: getEndOfDayTs(now),
+        label: 'This Year',
+      };
     }
 
     case 'custom': {
+      const startD = customStart ? parseToDate(customStart) : now;
+      const endD = customEnd ? parseToDate(customEnd) : now;
       return {
         startDate: customStart || todayStr,
         endDate: customEnd || todayStr,
+        startTimestamp: getStartOfDayTs(startD),
+        endTimestamp: getEndOfDayTs(endD),
         label: 'Custom Range',
       };
     }
 
     case 'all':
     default:
-      return { startDate: null, endDate: null, label: 'All Time' };
+      return {
+        startDate: null,
+        endDate: null,
+        startTimestamp: null,
+        endTimestamp: null,
+        label: 'All Time',
+      };
   }
 };
 

@@ -18,7 +18,7 @@ import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { pickImagesFromGallery, takePhotoWithCamera } from '../services/imageService';
-import { formatFullDateTime, formatInputWithCommas, numberToWords } from '../utils/formatters';
+import { formatFullDateTime, formatInputWithCommas, numberToWords, getCurrentTimestamp, toUnixTimestamp, parseToDate } from '../utils/formatters';
 
 export const AddTransactionModal = () => {
   const insets = useSafeAreaInsets();
@@ -37,7 +37,7 @@ export const AddTransactionModal = () => {
   const [displayAmount, setDisplayAmount] = useState('');
   const [type, setType] = useState('gave'); // 'gave' | 'got'
   const [paymentMode, setPaymentMode] = useState('cash'); // 'cash' | 'online'
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString());
+  const [selectedDate, setSelectedDate] = useState(getCurrentTimestamp());
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [selectedPartyId, setSelectedPartyId] = useState(null);
   const [note, setNote] = useState('');
@@ -61,7 +61,7 @@ export const AddTransactionModal = () => {
         setDisplayAmount(formatInputWithCommas(raw));
         setType(editingTransaction.type || 'gave');
         setPaymentMode(editingTransaction.paymentMode || 'cash');
-        setSelectedDate(editingTransaction.transactionDate || new Date().toISOString());
+        setSelectedDate(toUnixTimestamp(editingTransaction.transactionDate));
         setSelectedCategoryId(editingTransaction.categoryId || null);
         setSelectedPartyId(editingTransaction.partyId || null);
         setNote(editingTransaction.note || '');
@@ -70,7 +70,7 @@ export const AddTransactionModal = () => {
         setDisplayAmount('');
         setType(addTransactionDefaults.type || 'got');
         setPaymentMode(addTransactionDefaults.paymentMode || 'cash');
-        setSelectedDate(new Date().toISOString());
+        setSelectedDate(getCurrentTimestamp());
         setSelectedCategoryId(categories[0]?.id || null);
         setSelectedPartyId(addTransactionDefaults.partyId || null);
         setNote('');
