@@ -25,6 +25,7 @@ export const getBalances = () => {
   const endToday = new Date(now);
   endToday.setHours(23, 59, 59, 999);
   const endTodayTs = Math.floor(endToday.getTime() / 1000);
+  const todayIsoPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   
   const query = `
     SELECT
@@ -34,12 +35,15 @@ export const getBalances = () => {
       COALESCE(SUM(CASE WHEN payment_mode = 'online' AND type = 'gave' THEN amount ELSE 0 END), 0) as online_gave,
       COALESCE(SUM(CASE WHEN type = 'got' THEN amount ELSE 0 END), 0) as total_got,
       COALESCE(SUM(CASE WHEN type = 'gave' THEN amount ELSE 0 END), 0) as total_gave,
-      COALESCE(SUM(CASE WHEN type = 'got' AND transaction_date >= ? AND transaction_date <= ? THEN amount ELSE 0 END), 0) as today_got,
-      COALESCE(SUM(CASE WHEN type = 'gave' AND transaction_date >= ? AND transaction_date <= ? THEN amount ELSE 0 END), 0) as today_gave
+      COALESCE(SUM(CASE WHEN type = 'got' AND ((transaction_date >= ? AND transaction_date <= ?) OR transaction_date LIKE ?) THEN amount ELSE 0 END), 0) as today_got,
+      COALESCE(SUM(CASE WHEN type = 'gave' AND ((transaction_date >= ? AND transaction_date <= ?) OR transaction_date LIKE ?) THEN amount ELSE 0 END), 0) as today_gave
     FROM transactions;
   `;
 
-  const row = db.getFirstSync(query, [startTodayTs, endTodayTs, startTodayTs, endTodayTs]) || {
+  const row = db.getFirstSync(query, [
+    startTodayTs, endTodayTs, todayIsoPrefix + '%',
+    startTodayTs, endTodayTs, todayIsoPrefix + '%'
+  ]) || {
     cash_got: 0,
     cash_gave: 0,
     online_got: 0,

@@ -11,7 +11,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
-import { formatCurrency, formatDayNameFullDate } from '../utils/formatters';
+import { formatCurrency, formatDayNameFullDate, parseToDate, formatDateGroup } from '../utils/formatters';
 import { Header } from '../components/common/Header';
 import { TransactionRow } from '../components/transaction/TransactionRow';
 
@@ -33,7 +33,7 @@ export const HomeScreen = () => {
     setTimeout(() => setRefreshing(false), 300);
   };
 
-  // Filter and group strictly for TODAY and YESTERDAY
+  // Filter and group strictly for TODAY, YESTERDAY, and recent transactions
   const sections = useMemo(() => {
     const today = new Date();
     const todayDateStr = today.toDateString();
@@ -44,15 +44,18 @@ export const HomeScreen = () => {
 
     const todayItems = [];
     const yesterdayItems = [];
+    const earlierItems = [];
 
     for (const tx of recentTransactions) {
-      const txDateObj = new Date(tx.transactionDate || tx.createdAt);
+      const txDateObj = parseToDate(tx.transactionDate || tx.createdAt);
       const txDateStr = txDateObj.toDateString();
 
       if (txDateStr === todayDateStr) {
         todayItems.push(tx);
       } else if (txDateStr === yesterdayDateStr) {
         yesterdayItems.push(tx);
+      } else {
+        earlierItems.push(tx);
       }
     }
 
@@ -72,6 +75,15 @@ export const HomeScreen = () => {
         title: 'YESTERDAY',
         fullDate: formatDayNameFullDate(yesterday),
         data: yesterdayItems,
+      });
+    }
+
+    if (earlierItems.length > 0) {
+      result.push({
+        type: 'earlier',
+        title: 'RECENT TRANSACTIONS',
+        fullDate: 'Earlier Activity',
+        data: earlierItems,
       });
     }
 
@@ -195,27 +207,27 @@ export const HomeScreen = () => {
 
   const renderSectionHeader = ({ section }) => {
     const isToday = section.type === 'today';
+    const isYesterday = section.type === 'yesterday';
+
+    let badgeContainerStyle = styles.earlierBadgeContainer;
+    let dotStyle = styles.earlierDot;
+    let badgeTextStyle = styles.earlierBadgeText;
+
+    if (isToday) {
+      badgeContainerStyle = styles.todayBadgeContainer;
+      dotStyle = styles.todayDot;
+      badgeTextStyle = styles.todayBadgeText;
+    } else if (isYesterday) {
+      badgeContainerStyle = styles.yesterdayBadgeContainer;
+      dotStyle = styles.yesterdayDot;
+      badgeTextStyle = styles.yesterdayBadgeText;
+    }
 
     return (
       <View style={styles.dateGroupHeaderWrap}>
-        <View
-          style={[
-            styles.dateBadgeContainer,
-            isToday ? styles.todayBadgeContainer : styles.yesterdayBadgeContainer,
-          ]}
-        >
-          <View
-            style={[
-              styles.statusDot,
-              isToday ? styles.todayDot : styles.yesterdayDot,
-            ]}
-          />
-          <Text
-            style={[
-              styles.dateBadgeText,
-              isToday ? styles.todayBadgeText : styles.yesterdayBadgeText,
-            ]}
-          >
+        <View style={[styles.dateBadgeContainer, badgeContainerStyle]}>
+          <View style={[styles.statusDot, dotStyle]} />
+          <Text style={[styles.dateBadgeText, badgeTextStyle]}>
             {section.title}
           </Text>
         </View>
@@ -458,6 +470,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     borderColor: '#E2E8F0',
   },
+  earlierBadgeContainer: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+  },
   statusDot: {
     width: 6,
     height: 6,
@@ -470,6 +486,9 @@ const styles = StyleSheet.create({
   yesterdayDot: {
     backgroundColor: '#64748B',
   },
+  earlierDot: {
+    backgroundColor: '#3B82F6',
+  },
   dateBadgeText: {
     fontSize: 10,
     fontWeight: Typography.fontWeights.bold,
@@ -480,6 +499,9 @@ const styles = StyleSheet.create({
   },
   yesterdayBadgeText: {
     color: '#334155',
+  },
+  earlierBadgeText: {
+    color: '#1E40AF',
   },
   fullDateText: {
     fontSize: Typography.fontSizes.xs,
