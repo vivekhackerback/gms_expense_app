@@ -18,6 +18,7 @@ import { TransactionsScreen } from '../screens/TransactionsScreen';
 import { KhataScreen } from '../screens/KhataScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { MoreScreen } from '../screens/MoreScreen';
+import { BackupScreen } from '../screens/BackupScreen';
 
 // Modals & Overlays
 import { AddTransactionModal } from '../screens/AddTransactionModal';
@@ -26,7 +27,6 @@ import { PartyDetailScreen } from '../screens/PartyDetailScreen';
 import { FullScreenImageViewer } from '../components/modals/FullScreenImageViewer';
 import { ManageCategoriesModal } from '../components/modals/ManageCategoriesModal';
 import { ManagePartiesModal } from '../components/modals/ManagePartiesModal';
-import { BackupReportScreen } from '../screens/BackupReportScreen';
 import { FloatingAddButton } from '../components/common/FloatingAddButton';
 
 const TABS = [
@@ -39,7 +39,7 @@ const TABS = [
 
 export const Navigation = () => {
   const insets = useSafeAreaInsets();
-  const { activeTab, setActiveTab, isBackupReportOpen, closeBackupReport } = useApp();
+  const { activeTab, setActiveTab } = useApp();
 
   const renderActiveScreen = () => {
     switch (activeTab) {
@@ -53,6 +53,8 @@ export const Navigation = () => {
         return <ReportsScreen />;
       case 'More':
         return <MoreScreen />;
+      case 'Backup':
+        return <BackupScreen />;
       default:
         return <HomeScreen />;
     }
@@ -75,7 +77,7 @@ export const Navigation = () => {
       <View style={[styles.bottomBarWrapper, { paddingBottom: bottomPadding }]}>
         <View style={styles.bottomBar}>
           {TABS.map((tab) => {
-            const isActive = activeTab === tab.name;
+            const isActive = activeTab === tab.name || (activeTab === 'Backup' && tab.name === 'More');
             return (
               <TouchableOpacity
                 key={tab.name}
@@ -111,7 +113,6 @@ export const Navigation = () => {
       <FullScreenImageViewer />
       <ManageCategoriesModal />
       <ManagePartiesModal />
-      <BackupReportScreen visible={isBackupReportOpen} onClose={closeBackupReport} />
     </View>
   );
 };

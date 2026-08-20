@@ -7,6 +7,7 @@ import {
   getCategories,
   getSyncStats,
   getDetailedBackupReportStats,
+  getBackupActivityLogs,
   updateSetting,
   eraseLocalDeviceDataOnly,
   addTransaction as dbAddTransaction,
@@ -31,7 +32,8 @@ const AppContext = createContext(null);
 
 export const AppProvider = ({ children }) => {
   const [isInitialized, setIsInitialized] = useState(false);
-  const [activeTab, setActiveTab] = useState('Home'); // Home, Transactions, Khata, Reports, More
+  const [activeTab, setActiveTab] = useState('Home'); // Home, Transactions, Khata, Reports, More, Backup
+  const [previousTab, setPreviousTab] = useState('More');
   
   // App Data State
   const [balances, setBalances] = useState({
@@ -52,10 +54,11 @@ export const AppProvider = ({ children }) => {
   const [categories, setCategories] = useState([]);
   const [syncStats, setSyncStats] = useState({ pendingCount: 0, totalTransactions: 0, lastSync: null });
   const [detailedBackupStats, setDetailedBackupStats] = useState({
-    transactions: { total: 0, synced: 0, pending: 0, failed: 0, lastSync: null },
-    images: { total: 0, uploaded: 0, pending: 0, failed: 0, lastSync: null, scheduleTime: '02:00', scheduleEnabled: true },
+    transactions: { total: 0, synced: 0, uploaded: 0, pending: 0, uploading: 0, failed: 0, lastSync: null, lastFailedSync: null },
+    images: { total: 0, uploaded: 0, pending: 0, uploading: 0, failed: 0, lastSync: null, scheduleTime: '02:00', scheduleEnabled: true },
     system: { autoSyncEnabled: true, queuePending: 0 },
   });
+  const [backupActivityLogs, setBackupActivityLogs] = useState([]);
   const [networkStatus, setNetworkStatus] = useState({ isConnected: true, type: 'UNKNOWN', isWifi: false });
   const [isSyncing, setIsSyncing] = useState(false);
   const [isImageSyncing, setIsImageSyncing] = useState(false);
@@ -97,6 +100,9 @@ export const AppProvider = ({ children }) => {
 
       const detailed = getDetailedBackupReportStats();
       setDetailedBackupStats(detailed);
+
+      const logs = getBackupActivityLogs(20);
+      setBackupActivityLogs(logs);
     } catch (err) {
       console.error('Error refreshing state:', err);
     }
@@ -207,13 +213,18 @@ export const AppProvider = ({ children }) => {
     setFullScreenImageUri(null);
   };
 
-  const openBackupReport = () => {
+  const navigateToBackup = (fromTab = null) => {
     refreshAll();
-    setIsBackupReportOpen(true);
+    setPreviousTab(fromTab || activeTab || 'More');
+    setActiveTab('Backup');
+  };
+
+  const openBackupReport = (fromTab = null) => {
+    navigateToBackup(fromTab);
   };
 
   const closeBackupReport = () => {
-    setIsBackupReportOpen(false);
+    setActiveTab(previousTab || 'More');
   };
 
   // Transaction Operations
@@ -323,12 +334,15 @@ export const AppProvider = ({ children }) => {
         isInitialized,
         activeTab,
         setActiveTab,
+        previousTab,
+        navigateToBackup,
         balances,
         recentTransactions,
         parties,
         categories,
         syncStats,
         detailedBackupStats,
+        backupActivityLogs,
         networkStatus,
         isSyncing,
         isImageSyncing,

@@ -747,8 +747,8 @@ Every path below exists in the actual codebase:
   [`src/constants/api_config.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/constants/api_config.js) / [`src/config/api_config.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/config/api_config.js) &rarr; `API_CONFIG`
 - **App State & Reactive Coordinator:**  
   [`src/context/AppContext.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/context/AppContext.js) &rarr; `AppProvider`, `useApp()`
-- **Dedicated Backup & Sync Report Screen:**  
-  [`src/screens/BackupReportScreen.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/screens/BackupReportScreen.js) &rarr; `BackupReportScreen`
+- **Dedicated Full-Screen Backup & Sync Dashboard:**  
+  [`src/screens/BackupScreen.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/screens/BackupScreen.js) &rarr; `BackupScreen`
 - **Default Category Seeds:**  
   [`src/constants/categories.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/constants/categories.js) &rarr; `DEFAULT_CATEGORIES`
 
