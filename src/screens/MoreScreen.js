@@ -22,6 +22,10 @@ export const MoreScreen = () => {
     setIsManageCategoriesOpen,
     setIsManagePartiesOpen,
     openBackupReport,
+    currentUser,
+    isLoggedIn,
+    openLoginModal,
+    logoutUser,
     refreshAll,
   } = useApp();
 
@@ -30,6 +34,24 @@ export const MoreScreen = () => {
     if (res) {
       Alert.alert('Sync Status', res.message);
     }
+  };
+
+  const handleLogoutPress = () => {
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out of your account on this device?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: async () => {
+            await logoutUser();
+            Alert.alert('Logged Out', 'You have been logged out successfully.');
+          },
+        },
+      ]
+    );
   };
 
   const renderSection = (title, items) => (
@@ -83,6 +105,62 @@ export const MoreScreen = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* User Account / Profile Card */}
+        {isLoggedIn && currentUser ? (
+          <View style={[styles.userProfileCard, Shadows.sm]}>
+            <View style={styles.userProfileLeft}>
+              <View style={styles.userAvatarCircle}>
+                <Text style={styles.userAvatarText}>
+                  {(currentUser.name ? currentUser.name[0] : 'U').toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.userInfo}>
+                <View style={styles.userNameRow}>
+                  <Text style={styles.userNameText} numberOfLines={1}>
+                    {currentUser.name || 'Account User'}
+                  </Text>
+                  <View style={styles.onlineBadge}>
+                    <Text style={styles.onlineBadgeText}>● Logged In</Text>
+                  </View>
+                </View>
+                <Text style={styles.userPhoneText}>
+                  +91 {currentUser.phone || '9876543210'}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.logoutBtn}
+              onPress={handleLogoutPress}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="log-out-outline" size={16} color="#DC2626" style={{ marginRight: 4 }} />
+              <Text style={styles.logoutBtnText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.loginPromptCard, Shadows.sm]}
+            onPress={openLoginModal}
+            activeOpacity={0.85}
+          >
+            <View style={styles.loginPromptLeft}>
+              <View style={styles.loginIconWrap}>
+                <Ionicons name="person" size={22} color={Colors.primary} />
+              </View>
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text style={styles.loginPromptTitle}>Sign in with Mobile &amp; Password</Text>
+                <Text style={styles.loginPromptSub}>Log in to backup &amp; sync your financial ledger</Text>
+              </View>
+            </View>
+            <View style={styles.loginArrowBtn}>
+              <Text style={styles.loginArrowBtnText}>Login</Text>
+              <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
+            </View>
+          </TouchableOpacity>
+        )}
+
         {/* Sync Status Banner */}
         <TouchableOpacity
           style={[styles.syncStatusCard, Shadows.sm]}
@@ -326,6 +404,133 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
+  },
+  userProfileCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    backgroundColor: '#F0FDF4',
+  },
+  userProfileLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: Spacing.md,
+  },
+  userAvatarCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: Colors.gotDark,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  userAvatarText: {
+    fontSize: 18,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#FFFFFF',
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  userNameText: {
+    fontSize: Typography.fontSizes.md,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+    flexShrink: 1,
+  },
+  onlineBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  onlineBadgeText: {
+    fontSize: 9.5,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#15803D',
+  },
+  userPhoneText: {
+    fontSize: Typography.fontSizes.xs,
+    color: Colors.textSecondary,
+    marginTop: 2,
+    fontWeight: Typography.fontWeights.medium,
+  },
+  logoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: Spacing.sm + 4,
+    paddingVertical: 7,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  logoutBtnText: {
+    fontSize: Typography.fontSizes.xs,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#DC2626',
+  },
+  loginPromptCard: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  loginPromptLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  loginIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loginPromptTitle: {
+    fontSize: Typography.fontSizes.sm + 1,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#1E40AF',
+  },
+  loginPromptSub: {
+    fontSize: Typography.fontSizes.xs,
+    color: '#3B82F6',
+    marginTop: 2,
+  },
+  loginArrowBtn: {
+    backgroundColor: Colors.primaryDark,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    borderRadius: BorderRadius.lg,
+    gap: 4,
+  },
+  loginArrowBtnText: {
+    color: '#FFFFFF',
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.bold,
   },
   menuItemRightText: {
     fontSize: Typography.fontSizes.xs,

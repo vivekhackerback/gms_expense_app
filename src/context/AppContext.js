@@ -8,6 +8,9 @@ import {
   getSyncStats,
   getDetailedBackupReportStats,
   getBackupActivityLogs,
+  getAuthSession,
+  saveAuthSession,
+  clearAuthSession,
   updateSetting,
   eraseLocalDeviceDataOnly,
   addTransaction as dbAddTransaction,
@@ -27,6 +30,7 @@ import {
   checkScheduledImageBackup,
   autoSyncTextIfConnected,
 } from '../services/syncService';
+import API_CONFIG from '../constants/api_config';
 
 const AppContext = createContext(null);
 
@@ -35,6 +39,12 @@ export const AppProvider = ({ children }) => {
   const [activeTab, setActiveTab] = useState('Home'); // Home, Transactions, Khata, Reports, More, Backup
   const [previousTab, setPreviousTab] = useState('More');
   
+  // Authentication State
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authToken, setAuthToken] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
   // App Data State
   const [balances, setBalances] = useState({
     cashGot: 0,
@@ -103,6 +113,13 @@ export const AppProvider = ({ children }) => {
 
       const logs = getBackupActivityLogs(20);
       setBackupActivityLogs(logs);
+
+      const session = getAuthSession();
+      if (session.isLoggedIn) {
+        setCurrentUser(session.user);
+        setAuthToken(session.token);
+        setIsLoggedIn(true);
+      }
     } catch (err) {
       console.error('Error refreshing state:', err);
     }
@@ -142,6 +159,13 @@ export const AppProvider = ({ children }) => {
     const initialize = async () => {
       try {
         initDatabase();
+        const session = getAuthSession();
+        if (session.isLoggedIn) {
+          setCurrentUser(session.user);
+          setAuthToken(session.token);
+          setIsLoggedIn(true);
+        }
+
         refreshAll();
         const net = await checkNetworkConnectivity();
         setNetworkStatus(net);
@@ -328,6 +352,78 @@ export const AppProvider = ({ children }) => {
     return success;
   };
 
+  // Authentication Actions
+  const openLoginModal = () => {
+    setIsLoginModalOpen(true);
+  };
+
+  const closeLoginModal = () => {
+    setIsLoginModalOpen(false);
+  };
+
+  const loginUser = async (phone, password) => {
+    try {
+      const net = await checkNetworkConnectivity();
+      if (!net.isConnected) {
+        return { success: false, message: 'Device is offline. Internet connection required to log in.' };
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(API_CONFIG.AUTH_LOGIN_URL, {
+        method: 'POST',
+        headers: API_CONFIG.HEADERS,
+        body: JSON.stringify({ phone, password }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+      if (response.ok && data.success === true) {
+        saveAuthSession(data.token, data.user);
+        setCurrentUser(data.user);
+        setAuthToken(data.token);
+        setIsLoggedIn(true);
+        setIsLoginModalOpen(false);
+        addBackupActivityLog('auth', 'success', `User logged in: ${data.user.name || phone}`);
+        refreshAll();
+        return { success: true, user: data.user, message: data.message || 'Login successful.' };
+      } else {
+        const failMsg = data.message || 'Invalid mobile number or password.';
+        addBackupActivityLog('auth', 'failed', `Login failed for ${phone}: ${failMsg}`);
+        return { success: false, message: failMsg };
+      }
+    } catch (err) {
+      const errDetail = err.name === 'AbortError' ? 'Connection timeout (10s)' : (err.message || 'Network request failed');
+      addBackupActivityLog('auth', 'failed', `Login error: ${errDetail}`);
+      return { success: false, message: `Login failed: ${errDetail}` };
+    }
+  };
+
+  const logoutUser = async () => {
+    try {
+      // Optional: notify server
+      try {
+        fetch(API_CONFIG.AUTH_LOGOUT_URL, {
+          method: 'POST',
+          headers: API_CONFIG.HEADERS,
+        }).catch(() => {});
+      } catch (e) {}
+
+      clearAuthSession();
+      setCurrentUser(null);
+      setAuthToken(null);
+      setIsLoggedIn(false);
+      addBackupActivityLog('auth', 'info', 'User logged out');
+      refreshAll();
+      return { success: true };
+    } catch (e) {
+      console.error('Logout error:', e);
+      return { success: false, message: e.message };
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -352,6 +448,16 @@ export const AppProvider = ({ children }) => {
         updateImageSchedule,
         toggleImageScheduleEnabled,
         eraseLocalDeviceData,
+
+        // Authentication State & Actions
+        currentUser,
+        authToken,
+        isLoggedIn,
+        isLoginModalOpen,
+        openLoginModal,
+        closeLoginModal,
+        loginUser,
+        logoutUser,
 
         // Modals & Navigation
         isAddTransactionOpen,

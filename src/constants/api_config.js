@@ -8,7 +8,8 @@
  * If the server domain or backend directory structure changes, update this single file.
  */
 
-const BASE_DOMAIN = 'https://gmsexpense.tplpro.in';
+// const BASE_DOMAIN = 'https://gmsexpense.tplpro.in';
+const BASE_DOMAIN = 'https://50df-2401-4900-b519-8a3c-487-9fb4-de-1d64.ngrok-free.app';
 const API_VERSION = 'v1';
 const API_BASE = `${BASE_DOMAIN}/api/${API_VERSION}`;
 
@@ -51,13 +52,15 @@ export const API_CONFIG = {
   DOWNLOAD_BACKUP_URL: `${API_BASE}/download_backup.php`,
 
   // -------------------------------------------------------------
-  // 5. Authentication & Account Management (PLANNED / FUTURE CRM)
+  // 5. Authentication & Account Management (PHP Endpoints)
   // -------------------------------------------------------------
-  /** [PLANNED] User login */
+  /** User login with mobile number & password */
   AUTH_LOGIN_URL: `${API_BASE}/login.php`,
-  /** [PLANNED] User registration */
+  /** User logout / session invalidate */
+  AUTH_LOGOUT_URL: `${API_BASE}/logout.php`,
+  /** User registration */
   AUTH_REGISTER_URL: `${API_BASE}/register.php`,
-  /** [PLANNED] Bearer token verification */
+  /** Bearer token verification */
   AUTH_VERIFY_TOKEN_URL: `${API_BASE}/verify_token.php`,
 
   // -------------------------------------------------------------
@@ -75,6 +78,7 @@ export const API_CONFIG = {
   HEADERS: {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
+    'ngrok-skip-browser-warning': 'true',
   },
 };
 

@@ -340,9 +340,10 @@ The backend API is implemented in **PHP 8.x** running on an Apache/Nginx web ser
 | **CURRENT** | Media Storage | `image_upload.php` | Single receipt image upload via multipart/form-data. |
 | **CURRENT** | Media Storage | `image_upload_batch.php` | Batch multipart upload of multiple receipt photos. |
 | **CURRENT** | Backup Status | `backup_status.php` | Returns server backup statistics and device sync timestamps. |
+| **CURRENT** | Auth | `login.php` | User login with mobile number and password. |
+| **CURRENT** | Auth | `logout.php` | User logout and session clearing. |
 | *PLANNED* | Restore | `restore.php` | Full cloud backup restore to recreate local SQLite ledger. |
 | *PLANNED* | Archive | `download_backup.php` | Generates downloadable SQL/JSON server backup archive. |
-| *PLANNED* | Auth | `login.php` | User authentication & JWT/API token generation. |
 | *PLANNED* | Auth | `register.php` | User registration for cloud multi-device sync. |
 | *PLANNED* | Auth | `verify_token.php` | Token validation. |
 | *PLANNED* | Khata Master | `parties_sync.php` | Standalone customer & vendor list synchronization. |
@@ -355,6 +356,8 @@ The backend API is implemented in **PHP 8.x** running on an Apache/Nginx web ser
 | API Name | PHP Endpoint File | HTTP Method | Request Content-Type | Payload Format | Response Format | Status |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Server Health** | `health.php` | `GET` | `None` | Query params: `?device_uuid=...` | JSON | **CURRENT** |
+| **User Login** | `login.php` | `POST` | `application/json` | `{ phone, password }` | JSON | **CURRENT** |
+| **User Logout** | `logout.php` | `POST` | `application/json` | `None` | JSON | **CURRENT** |
 | **Transaction Sync** | `transactions_sync.php` | `POST` | `application/json` | JSON Batch array of transaction objects | JSON | **CURRENT** |
 | **Batch Sync** | `batch_sync.php` | `POST` | `application/json` | JSON Multi-entity batch payload | JSON | **CURRENT** |
 | **Image Upload** | `image_upload.php` | `POST` | `multipart/form-data` | `file`, `transaction_uuid`, `file_name` | JSON | **CURRENT** |
@@ -362,7 +365,6 @@ The backend API is implemented in **PHP 8.x** running on an Apache/Nginx web ser
 | **Backup Status** | `backup_status.php` | `GET` | `None` | Query params: `?device_uuid=...` | JSON | **CURRENT** |
 | **Cloud Restore** | `restore.php` | `POST` | `application/json` | `{ user_id, device_uuid }` | JSON | *PLANNED* |
 | **Download Backup** | `download_backup.php` | `GET` | `None` | Query params: `?token=...` | JSON/Zip | *PLANNED* |
-| **User Login** | `login.php` | `POST` | `application/json` | `{ email, password }` | JSON | *PLANNED* |
 | **User Register** | `register.php` | `POST` | `application/json` | `{ name, email, password, phone }` | JSON | *PLANNED* |
 
 ---

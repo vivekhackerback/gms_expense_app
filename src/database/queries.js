@@ -638,6 +638,63 @@ export const getCategoryBreakdown = (startDate = null, endDate = null, type = 'g
 
 // -------------------------------------------------------------
 // -------------------------------------------------------------
+// Authentication Session Helpers
+// -------------------------------------------------------------
+export const getAuthSession = () => {
+  try {
+    const db = getDatabase();
+    const tokenRow = db.getFirstSync("SELECT value FROM settings WHERE key = 'auth_token';");
+    const userRow = db.getFirstSync("SELECT value FROM settings WHERE key = 'auth_user';");
+    const token = tokenRow?.value || null;
+    let user = null;
+    if (userRow?.value) {
+      try {
+        user = JSON.parse(userRow.value);
+      } catch (e) {
+        user = null;
+      }
+    }
+    return { token, user, isLoggedIn: Boolean(token && user) };
+  } catch (e) {
+    return { token: null, user: null, isLoggedIn: false };
+  }
+};
+
+export const saveAuthSession = (token, user) => {
+  try {
+    const db = getDatabase();
+    db.withTransactionSync(() => {
+      db.runSync(
+        "INSERT INTO settings (key, value) VALUES ('auth_token', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+        [token || '']
+      );
+      db.runSync(
+        "INSERT INTO settings (key, value) VALUES ('auth_user', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+        [JSON.stringify(user || {})]
+      );
+    });
+    return true;
+  } catch (e) {
+    console.error('Failed to save auth session:', e);
+    return false;
+  }
+};
+
+export const clearAuthSession = () => {
+  try {
+    const db = getDatabase();
+    db.withTransactionSync(() => {
+      db.runSync("DELETE FROM settings WHERE key = 'auth_token';");
+      db.runSync("DELETE FROM settings WHERE key = 'auth_user';");
+    });
+    return true;
+  } catch (e) {
+    console.error('Failed to clear auth session:', e);
+    return false;
+  }
+};
+
+// -------------------------------------------------------------
 // Sync & Backup Helpers
 // -------------------------------------------------------------
 export const getSyncStats = () => {

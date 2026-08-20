@@ -27,6 +27,7 @@ import { PartyDetailScreen } from '../screens/PartyDetailScreen';
 import { FullScreenImageViewer } from '../components/modals/FullScreenImageViewer';
 import { ManageCategoriesModal } from '../components/modals/ManageCategoriesModal';
 import { ManagePartiesModal } from '../components/modals/ManagePartiesModal';
+import { LoginModal } from '../components/modals/LoginModal';
 import { FloatingAddButton } from '../components/common/FloatingAddButton';
 
 const TABS = [
@@ -113,6 +114,7 @@ export const Navigation = () => {
       <FullScreenImageViewer />
       <ManageCategoriesModal />
       <ManagePartiesModal />
+      <LoginModal />
     </View>
   );
 };
