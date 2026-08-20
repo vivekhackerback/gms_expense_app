@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { initDatabase } from '../database/db';
 import {
   getBalances,
@@ -6,6 +6,9 @@ import {
   getParties,
   getCategories,
   getSyncStats,
+  getDetailedBackupReportStats,
+  updateSetting,
+  eraseLocalDeviceDataOnly,
   addTransaction as dbAddTransaction,
   updateTransaction as dbUpdateTransaction,
   deleteTransaction as dbDeleteTransaction,
@@ -16,7 +19,13 @@ import {
   updateCategory as dbUpdateCategory,
   deleteCategory as dbDeleteCategory,
 } from '../database/queries';
-import { checkNetworkConnectivity, processSyncQueue } from '../services/syncService';
+import {
+  checkNetworkConnectivity,
+  syncTextData,
+  uploadPendingImages,
+  checkScheduledImageBackup,
+  autoSyncTextIfConnected,
+} from '../services/syncService';
 
 const AppContext = createContext(null);
 
@@ -42,8 +51,14 @@ export const AppProvider = ({ children }) => {
   const [parties, setParties] = useState([]);
   const [categories, setCategories] = useState([]);
   const [syncStats, setSyncStats] = useState({ pendingCount: 0, totalTransactions: 0, lastSync: null });
-  const [networkStatus, setNetworkStatus] = useState({ isConnected: true, type: 'UNKNOWN' });
+  const [detailedBackupStats, setDetailedBackupStats] = useState({
+    transactions: { total: 0, synced: 0, pending: 0, failed: 0, lastSync: null },
+    images: { total: 0, uploaded: 0, pending: 0, failed: 0, lastSync: null, scheduleTime: '02:00', scheduleEnabled: true },
+    system: { autoSyncEnabled: true, queuePending: 0 },
+  });
+  const [networkStatus, setNetworkStatus] = useState({ isConnected: true, type: 'UNKNOWN', isWifi: false });
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isImageSyncing, setIsImageSyncing] = useState(false);
 
   // Modal / Navigation Overlay States
   const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
@@ -58,6 +73,9 @@ export const AppProvider = ({ children }) => {
   const [fullScreenImageUri, setFullScreenImageUri] = useState(null);
   const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
   const [isManagePartiesOpen, setIsManagePartiesOpen] = useState(false);
+  const [isBackupReportOpen, setIsBackupReportOpen] = useState(false);
+
+  const autoSyncRunningRef = useRef(false);
 
   // Refresh all local data instantly
   const refreshAll = useCallback(() => {
@@ -76,10 +94,42 @@ export const AppProvider = ({ children }) => {
 
       const stats = getSyncStats();
       setSyncStats(stats);
+
+      const detailed = getDetailedBackupReportStats();
+      setDetailedBackupStats(detailed);
     } catch (err) {
       console.error('Error refreshing state:', err);
     }
   }, []);
+
+  // Background Auto-Sync Daemon
+  const runBackgroundChecks = useCallback(async () => {
+    if (autoSyncRunningRef.current) return;
+    autoSyncRunningRef.current = true;
+
+    try {
+      const net = await checkNetworkConnectivity();
+      setNetworkStatus(net);
+
+      if (net.isConnected) {
+        // 1. Auto-sync pending text data
+        const textRes = await autoSyncTextIfConnected();
+        if (textRes && textRes.success && textRes.count > 0) {
+          refreshAll();
+        }
+
+        // 2. Check scheduled image backup
+        const imgRes = await checkScheduledImageBackup();
+        if (imgRes && imgRes.success && imgRes.count > 0) {
+          refreshAll();
+        }
+      }
+    } catch (err) {
+      console.warn('Background sync check error:', err);
+    } finally {
+      autoSyncRunningRef.current = false;
+    }
+  }, [refreshAll]);
 
   // Initialize DB and initial state on mount
   useEffect(() => {
@@ -90,13 +140,23 @@ export const AppProvider = ({ children }) => {
         const net = await checkNetworkConnectivity();
         setNetworkStatus(net);
         setIsInitialized(true);
+
+        // Run initial sync check
+        runBackgroundChecks();
       } catch (e) {
         console.error('Initialization error:', e);
         setIsInitialized(true);
       }
     };
     initialize();
-  }, [refreshAll]);
+
+    // Set up periodic sync daemon check every 25 seconds
+    const interval = setInterval(() => {
+      runBackgroundChecks();
+    }, 25000);
+
+    return () => clearInterval(interval);
+  }, [refreshAll, runBackgroundChecks]);
 
   // Modal Actions
   const openAddTransaction = (options = {}) => {
@@ -147,6 +207,15 @@ export const AppProvider = ({ children }) => {
     setFullScreenImageUri(null);
   };
 
+  const openBackupReport = () => {
+    refreshAll();
+    setIsBackupReportOpen(true);
+  };
+
+  const closeBackupReport = () => {
+    setIsBackupReportOpen(false);
+  };
+
   // Transaction Operations
   const saveTransaction = (data) => {
     let result;
@@ -156,12 +225,23 @@ export const AppProvider = ({ children }) => {
       result = dbAddTransaction(data);
     }
     refreshAll();
+
+    // Trigger auto-sync in background after saving
+    setTimeout(() => {
+      runBackgroundChecks();
+    }, 500);
+
     return result;
   };
 
   const deleteTransactionItem = (id) => {
     const success = dbDeleteTransaction(id);
     refreshAll();
+
+    setTimeout(() => {
+      runBackgroundChecks();
+    }, 500);
+
     return success;
   };
 
@@ -201,14 +281,40 @@ export const AppProvider = ({ children }) => {
     return success;
   };
 
-  // Sync Trigger
+  // Sync Actions
   const triggerSync = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    const result = await processSyncQueue();
+    const result = await syncTextData();
     refreshAll();
     setIsSyncing(false);
     return result;
+  };
+
+  const triggerImageSync = async () => {
+    if (isImageSyncing) return;
+    setIsImageSyncing(true);
+    const result = await uploadPendingImages();
+    refreshAll();
+    setIsImageSyncing(false);
+    return result;
+  };
+
+  const updateImageSchedule = (timeString) => {
+    updateSetting('image_backup_time', timeString);
+    refreshAll();
+  };
+
+  const toggleImageScheduleEnabled = (enabled) => {
+    updateSetting('image_backup_enabled', enabled ? '1' : '0');
+    refreshAll();
+  };
+
+  // Safe Local-Only Erase
+  const eraseLocalDeviceData = () => {
+    const success = eraseLocalDeviceDataOnly();
+    refreshAll();
+    return success;
   };
 
   return (
@@ -222,10 +328,16 @@ export const AppProvider = ({ children }) => {
         parties,
         categories,
         syncStats,
+        detailedBackupStats,
         networkStatus,
         isSyncing,
+        isImageSyncing,
         refreshAll,
         triggerSync,
+        triggerImageSync,
+        updateImageSchedule,
+        toggleImageScheduleEnabled,
+        eraseLocalDeviceData,
 
         // Modals & Navigation
         isAddTransactionOpen,
@@ -253,6 +365,10 @@ export const AppProvider = ({ children }) => {
         isManagePartiesOpen,
         setIsManagePartiesOpen,
 
+        isBackupReportOpen,
+        openBackupReport,
+        closeBackupReport,
+
         // Data Mutations
         saveTransaction,
         deleteTransactionItem,
@@ -274,3 +390,4 @@ export const useApp = () => {
   }
   return context;
 };
+

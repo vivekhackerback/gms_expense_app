@@ -6,10 +6,10 @@ import { Typography, Spacing, BorderRadius } from '../../constants/theme';
 import { useApp } from '../../context/AppContext';
 
 export const SyncBadge = () => {
-  const { syncStats, isSyncing, triggerSync, networkStatus } = useApp();
+  const { syncStats, isSyncing, openBackupReport, networkStatus } = useApp();
 
   const handlePress = () => {
-    triggerSync();
+    openBackupReport();
   };
 
   if (isSyncing) {

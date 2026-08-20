@@ -26,6 +26,7 @@ import { PartyDetailScreen } from '../screens/PartyDetailScreen';
 import { FullScreenImageViewer } from '../components/modals/FullScreenImageViewer';
 import { ManageCategoriesModal } from '../components/modals/ManageCategoriesModal';
 import { ManagePartiesModal } from '../components/modals/ManagePartiesModal';
+import { BackupReportScreen } from '../screens/BackupReportScreen';
 import { FloatingAddButton } from '../components/common/FloatingAddButton';
 
 const TABS = [
@@ -38,7 +39,7 @@ const TABS = [
 
 export const Navigation = () => {
   const insets = useSafeAreaInsets();
-  const { activeTab, setActiveTab, openAddTransaction } = useApp();
+  const { activeTab, setActiveTab, isBackupReportOpen, closeBackupReport } = useApp();
 
   const renderActiveScreen = () => {
     switch (activeTab) {
@@ -110,6 +111,7 @@ export const Navigation = () => {
       <FullScreenImageViewer />
       <ManageCategoriesModal />
       <ManagePartiesModal />
+      <BackupReportScreen visible={isBackupReportOpen} onClose={closeBackupReport} />
     </View>
   );
 };

@@ -118,6 +118,10 @@ export const initDatabase = () => {
   db.runSync(`INSERT OR IGNORE INTO settings (key, value) VALUES ('currency', '₹');`);
   db.runSync(`INSERT OR IGNORE INTO settings (key, value) VALUES ('app_version', '1.0.0');`);
   db.runSync(`INSERT OR IGNORE INTO settings (key, value) VALUES ('last_sync', '');`);
+  db.runSync(`INSERT OR IGNORE INTO settings (key, value) VALUES ('last_image_sync', '');`);
+  db.runSync(`INSERT OR IGNORE INTO settings (key, value) VALUES ('image_backup_time', '02:00');`);
+  db.runSync(`INSERT OR IGNORE INTO settings (key, value) VALUES ('image_backup_enabled', '1');`);
+  db.runSync(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_sync_enabled', '1');`);
 
   return db;
 };

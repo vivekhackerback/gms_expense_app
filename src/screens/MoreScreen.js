@@ -13,7 +13,6 @@ import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { Header } from '../components/common/Header';
 import { exportTransactionsToCSV, exportFullJSONBackup } from '../services/exportService';
-import { wipeAndResetDatabase } from '../database/queries';
 
 export const MoreScreen = () => {
   const {
@@ -23,6 +22,7 @@ export const MoreScreen = () => {
     networkStatus,
     setIsManageCategoriesOpen,
     setIsManagePartiesOpen,
+    openBackupReport,
     refreshAll,
   } = useApp();
 
@@ -39,25 +39,6 @@ export const MoreScreen = () => {
 
   const handleExportJSON = async () => {
     await exportFullJSONBackup();
-  };
-
-  const handleResetData = () => {
-    Alert.alert(
-      'Reset All Data',
-      'This will erase all local transactions, custom categories, and parties. This action cannot be undone. Are you sure?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset Everything',
-          style: 'destructive',
-          onPress: () => {
-            wipeAndResetDatabase();
-            refreshAll();
-            Alert.alert('Data Reset', 'All transactions and local data have been cleared.');
-          },
-        },
-      ]
-    );
   };
 
   const renderSection = (title, items) => (
@@ -112,7 +93,11 @@ export const MoreScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         {/* Sync Status Banner */}
-        <View style={[styles.syncStatusCard, Shadows.sm]}>
+        <TouchableOpacity
+          style={[styles.syncStatusCard, Shadows.sm]}
+          onPress={openBackupReport}
+          activeOpacity={0.85}
+        >
           <View style={styles.syncStatusHeader}>
             <View style={styles.syncIconContainer}>
               <Ionicons
@@ -128,23 +113,33 @@ export const MoreScreen = () => {
                   : 'All data is saved & synchronized'}
               </Text>
               <Text style={styles.syncStateSub}>
-                Network: {networkStatus.isConnected ? 'Connected' : 'Offline'} · Local SQLite Active
+                Network: {networkStatus.isConnected ? 'Connected' : 'Offline'} · Tap for Backup Report &rarr;
               </Text>
             </View>
           </View>
 
-          <TouchableOpacity
-            style={[styles.syncTriggerBtn, isSyncing && { opacity: 0.7 }]}
-            onPress={handleManualSync}
-            disabled={isSyncing}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="refresh-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.syncTriggerBtnText}>
-              {isSyncing ? 'Syncing...' : 'Sync Now'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+          <View style={styles.syncCardActionRow}>
+            <TouchableOpacity
+              style={[styles.syncTriggerBtn, isSyncing && { opacity: 0.7 }]}
+              onPress={handleManualSync}
+              disabled={isSyncing}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="refresh-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.syncTriggerBtnText}>
+                {isSyncing ? 'Syncing...' : 'Sync Now'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.viewReportBtn}
+              onPress={openBackupReport}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.viewReportBtnText}>View Report</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
 
         {/* Master Management */}
         {renderSection('MANAGEMENT', [
@@ -169,6 +164,14 @@ export const MoreScreen = () => {
         {/* Data & Backup */}
         {renderSection('DATA & BACKUP', [
           {
+            icon: 'cloud-done-outline',
+            iconColor: Colors.online,
+            iconBg: Colors.onlineLight,
+            label: 'Backup & Sync Report',
+            sublabel: 'Live sync status, image schedule & metrics',
+            onPress: openBackupReport,
+          },
+          {
             icon: 'document-text-outline',
             iconColor: Colors.got,
             iconBg: Colors.gotBg,
@@ -183,15 +186,6 @@ export const MoreScreen = () => {
             label: 'Backup Data (JSON)',
             sublabel: 'Full offline database backup',
             onPress: handleExportJSON,
-          },
-          {
-            icon: 'trash-bin-outline',
-            iconColor: Colors.danger,
-            iconBg: Colors.gaveBg,
-            label: 'Reset All Data',
-            sublabel: 'Wipe all transactions and local ledger',
-            isDestructive: true,
-            onPress: handleResetData,
           },
         ])}
 
@@ -267,7 +261,12 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
   },
+  syncCardActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   syncTriggerBtn: {
+    flex: 1.2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -277,7 +276,22 @@ const styles = StyleSheet.create({
   },
   syncTriggerBtnText: {
     color: '#FFFFFF',
-    fontSize: Typography.fontSizes.sm,
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  viewReportBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceSubtle,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  viewReportBtnText: {
+    color: Colors.textPrimary,
+    fontSize: Typography.fontSizes.xs + 1,
     fontWeight: Typography.fontWeights.bold,
   },
   section: {

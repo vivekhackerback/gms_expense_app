@@ -637,6 +637,7 @@ export const getCategoryBreakdown = (startDate = null, endDate = null, type = 'g
 };
 
 // -------------------------------------------------------------
+// -------------------------------------------------------------
 // Sync & Backup Helpers
 // -------------------------------------------------------------
 export const getSyncStats = () => {
@@ -660,12 +661,92 @@ export const getSyncStats = () => {
   };
 };
 
+export const getDetailedBackupReportStats = () => {
+  const db = getDatabase();
+
+  // 1. Transactions breakdown
+  const txStats = db.getFirstSync(`
+    SELECT
+      COUNT(*) as total,
+      COALESCE(SUM(CASE WHEN sync_status = 'synced' THEN 1 ELSE 0 END), 0) as synced,
+      COALESCE(SUM(CASE WHEN sync_status = 'pending' OR sync_status IS NULL THEN 1 ELSE 0 END), 0) as pending,
+      COALESCE(SUM(CASE WHEN sync_status = 'failed' THEN 1 ELSE 0 END), 0) as failed
+    FROM transactions;
+  `) || { total: 0, synced: 0, pending: 0, failed: 0 };
+
+  // 2. Images breakdown
+  const imgStats = db.getFirstSync(`
+    SELECT
+      COUNT(*) as total,
+      COALESCE(SUM(CASE WHEN upload_status = 'uploaded' THEN 1 ELSE 0 END), 0) as uploaded,
+      COALESCE(SUM(CASE WHEN upload_status = 'pending' OR upload_status IS NULL THEN 1 ELSE 0 END), 0) as pending,
+      COALESCE(SUM(CASE WHEN upload_status = 'failed' THEN 1 ELSE 0 END), 0) as failed
+    FROM transaction_images;
+  `) || { total: 0, uploaded: 0, pending: 0, failed: 0 };
+
+  // 3. Settings & Timestamps
+  const settingsRows = db.getAllSync("SELECT key, value FROM settings;");
+  const settingsMap = {};
+  for (const s of settingsRows) {
+    settingsMap[s.key] = s.value;
+  }
+
+  // 4. Sync Queue Pending Count
+  const queuePending = db.getFirstSync(
+    "SELECT COUNT(*) as count FROM sync_queue WHERE status = 'pending';"
+  )?.count || 0;
+
+  return {
+    transactions: {
+      total: Number(txStats.total || 0),
+      synced: Number(txStats.synced || 0),
+      pending: Number(txStats.pending || 0),
+      failed: Number(txStats.failed || 0),
+      lastSync: settingsMap['last_sync'] || null,
+    },
+    images: {
+      total: Number(imgStats.total || 0),
+      uploaded: Number(imgStats.uploaded || 0),
+      pending: Number(imgStats.pending || 0),
+      failed: Number(imgStats.failed || 0),
+      lastSync: settingsMap['last_image_sync'] || null,
+      scheduleTime: settingsMap['image_backup_time'] || '02:00',
+      scheduleEnabled: settingsMap['image_backup_enabled'] !== '0',
+    },
+    system: {
+      autoSyncEnabled: settingsMap['auto_sync_enabled'] !== '0',
+      queuePending: Number(queuePending || 0),
+    },
+  };
+};
+
+export const getSetting = (key, defaultValue = '') => {
+  const db = getDatabase();
+  const row = db.getFirstSync("SELECT value FROM settings WHERE key = ?;", [key]);
+  return row ? row.value : defaultValue;
+};
+
+export const updateSetting = (key, value) => {
+  const db = getDatabase();
+  db.runSync(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+    [key, String(value)]
+  );
+};
+
 export const markSyncQueueComplete = () => {
   const db = getDatabase();
   const now = new Date().toISOString();
   db.runSync("UPDATE sync_queue SET status = 'synced' WHERE status = 'pending';");
   db.runSync("UPDATE transactions SET sync_status = 'synced' WHERE sync_status = 'pending';");
-  db.runSync("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_sync', ?);", [now]);
+  db.runSync("INSERT INTO settings (key, value) VALUES ('last_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
+};
+
+export const markAllImagesUploaded = () => {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  db.runSync("UPDATE transaction_images SET upload_status = 'uploaded' WHERE upload_status = 'pending' OR upload_status = 'failed';");
+  db.runSync("INSERT INTO settings (key, value) VALUES ('last_image_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
 };
 
 export const exportAllData = () => {
@@ -690,14 +771,26 @@ export const exportAllData = () => {
   };
 };
 
-export const wipeAndResetDatabase = () => {
+/**
+ * Erases local SQLite tables and cached data ONLY.
+ * Does NOT generate deletion queue items to server, preserving server-side backups!
+ */
+export const eraseLocalDeviceDataOnly = () => {
   const db = getDatabase();
-  db.execSync(`
-    DELETE FROM transaction_images;
-    DELETE FROM sync_queue;
-    DELETE FROM transactions;
-    DELETE FROM parties;
-    DELETE FROM categories WHERE is_custom = 1;
-    UPDATE settings SET value = '' WHERE key = 'last_sync';
-  `);
+  
+  db.withTransactionSync(() => {
+    db.runSync('DELETE FROM transaction_images;');
+    db.runSync('DELETE FROM sync_queue;');
+    db.runSync('DELETE FROM transactions;');
+    db.runSync('DELETE FROM parties;');
+    db.runSync('DELETE FROM categories WHERE is_custom = 1;');
+    db.runSync("UPDATE categories SET is_deleted = 0;");
+    db.runSync("UPDATE settings SET value = '' WHERE key = 'last_sync';");
+    db.runSync("UPDATE settings SET value = '' WHERE key = 'last_image_sync';");
+  });
+  return true;
+};
+
+export const wipeAndResetDatabase = () => {
+  return eraseLocalDeviceDataOnly();
 };
