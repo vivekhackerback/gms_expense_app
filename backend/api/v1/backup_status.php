@@ -26,8 +26,8 @@ try {
         'server_status'      => 'online',
         'total_transactions' => intval($txCount),
         'total_images'       => intval($imgCount),
-        'last_backup_time'   => $lastTxTime,
-        'server_time'        => gmdate('Y-m-d\TH:i:s\Z')
+        'last_backup_time'   => $lastTxTime ? (is_numeric($lastTxTime) ? intval($lastTxTime) : strtotime($lastTxTime)) : null,
+        'server_time'        => time()
     ], 200);
 } catch (Exception $e) {
     sendJsonResponse([

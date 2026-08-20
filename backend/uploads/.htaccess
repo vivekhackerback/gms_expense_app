@@ -1,0 +1,31 @@
+# ==============================================================================
+# Security Protection for Uploads Directory
+# Prevents execution of any server-side script or executable file
+# ==============================================================================
+
+# Disable script execution
+<FilesMatch "\.(php|phtml|php3|php4|php5|php7|php8|phps|cgi|pl|py|sh|bash|exe|asp|aspx|jsp|shtml|pl)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>
+
+# Prevent directory index listing and CGI execution
+Options -ExecCGI -Indexes
+
+# If PHP is running as Apache module, turn engine off in this folder
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php8.c>
+    php_flag engine off
+</IfModule>
+
+# Force correct MIME types for images
+<IfModule mod_mime.c>
+    AddType image/jpeg .jpg .jpeg
+    AddType image/png .png
+    AddType image/webp .webp
+</IfModule>

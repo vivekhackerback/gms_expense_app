@@ -43,7 +43,7 @@ $deviceUuid = isset($payload['device_uuid']) ? trim($payload['device_uuid']) : '
 $userId = 1; // Default tenant or extract from Auth token
 
 $syncedRecords = [];
-$now = gmdate('Y-m-d H:i:s');
+$now = time(); // Standard Unix timestamp in seconds
 
 try {
     $db->beginTransaction();
@@ -51,10 +51,10 @@ try {
     $stmt = $db->prepare("
         INSERT INTO transactions (
             user_id, client_uuid, party_id, category_id, type, payment_mode, 
-            amount, note, transaction_date, client_created_at, client_updated_at
+            amount, note, transaction_date, client_created_at, client_updated_at, server_synced_at
         ) VALUES (
             :user_id, :client_uuid, :party_id, :category_id, :type, :payment_mode, 
-            :amount, :note, :transaction_date, :client_created_at, :client_updated_at
+            :amount, :note, :transaction_date, :client_created_at, :client_updated_at, :server_synced_at
         ) ON DUPLICATE KEY UPDATE
             party_id = VALUES(party_id),
             category_id = VALUES(category_id),
@@ -64,7 +64,7 @@ try {
             note = VALUES(note),
             transaction_date = VALUES(transaction_date),
             client_updated_at = VALUES(client_updated_at),
-            server_updated_at = CURRENT_TIMESTAMP
+            server_synced_at = VALUES(server_synced_at)
     ");
 
     $selectStmt = $db->prepare("SELECT id FROM transactions WHERE client_uuid = :client_uuid LIMIT 1");
@@ -73,6 +73,18 @@ try {
         if (empty($rec['uuid']) || !isset($rec['amount']) || empty($rec['type'])) {
             continue;
         }
+
+        $txDate = isset($rec['transaction_date']) 
+            ? (is_numeric($rec['transaction_date']) ? intval($rec['transaction_date']) : strtotime($rec['transaction_date'])) 
+            : $now;
+
+        $clientCreatedAt = isset($rec['created_at']) 
+            ? (is_numeric($rec['created_at']) ? intval($rec['created_at']) : strtotime($rec['created_at'])) 
+            : $now;
+
+        $clientUpdatedAt = isset($rec['updated_at']) 
+            ? (is_numeric($rec['updated_at']) ? intval($rec['updated_at']) : strtotime($rec['updated_at'])) 
+            : $now;
 
         $stmt->execute([
             ':user_id'           => $userId,
@@ -83,9 +95,10 @@ try {
             ':payment_mode'      => (isset($rec['payment_mode']) && $rec['payment_mode'] === 'online') ? 'online' : 'cash',
             ':amount'            => floatval($rec['amount']),
             ':note'              => isset($rec['note']) ? trim($rec['note']) : null,
-            ':transaction_date'  => isset($rec['transaction_date']) ? date('Y-m-d H:i:s', strtotime($rec['transaction_date'])) : $now,
-            ':client_created_at' => isset($rec['created_at']) ? date('Y-m-d H:i:s', strtotime($rec['created_at'])) : $now,
-            ':client_updated_at' => isset($rec['updated_at']) ? date('Y-m-d H:i:s', strtotime($rec['updated_at'])) : $now,
+            ':transaction_date'  => $txDate,
+            ':client_created_at' => $clientCreatedAt,
+            ':client_updated_at' => $clientUpdatedAt,
+            ':server_synced_at'  => $now,
         ]);
 
         $selectStmt->execute([':client_uuid' => $rec['uuid']]);
@@ -106,7 +119,7 @@ try {
         'saved'            => true,
         'count'            => count($syncedRecords),
         'synced_records'   => $syncedRecords,
-        'server_timestamp' => gmdate('Y-m-d\TH:i:s\Z')
+        'server_timestamp' => $now
     ], 200);
 
 } catch (Exception $e) {

@@ -131,12 +131,12 @@ export const AddTransactionModal = () => {
   const setQuickDate = (daysAgo) => {
     const d = new Date();
     d.setDate(d.getDate() - daysAgo);
-    setSelectedDate(d.toISOString());
+    setSelectedDate(toUnixTimestamp(d));
     setIsDatePickerOpen(false);
   };
 
   const openCustomDatePicker = () => {
-    const current = new Date(selectedDate);
+    const current = parseToDate(selectedDate);
     setTempYear(current.getFullYear());
     setTempMonth(current.getMonth() + 1);
     setTempDay(current.getDate());
@@ -146,7 +146,7 @@ export const AddTransactionModal = () => {
   const applyCustomDate = () => {
     try {
       const d = new Date(tempYear, tempMonth - 1, tempDay, 12, 0, 0);
-      setSelectedDate(d.toISOString());
+      setSelectedDate(toUnixTimestamp(d));
       setIsDatePickerOpen(false);
     } catch (e) {
       Alert.alert('Invalid Date', 'Please enter a valid day, month, and year.');
@@ -154,10 +154,11 @@ export const AddTransactionModal = () => {
   };
 
   const { date: formattedDate } = formatFullDateTime(selectedDate);
-  const isToday = new Date(selectedDate).toDateString() === new Date().toDateString();
+  const selectedD = parseToDate(selectedDate);
+  const isToday = selectedD.toDateString() === new Date().toDateString();
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
-  const isYesterday = new Date(selectedDate).toDateString() === yesterday.toDateString();
+  const isYesterday = selectedD.toDateString() === yesterday.toDateString();
   const dateLabel = isToday ? 'Today' : isYesterday ? 'Yesterday' : formattedDate;
 
   const handleSave = () => {
@@ -176,7 +177,7 @@ export const AddTransactionModal = () => {
         categoryId: selectedCategoryId,
         partyId: selectedPartyId,
         note: note.trim(),
-        transactionDate: selectedDate,
+        transactionDate: toUnixTimestamp(selectedDate),
         images,
       });
       closeAddTransaction();

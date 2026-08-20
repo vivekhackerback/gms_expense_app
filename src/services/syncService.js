@@ -1,5 +1,6 @@
 import * as Network from 'expo-network';
 import API_CONFIG from '../constants/api_config';
+import { toUnixTimestamp } from '../utils/formatters';
 import {
   getSyncStats,
   getDetailedBackupReportStats,
@@ -15,6 +16,7 @@ import {
   getBackupActivityLogs,
   getSetting,
   updateSetting,
+  getAuthSession,
 } from '../database/queries';
 
 export const checkNetworkConnectivity = async () => {
@@ -253,9 +255,9 @@ export const syncTextData = async () => {
       payment_mode: t.payment_mode,
       amount: t.amount,
       note: t.note,
-      transaction_date: t.transaction_date,
-      created_at: t.created_at,
-      updated_at: t.updated_at,
+      transaction_date: toUnixTimestamp(t.transaction_date),
+      created_at: toUnixTimestamp(t.created_at),
+      updated_at: toUnixTimestamp(t.updated_at),
     })),
   };
 
@@ -328,6 +330,10 @@ export const uploadPendingImages = async () => {
   const imageIds = pendingImages.map(img => img.id);
   markImagesUploading(imageIds);
 
+  const auth = getAuthSession();
+  const userPhone = auth?.user?.phone || '9876543210';
+  const userId = auth?.user?.id || 1;
+
   let successCount = 0;
   const confirmedImages = [];
 
@@ -335,6 +341,11 @@ export const uploadPendingImages = async () => {
     try {
       const formData = new FormData();
       formData.append('transaction_uuid', img.transaction_uuid);
+      if (img.transaction_id) {
+        formData.append('transaction_id', String(img.transaction_id));
+      }
+      formData.append('phone', userPhone);
+      formData.append('user_id', String(userId));
       formData.append('file_name', img.file_name || 'receipt.jpg');
       formData.append('file', {
         uri: img.local_uri,
@@ -345,11 +356,16 @@ export const uploadPendingImages = async () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
+      const headers = {
+        'Accept': 'application/json',
+      };
+      if (auth?.token) {
+        headers['Authorization'] = `Bearer ${auth.token}`;
+      }
+
       const response = await fetch(API_CONFIG.IMAGE_UPLOAD_URL, {
         method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-        },
+        headers,
         body: formData,
         signal: controller.signal,
       });
