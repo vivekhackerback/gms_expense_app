@@ -12,7 +12,6 @@ import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { Header } from '../components/common/Header';
-import { exportTransactionsToCSV, exportFullJSONBackup } from '../services/exportService';
 
 export const MoreScreen = () => {
   const {
@@ -31,14 +30,6 @@ export const MoreScreen = () => {
     if (res) {
       Alert.alert('Sync Status', res.message);
     }
-  };
-
-  const handleExportCSV = async () => {
-    await exportTransactionsToCSV();
-  };
-
-  const handleExportJSON = async () => {
-    await exportFullJSONBackup();
   };
 
   const renderSection = (title, items) => (
@@ -170,22 +161,6 @@ export const MoreScreen = () => {
             label: 'Backup & Sync Report',
             sublabel: 'Live sync status, image schedule & metrics',
             onPress: openBackupReport,
-          },
-          {
-            icon: 'document-text-outline',
-            iconColor: Colors.got,
-            iconBg: Colors.gotBg,
-            label: 'Export to CSV',
-            sublabel: 'Download spreadsheet report',
-            onPress: handleExportCSV,
-          },
-          {
-            icon: 'archive-outline',
-            iconColor: '#B45309',
-            iconBg: Colors.cashBg,
-            label: 'Backup Data (JSON)',
-            sublabel: 'Full offline database backup',
-            onPress: handleExportJSON,
           },
         ])}
 

@@ -17,48 +17,162 @@ import { Colors } from '../../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
 
 const ICON_OPTIONS = [
+  // Food & Dining
   'restaurant-outline',
-  'airplane-outline',
-  'cart-outline',
-  'receipt-outline',
-  'home-outline',
-  'speedometer-outline',
-  'medkit-outline',
-  'school-outline',
-  'briefcase-outline',
-  'cash-outline',
-  'gift-outline',
-  'fitness-outline',
-  'car-outline',
-  'film-outline',
-  'game-controller-outline',
-  'wallet-outline',
-  'barbell-outline',
   'cafe-outline',
   'fast-food-outline',
+  'pizza-outline',
+  'beer-outline',
+  'wine-outline',
+  'nutrition-outline',
+  'ice-cream-outline',
+  'fish-outline',
+
+  // Shopping & Lifestyle
+  'cart-outline',
+  'bag-handle-outline',
+  'bag-outline',
+  'pricetag-outline',
+  'pricetags-outline',
   'shirt-outline',
-  'book-outline',
+  'glasses-outline',
+  'diamond-outline',
+  'basket-outline',
+  'gift-outline',
+
+  // Money, Finance & Business
+  'cash-outline',
+  'wallet-outline',
+  'card-outline',
+  'receipt-outline',
+  'calculator-outline',
+  'briefcase-outline',
+  'business-outline',
+  'trending-up-outline',
+  'trending-down-outline',
+  'stats-chart-outline',
+  'pie-chart-outline',
+  'bar-chart-outline',
+  'vault-outline',
+  'save-outline',
+
+  // Home & Utilities
+  'home-outline',
+  'flash-outline',
+  'water-outline',
+  'bulb-outline',
+  'tv-outline',
+  'wifi-outline',
+  'key-outline',
+  'bed-outline',
+  'trash-outline',
+  'construct-outline',
+  'hammer-outline',
   'build-outline',
+
+  // Vehicles & Transportation
+  'car-outline',
+  'car-sport-outline',
   'bus-outline',
+  'bicycle-outline',
+  'airplane-outline',
+  'train-outline',
+  'boat-outline',
+  'subway-outline',
+  'speedometer-outline',
+  'navigate-outline',
+  'map-outline',
+  'compass-outline',
+
+  // Health, Fitness & Care
+  'medkit-outline',
+  'fitness-outline',
+  'barbell-outline',
   'heart-outline',
+  'pulse-outline',
+  'bandage-outline',
+  'body-outline',
+  'cut-outline',
+  'happy-outline',
+
+  // Education & Office
+  'school-outline',
+  'book-outline',
+  'library-outline',
+  'pencil-outline',
+  'newspaper-outline',
+  'document-text-outline',
+  'folder-outline',
+  'attach-outline',
+  'easel-outline',
+
+  // Entertainment & Leisure
+  'film-outline',
+  'game-controller-outline',
+  'musical-notes-outline',
+  'headset-outline',
+  'camera-outline',
+  'videocam-outline',
+  'balloon-outline',
+  'football-outline',
+  'color-palette-outline',
+  'ticket-outline',
+
+  // Tech & Communication
+  'phone-portrait-outline',
+  'laptop-outline',
+  'desktop-outline',
+  'hardware-chip-outline',
+  'cloud-outline',
+  'mail-outline',
+  'chatbubble-ellipses-outline',
+  'call-outline',
+  'radio-outline',
+  'battery-charging-outline',
+
+  // People, Pets & Nature
+  'people-outline',
+  'person-outline',
+  'paw-outline',
+  'leaf-outline',
+  'flower-outline',
+  'star-outline',
+  'ribbon-outline',
+  'trophy-outline',
+  'shield-checkmark-outline',
+  'sparkles-outline',
   'grid-outline',
 ];
 
 const COLOR_OPTIONS = [
-  '#F97316',
-  '#0EA5E9',
-  '#EC4899',
-  '#8B5CF6',
-  '#6366F1',
-  '#EAB308',
-  '#EF4444',
-  '#14B8A6',
-  '#3B82F6',
-  '#10B981',
-  '#64748B',
-  '#84CC16',
-  '#A855F7',
-  '#F43F5E',
+  '#F97316', // Orange
+  '#EA580C', // Deep Orange
+  '#0EA5E9', // Sky Blue
+  '#0284C7', // Ocean Blue
+  '#3B82F6', // Blue
+  '#1D4ED8', // Navy Blue
+  '#EC4899', // Pink
+  '#DB2777', // Rose Pink
+  '#8B5CF6', // Purple
+  '#7C3AED', // Deep Purple
+  '#6366F1', // Indigo
+  '#4F46E5', // Royal Indigo
+  '#EAB308', // Yellow
+  '#CA8A04', // Amber
+  '#EF4444', // Red
+  '#DC2626', // Crimson Red
+  '#14B8A6', // Teal
+  '#0D9488', // Deep Teal
+  '#10B981', // Emerald
+  '#059669', // Forest Green
+  '#84CC16', // Lime
+  '#65A30D', // Olive Green
+  '#A855F7', // Violet
+  '#9333EA', // Dark Violet
+  '#F43F5E', // Rose
+  '#E11D48', // Ruby
+  '#64748B', // Slate Grey
+  '#475569', // Charcoal
 ];
 
 export const ManageCategoriesModal = () => {
