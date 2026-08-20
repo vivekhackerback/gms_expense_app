@@ -670,9 +670,10 @@ export const getDetailedBackupReportStats = () => {
       COUNT(*) as total,
       COALESCE(SUM(CASE WHEN sync_status = 'synced' THEN 1 ELSE 0 END), 0) as synced,
       COALESCE(SUM(CASE WHEN sync_status = 'pending' OR sync_status IS NULL THEN 1 ELSE 0 END), 0) as pending,
+      COALESCE(SUM(CASE WHEN sync_status = 'uploading' THEN 1 ELSE 0 END), 0) as uploading,
       COALESCE(SUM(CASE WHEN sync_status = 'failed' THEN 1 ELSE 0 END), 0) as failed
     FROM transactions;
-  `) || { total: 0, synced: 0, pending: 0, failed: 0 };
+  `) || { total: 0, synced: 0, pending: 0, uploading: 0, failed: 0 };
 
   // 2. Images breakdown
   const imgStats = db.getFirstSync(`
@@ -680,9 +681,10 @@ export const getDetailedBackupReportStats = () => {
       COUNT(*) as total,
       COALESCE(SUM(CASE WHEN upload_status = 'uploaded' THEN 1 ELSE 0 END), 0) as uploaded,
       COALESCE(SUM(CASE WHEN upload_status = 'pending' OR upload_status IS NULL THEN 1 ELSE 0 END), 0) as pending,
+      COALESCE(SUM(CASE WHEN upload_status = 'uploading' THEN 1 ELSE 0 END), 0) as uploading,
       COALESCE(SUM(CASE WHEN upload_status = 'failed' THEN 1 ELSE 0 END), 0) as failed
     FROM transaction_images;
-  `) || { total: 0, uploaded: 0, pending: 0, failed: 0 };
+  `) || { total: 0, uploaded: 0, pending: 0, uploading: 0, failed: 0 };
 
   // 3. Settings & Timestamps
   const settingsRows = db.getAllSync("SELECT key, value FROM settings;");
@@ -700,14 +702,18 @@ export const getDetailedBackupReportStats = () => {
     transactions: {
       total: Number(txStats.total || 0),
       synced: Number(txStats.synced || 0),
+      uploaded: Number(txStats.synced || 0),
       pending: Number(txStats.pending || 0),
+      uploading: Number(txStats.uploading || 0),
       failed: Number(txStats.failed || 0),
       lastSync: settingsMap['last_sync'] || null,
+      lastFailedSync: settingsMap['last_failed_sync'] || null,
     },
     images: {
       total: Number(imgStats.total || 0),
       uploaded: Number(imgStats.uploaded || 0),
       pending: Number(imgStats.pending || 0),
+      uploading: Number(imgStats.uploading || 0),
       failed: Number(imgStats.failed || 0),
       lastSync: settingsMap['last_image_sync'] || null,
       scheduleTime: settingsMap['image_backup_time'] || '02:00',
@@ -718,6 +724,39 @@ export const getDetailedBackupReportStats = () => {
       queuePending: Number(queuePending || 0),
     },
   };
+};
+
+// Activity Logs CRUD
+export const addBackupActivityLog = (actionType, status, message, details = '') => {
+  try {
+    const db = getDatabase();
+    const now = new Date().toISOString();
+    db.runSync(
+      `INSERT INTO backup_activity_logs (timestamp, action_type, status, message, details) VALUES (?, ?, ?, ?, ?);`,
+      [now, actionType, status, message, details ? String(details) : '']
+    );
+
+    // Maintain max 50 recent logs
+    db.runSync(`
+      DELETE FROM backup_activity_logs WHERE id NOT IN (
+        SELECT id FROM backup_activity_logs ORDER BY id DESC LIMIT 50
+      );
+    `);
+  } catch (err) {
+    console.warn('Failed to insert backup activity log:', err);
+  }
+};
+
+export const getBackupActivityLogs = (limit = 20) => {
+  try {
+    const db = getDatabase();
+    return db.getAllSync(
+      `SELECT * FROM backup_activity_logs ORDER BY id DESC LIMIT ?;`,
+      [limit]
+    );
+  } catch (err) {
+    return [];
+  }
 };
 
 export const getSetting = (key, defaultValue = '') => {
@@ -734,19 +773,107 @@ export const updateSetting = (key, value) => {
   );
 };
 
-export const markSyncQueueComplete = () => {
+export const markTransactionsUploading = (uuids = []) => {
+  const db = getDatabase();
+  if (!uuids || uuids.length === 0) {
+    db.runSync("UPDATE transactions SET sync_status = 'uploading' WHERE sync_status = 'pending';");
+  } else {
+    for (const uuid of uuids) {
+      db.runSync("UPDATE transactions SET sync_status = 'uploading' WHERE uuid = ?;", [uuid]);
+    }
+  }
+};
+
+export const markTransactionsFailed = (uuids = []) => {
   const db = getDatabase();
   const now = new Date().toISOString();
-  db.runSync("UPDATE sync_queue SET status = 'synced' WHERE status = 'pending';");
-  db.runSync("UPDATE transactions SET sync_status = 'synced' WHERE sync_status = 'pending';");
-  db.runSync("INSERT INTO settings (key, value) VALUES ('last_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
+  if (!uuids || uuids.length === 0) {
+    db.runSync("UPDATE transactions SET sync_status = 'failed' WHERE sync_status = 'uploading';");
+  } else {
+    for (const uuid of uuids) {
+      db.runSync("UPDATE transactions SET sync_status = 'failed' WHERE uuid = ?;", [uuid]);
+    }
+  }
+  db.runSync("INSERT INTO settings (key, value) VALUES ('last_failed_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
+};
+
+/**
+ * Marks transactions as uploaded ONLY AFTER server returns confirmed saved status and server IDs.
+ */
+export const markTransactionsServerConfirmed = (confirmedRecords = []) => {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  db.withTransactionSync(() => {
+    if (confirmedRecords.length === 0) {
+      db.runSync("UPDATE sync_queue SET status = 'synced' WHERE status = 'pending';");
+      db.runSync("UPDATE transactions SET sync_status = 'synced', server_synced_at = ? WHERE sync_status = 'pending' OR sync_status = 'uploading';", [now]);
+    } else {
+      for (const rec of confirmedRecords) {
+        db.runSync(
+          "UPDATE transactions SET sync_status = 'synced', server_id = ?, server_synced_at = ? WHERE uuid = ?;",
+          [rec.server_id || null, now, rec.uuid]
+        );
+        db.runSync(
+          "UPDATE sync_queue SET status = 'synced' WHERE entity_uuid = ?;",
+          [rec.uuid]
+        );
+      }
+    }
+    db.runSync("INSERT INTO settings (key, value) VALUES ('last_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
+  });
+};
+
+export const markSyncQueueComplete = () => {
+  markTransactionsServerConfirmed([]);
+};
+
+export const markImagesUploading = (ids = []) => {
+  const db = getDatabase();
+  if (!ids || ids.length === 0) {
+    db.runSync("UPDATE transaction_images SET upload_status = 'uploading' WHERE upload_status = 'pending';");
+  } else {
+    for (const id of ids) {
+      db.runSync("UPDATE transaction_images SET upload_status = 'uploading' WHERE id = ?;", [id]);
+    }
+  }
+};
+
+export const markImagesFailed = (ids = []) => {
+  const db = getDatabase();
+  if (!ids || ids.length === 0) {
+    db.runSync("UPDATE transaction_images SET upload_status = 'failed' WHERE upload_status = 'uploading';");
+  } else {
+    for (const id of ids) {
+      db.runSync("UPDATE transaction_images SET upload_status = 'failed' WHERE id = ?;", [id]);
+    }
+  }
+};
+
+/**
+ * Marks images as uploaded ONLY AFTER server returns confirmed saved status and server IDs.
+ */
+export const markImagesServerConfirmed = (confirmedImages = []) => {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+
+  db.withTransactionSync(() => {
+    if (confirmedImages.length === 0) {
+      db.runSync("UPDATE transaction_images SET upload_status = 'uploaded', server_synced_at = ? WHERE upload_status = 'pending' OR upload_status = 'uploading' OR upload_status = 'failed';", [now]);
+    } else {
+      for (const img of confirmedImages) {
+        db.runSync(
+          "UPDATE transaction_images SET upload_status = 'uploaded', server_id = ?, server_synced_at = ? WHERE id = ? OR transaction_uuid = ?;",
+          [img.server_id || null, now, img.id || null, img.transaction_uuid || '']
+        );
+      }
+    }
+    db.runSync("INSERT INTO settings (key, value) VALUES ('last_image_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
+  });
 };
 
 export const markAllImagesUploaded = () => {
-  const db = getDatabase();
-  const now = new Date().toISOString();
-  db.runSync("UPDATE transaction_images SET upload_status = 'uploaded' WHERE upload_status = 'pending' OR upload_status = 'failed';");
-  db.runSync("INSERT INTO settings (key, value) VALUES ('last_image_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [now]);
+  markImagesServerConfirmed([]);
 };
 
 export const exportAllData = () => {

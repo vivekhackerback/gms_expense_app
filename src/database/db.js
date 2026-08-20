@@ -84,6 +84,15 @@ export const initDatabase = () => {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS backup_activity_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      message TEXT NOT NULL,
+      details TEXT
+    );
+
     -- Indexes for high-performance querying
     CREATE INDEX IF NOT EXISTS idx_tx_uuid ON transactions(uuid);
     CREATE INDEX IF NOT EXISTS idx_tx_party ON transactions(party_id);
@@ -93,14 +102,29 @@ export const initDatabase = () => {
     CREATE INDEX IF NOT EXISTS idx_tx_mode ON transactions(payment_mode);
     CREATE INDEX IF NOT EXISTS idx_tx_images_tx ON transaction_images(transaction_uuid);
     CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_backup_logs ON backup_activity_logs(timestamp);
   `);
 
-  // Migration for is_deleted column if database was previously created
+  // Migrations for is_deleted and server_id columns
   try {
     db.execSync('ALTER TABLE categories ADD COLUMN is_deleted INTEGER DEFAULT 0;');
-  } catch (e) {
-    // Column already exists
-  }
+  } catch (e) {}
+
+  try {
+    db.execSync('ALTER TABLE transactions ADD COLUMN server_id INTEGER NULL;');
+  } catch (e) {}
+
+  try {
+    db.execSync('ALTER TABLE transactions ADD COLUMN server_synced_at TEXT NULL;');
+  } catch (e) {}
+
+  try {
+    db.execSync('ALTER TABLE transaction_images ADD COLUMN server_id INTEGER NULL;');
+  } catch (e) {}
+
+  try {
+    db.execSync('ALTER TABLE transaction_images ADD COLUMN server_synced_at TEXT NULL;');
+  } catch (e) {}
 
   // Seed default categories if not already present
   const existingCategories = db.getAllSync('SELECT COUNT(*) as count FROM categories;');
