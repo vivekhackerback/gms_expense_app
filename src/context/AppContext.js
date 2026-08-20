@@ -401,6 +401,46 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const registerUser = async (name, phone, password, email = '') => {
+    try {
+      const net = await checkNetworkConnectivity();
+      if (!net.isConnected) {
+        return { success: false, message: 'Device is offline. Internet connection required to create an account.' };
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const response = await fetch(API_CONFIG.AUTH_REGISTER_URL, {
+        method: 'POST',
+        headers: API_CONFIG.HEADERS,
+        body: JSON.stringify({ name, phone, password, email }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+      if ((response.status === 200 || response.status === 201) && data.success === true) {
+        saveAuthSession(data.token, data.user);
+        setCurrentUser(data.user);
+        setAuthToken(data.token);
+        setIsLoggedIn(true);
+        setIsLoginModalOpen(false);
+        addBackupActivityLog('auth', 'success', `New account registered: ${data.user.name} (${data.user.phone})`);
+        refreshAll();
+        return { success: true, user: data.user, message: data.message || 'Account created successfully.' };
+      } else {
+        const failMsg = data.message || 'Unable to create account. Please check your details.';
+        addBackupActivityLog('auth', 'failed', `Registration failed for ${phone}: ${failMsg}`);
+        return { success: false, message: failMsg };
+      }
+    } catch (err) {
+      const errDetail = err.name === 'AbortError' ? 'Connection timeout (12s)' : (err.message || 'Network request failed');
+      addBackupActivityLog('auth', 'failed', `Registration error: ${errDetail}`);
+      return { success: false, message: `Registration failed: ${errDetail}` };
+    }
+  };
+
   const logoutUser = async () => {
     try {
       // Optional: notify server
@@ -421,6 +461,45 @@ export const AppProvider = ({ children }) => {
     } catch (e) {
       console.error('Logout error:', e);
       return { success: false, message: e.message };
+    }
+  };
+
+  const updateUserProfile = async (name, email = '') => {
+    try {
+      const net = await checkNetworkConnectivity();
+      if (!net.isConnected) {
+        return { success: false, message: 'Device is offline. Internet connection required to update profile.' };
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(API_CONFIG.AUTH_UPDATE_PROFILE_URL, {
+        method: 'POST',
+        headers: API_CONFIG.HEADERS,
+        body: JSON.stringify({
+          user_id: currentUser?.id,
+          phone: currentUser?.phone,
+          name: name.trim(),
+          email: email.trim(),
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+      if (response.ok && data.success === true && data.user) {
+        const updatedUser = { ...currentUser, ...data.user };
+        saveAuthSession(authToken, updatedUser);
+        setCurrentUser(updatedUser);
+        addBackupActivityLog('auth', 'success', `Profile updated: ${updatedUser.name}`);
+        refreshAll();
+        return { success: true, user: updatedUser, message: data.message || 'Profile updated.' };
+      } else {
+        return { success: false, message: data.message || 'Failed to update profile.' };
+      }
+    } catch (err) {
+      return { success: false, message: err.message || 'Profile update request failed.' };
     }
   };
 
@@ -457,6 +536,8 @@ export const AppProvider = ({ children }) => {
         openLoginModal,
         closeLoginModal,
         loginUser,
+        registerUser,
+        updateUserProfile,
         logoutUser,
 
         // Modals & Navigation

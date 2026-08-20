@@ -58,8 +58,10 @@ export const API_CONFIG = {
   AUTH_LOGIN_URL: `${API_BASE}/login.php`,
   /** User logout / session invalidate */
   AUTH_LOGOUT_URL: `${API_BASE}/logout.php`,
-  /** User registration */
+  /** User registration with mobile & password */
   AUTH_REGISTER_URL: `${API_BASE}/register.php`,
+  /** Complete or update user profile later */
+  AUTH_UPDATE_PROFILE_URL: `${API_BASE}/update_profile.php`,
   /** Bearer token verification */
   AUTH_VERIFY_TOKEN_URL: `${API_BASE}/verify_token.php`,
 

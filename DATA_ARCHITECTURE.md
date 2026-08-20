@@ -341,10 +341,10 @@ The backend API is implemented in **PHP 8.x** running on an Apache/Nginx web ser
 | **CURRENT** | Media Storage | `image_upload_batch.php` | Batch multipart upload of multiple receipt photos. |
 | **CURRENT** | Backup Status | `backup_status.php` | Returns server backup statistics and device sync timestamps. |
 | **CURRENT** | Auth | `login.php` | User login with mobile number and password. |
+| **CURRENT** | Auth | `register.php` | User registration for new mobile accounts. |
 | **CURRENT** | Auth | `logout.php` | User logout and session clearing. |
 | *PLANNED* | Restore | `restore.php` | Full cloud backup restore to recreate local SQLite ledger. |
 | *PLANNED* | Archive | `download_backup.php` | Generates downloadable SQL/JSON server backup archive. |
-| *PLANNED* | Auth | `register.php` | User registration for cloud multi-device sync. |
 | *PLANNED* | Auth | `verify_token.php` | Token validation. |
 | *PLANNED* | Khata Master | `parties_sync.php` | Standalone customer & vendor list synchronization. |
 | *PLANNED* | Category Master | `categories_sync.php` | Standalone custom categories sync. |
@@ -357,6 +357,7 @@ The backend API is implemented in **PHP 8.x** running on an Apache/Nginx web ser
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Server Health** | `health.php` | `GET` | `None` | Query params: `?device_uuid=...` | JSON | **CURRENT** |
 | **User Login** | `login.php` | `POST` | `application/json` | `{ phone, password }` | JSON | **CURRENT** |
+| **User Register** | `register.php` | `POST` | `application/json` | `{ name, phone, password, email }` | JSON | **CURRENT** |
 | **User Logout** | `logout.php` | `POST` | `application/json` | `None` | JSON | **CURRENT** |
 | **Transaction Sync** | `transactions_sync.php` | `POST` | `application/json` | JSON Batch array of transaction objects | JSON | **CURRENT** |
 | **Batch Sync** | `batch_sync.php` | `POST` | `application/json` | JSON Multi-entity batch payload | JSON | **CURRENT** |
@@ -365,7 +366,6 @@ The backend API is implemented in **PHP 8.x** running on an Apache/Nginx web ser
 | **Backup Status** | `backup_status.php` | `GET` | `None` | Query params: `?device_uuid=...` | JSON | **CURRENT** |
 | **Cloud Restore** | `restore.php` | `POST` | `application/json` | `{ user_id, device_uuid }` | JSON | *PLANNED* |
 | **Download Backup** | `download_backup.php` | `GET` | `None` | Query params: `?token=...` | JSON/Zip | *PLANNED* |
-| **User Register** | `register.php` | `POST` | `application/json` | `{ name, email, password, phone }` | JSON | *PLANNED* |
 
 ---
 

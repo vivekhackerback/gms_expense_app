@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   ScrollView,
   TouchableOpacity,
+  TextInput,
+  Modal,
+  ActivityIndicator,
   Alert,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -25,9 +28,37 @@ export const MoreScreen = () => {
     currentUser,
     isLoggedIn,
     openLoginModal,
+    updateUserProfile,
     logoutUser,
     refreshAll,
   } = useApp();
+
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  const handleOpenEditProfile = () => {
+    setEditName(currentUser?.name || '');
+    setEditEmail(currentUser?.email || '');
+    setIsEditProfileOpen(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!editName.trim()) {
+      Alert.alert('Validation', 'Please enter your name or business name');
+      return;
+    }
+    setIsSavingProfile(true);
+    const res = await updateUserProfile(editName.trim(), editEmail.trim());
+    setIsSavingProfile(false);
+    if (res.success) {
+      setIsEditProfileOpen(false);
+      Alert.alert('Profile Updated', 'Your profile details have been saved successfully.');
+    } else {
+      Alert.alert('Update Failed', res.message || 'Unable to update profile.');
+    }
+  };
 
   const handleManualSync = async () => {
     const res = await triggerSync();
@@ -150,12 +181,12 @@ export const MoreScreen = () => {
                 <Ionicons name="person" size={22} color={Colors.primary} />
               </View>
               <View style={{ marginLeft: 12, flex: 1 }}>
-                <Text style={styles.loginPromptTitle}>Sign in with Mobile &amp; Password</Text>
-                <Text style={styles.loginPromptSub}>Log in to backup &amp; sync your financial ledger</Text>
+                <Text style={styles.loginPromptTitle}>Sign In / Create Account</Text>
+                <Text style={styles.loginPromptSub}>Create an account or log in to backup your ledger</Text>
               </View>
             </View>
             <View style={styles.loginArrowBtn}>
-              <Text style={styles.loginArrowBtnText}>Login</Text>
+              <Text style={styles.loginArrowBtnText}>Sign In</Text>
               <Ionicons name="chevron-forward" size={16} color="#FFFFFF" />
             </View>
           </TouchableOpacity>
