@@ -46,6 +46,9 @@ export const BackupScreen = () => {
     backupActivityLogs,
     refreshAll,
     setActiveTab,
+    isLoggedIn,
+    currentUser,
+    openLoginModal,
   } = useApp();
 
   // Server health test state
@@ -216,6 +219,88 @@ export const BackupScreen = () => {
   const handleBackNavigation = () => {
     setActiveTab('More');
   };
+
+  if (!isLoggedIn) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        {/* Header */}
+        <View style={styles.topHeader}>
+          <View style={styles.headerLeftGroup}>
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={handleBackNavigation}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
+            </TouchableOpacity>
+            <View style={styles.headerTitles}>
+              <Text style={styles.headerMainTitle}>Cloud Backup &amp; Sync</Text>
+              <Text style={styles.headerSubtitle}>Account Sign In Required</Text>
+            </View>
+          </View>
+        </View>
+
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.lockedScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.lockedCard, Shadows.md]}>
+            <View style={styles.lockedIconWrap}>
+              <Ionicons name="cloud-offline" size={48} color="#D97706" />
+            </View>
+
+            <Text style={styles.lockedTitle}>Log In to Upload &amp; Backup</Text>
+            <Text style={styles.lockedDesc}>
+              Cloud backup and automatic synchronization are disabled. You must sign in or create an account before your ledger can be backed up to the server.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.lockedLoginBtn}
+              onPress={openLoginModal}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="log-in-outline" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+              <Text style={styles.lockedLoginBtnText}>Sign In / Create Account</Text>
+            </TouchableOpacity>
+
+            <View style={styles.lockedFeaturesList}>
+              <View style={styles.featureItem}>
+                <View style={[styles.featureIconWrap, { backgroundColor: '#EFF6FF' }]}>
+                  <Ionicons name="cloud-upload" size={20} color={Colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.featureItemTitle}>Automatic Server Backup</Text>
+                  <Text style={styles.featureItemDesc}>Sync all transactions to secure MySQL database.</Text>
+                </View>
+              </View>
+
+              <View style={styles.featureItem}>
+                <View style={[styles.featureIconWrap, { backgroundColor: '#F0FDF4' }]}>
+                  <Ionicons name="shield-checkmark" size={20} color={Colors.gotDark} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.featureItemTitle}>Zero Data Loss</Text>
+                  <Text style={styles.featureItemDesc}>Restore your complete ledger anytime on any phone.</Text>
+                </View>
+              </View>
+
+              <View style={styles.featureItem}>
+                <View style={[styles.featureIconWrap, { backgroundColor: '#FEF3C7' }]}>
+                  <Ionicons name="images" size={20} color="#D97706" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.featureItemTitle}>Bill &amp; Receipt Photo Backup</Text>
+                  <Text style={styles.featureItemDesc}>High-speed nightly photo media upload to cloud storage.</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -1632,5 +1717,86 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: Typography.fontSizes.sm,
     fontWeight: Typography.fontWeights.bold,
+  },
+  lockedScrollContent: {
+    padding: Spacing.lg,
+    paddingBottom: 60,
+  },
+  lockedCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl || 20,
+    padding: Spacing.xl,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  lockedIconWrap: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+  },
+  lockedTitle: {
+    fontSize: Typography.fontSizes.xl,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: Spacing.xs,
+  },
+  lockedDesc: {
+    fontSize: Typography.fontSizes.sm,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: Spacing.xl,
+    paddingHorizontal: Spacing.sm,
+  },
+  lockedLoginBtn: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primaryDark || Colors.primary,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.xl,
+  },
+  lockedLoginBtnText: {
+    color: '#FFFFFF',
+    fontSize: Typography.fontSizes.md,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  lockedFeaturesList: {
+    width: '100%',
+    gap: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.borderLight,
+  },
+  featureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  featureIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.md,
+  },
+  featureItemTitle: {
+    fontSize: Typography.fontSizes.sm + 0.5,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+    marginBottom: 2,
+  },
+  featureItemDesc: {
+    fontSize: Typography.fontSizes.xs,
+    color: Colors.textSecondary,
+    lineHeight: 16,
   },
 });

@@ -11,12 +11,15 @@
 // const BASE_DOMAIN = 'https://gmsexpense.tplpro.in';
 const BASE_DOMAIN = 'https://50df-2401-4900-b519-8a3c-487-9fb4-de-1d64.ngrok-free.app';
 const API_VERSION = 'v1';
-const API_BASE = `${BASE_DOMAIN}/api/${API_VERSION}`;
+
+// Automatically append project subfolder if hosting under local Apache/XAMPP or ngrok
+const PATH_PREFIX = BASE_DOMAIN.includes('ngrok') || BASE_DOMAIN.includes('localhost') ? '/expense_app_crm' : '';
+const API_BASE = `${BASE_DOMAIN}${PATH_PREFIX}/api/${API_VERSION}`;
 
 export const API_CONFIG = {
   // Base URLs
   BASE_DOMAIN,
-  BASE_URL: `${BASE_DOMAIN}/api`,
+  BASE_URL: `${BASE_DOMAIN}${PATH_PREFIX}/api`,
   API_BASE,
 
   // -------------------------------------------------------------

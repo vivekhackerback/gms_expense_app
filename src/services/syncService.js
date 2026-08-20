@@ -37,12 +37,13 @@ export const checkNetworkConnectivity = async () => {
 export const testAllApiEndpoints = async () => {
   const netInfo = await checkNetworkConnectivity();
   if (!netInfo.isConnected) {
+    console.log('[ServerHealth] Device is offline. Cannot reach server.');
     addBackupActivityLog('health_check', 'failed', 'Server health check failed: Device is offline');
     return {
       serverConnected: false,
-      overallStatus: 'Offline',
+      overallStatus: 'Server Offline',
       endpoints: [
-        { name: 'Server Health (health.php)', key: 'SERVER_HEALTH_URL', url: API_CONFIG.SERVER_HEALTH_URL, status: 'offline', message: 'Device is offline' },
+        { name: 'Server Health (health.php)', key: 'SERVER_HEALTH_URL', url: API_CONFIG.SERVER_HEALTH_URL, status: 'offline', message: 'Device is offline (Server Offline)' },
         { name: 'Transaction Sync (transactions_sync.php)', key: 'TRANSACTION_SYNC_URL', url: API_CONFIG.TRANSACTION_SYNC_URL, status: 'offline', message: 'Device is offline' },
         { name: 'Image Upload (image_upload.php)', key: 'IMAGE_UPLOAD_URL', url: API_CONFIG.IMAGE_UPLOAD_URL, status: 'offline', message: 'Device is offline' },
         { name: 'Backup Status (backup_status.php)', key: 'BACKUP_STATUS_URL', url: API_CONFIG.BACKUP_STATUS_URL, status: 'offline', message: 'Device is offline' },
@@ -51,26 +52,29 @@ export const testAllApiEndpoints = async () => {
   }
 
   const endpointList = [
-    { name: 'Server Health (health.php)', key: 'SERVER_HEALTH_URL', url: API_CONFIG.SERVER_HEALTH_URL, method: 'GET' },
-    { name: 'Transaction Sync (transactions_sync.php)', key: 'TRANSACTION_SYNC_URL', url: API_CONFIG.TRANSACTION_SYNC_URL, method: 'OPTIONS' },
-    { name: 'Image Upload (image_upload.php)', key: 'IMAGE_UPLOAD_URL', url: API_CONFIG.IMAGE_UPLOAD_URL, method: 'OPTIONS' },
+    { name: 'Server Health (health.php)', key: 'SERVER_HEALTH_URL', url: API_CONFIG.SERVER_HEALTH_URL, method: 'GET', isPrimaryHealth: true },
+    { name: 'Transaction Sync (transactions_sync.php)', key: 'TRANSACTION_SYNC_URL', url: API_CONFIG.TRANSACTION_SYNC_URL, method: 'GET' },
+    { name: 'Image Upload (image_upload.php)', key: 'IMAGE_UPLOAD_URL', url: API_CONFIG.IMAGE_UPLOAD_URL, method: 'GET' },
     { name: 'Backup Status (backup_status.php)', key: 'BACKUP_STATUS_URL', url: API_CONFIG.BACKUP_STATUS_URL, method: 'GET' },
   ];
 
   const results = [];
-  let allHealthy = true;
+  let primaryHealthWorking = false;
+  let primaryStatusMessage = 'Server Offline';
 
   for (const ep of endpointList) {
     const startTime = Date.now();
 
+    console.log(`[ServerHealth] Requesting: ${ep.method} ${ep.url}`);
+
     if (!ep.url) {
+      console.warn(`[ServerHealth] Missing URL for ${ep.name}`);
       results.push({ ...ep, status: 'failed', latencyMs: 0, message: 'URL not configured' });
-      allHealthy = false;
       continue;
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
 
     try {
       const response = await fetch(ep.url, {
@@ -80,72 +84,112 @@ export const testAllApiEndpoints = async () => {
       });
       clearTimeout(timeoutId);
       const latency = Date.now() - startTime;
+      const statusCode = response.status;
+      const rawText = await response.text();
 
-      if (response.status === 200) {
-        // Attempt to parse JSON response for health checks
+      console.log(`[ServerHealth] ${ep.name} -> HTTP Status: ${statusCode}, Body Preview: ${rawText.substring(0, 150)}`);
+
+      if (statusCode === 200) {
+        let json = null;
         try {
-          const json = await response.json();
-          if (json.success === true || ep.method === 'OPTIONS') {
-            results.push({
-              ...ep,
-              status: 'working',
-              statusCode: 200,
-              latencyMs: latency,
-              message: `Working (200 OK · ${latency}ms)`,
-            });
-          } else {
-            results.push({
-              ...ep,
-              status: 'failed',
-              statusCode: 200,
-              latencyMs: latency,
-              message: json.message || 'API returned success=false',
-            });
-            allHealthy = false;
+          json = JSON.parse(rawText);
+        } catch (parseErr) {
+          console.warn(`[ServerHealth] JSON Parse Error for ${ep.url}:`, parseErr.message);
+          results.push({
+            ...ep,
+            status: 'failed',
+            statusCode: 200,
+            latencyMs: latency,
+            message: 'Invalid API Response (Non-JSON)',
+          });
+          if (ep.isPrimaryHealth) {
+            primaryStatusMessage = 'Invalid API Response';
           }
-        } catch (jsonErr) {
-          // If non-JSON but 200 OK
+          continue;
+        }
+
+        // Validate JSON fields
+        const isSuccess = json.success === true;
+        const isHealthy = json.status === 'healthy' || json.server === 'online' || isSuccess;
+        const isMysqlConnected = json.mysql_connected !== false;
+
+        if (isSuccess && isHealthy && isMysqlConnected) {
           results.push({
             ...ep,
             status: 'working',
             statusCode: 200,
             latencyMs: latency,
-            message: `Working (200 OK · ${latency}ms)`,
+            message: `Server Online (PHP ${json.php_version || '8.x'} · MySQL ✓ · ${latency}ms)`,
+            details: json,
           });
+          if (ep.isPrimaryHealth) {
+            primaryHealthWorking = true;
+            primaryStatusMessage = 'Server Online';
+          }
+        } else if (isSuccess && !isMysqlConnected) {
+          results.push({
+            ...ep,
+            status: 'failed',
+            statusCode: 200,
+            latencyMs: latency,
+            message: 'MySQL Disconnected (Database Error)',
+            details: json,
+          });
+          if (ep.isPrimaryHealth) {
+            primaryStatusMessage = 'MySQL Disconnected';
+          }
+        } else {
+          results.push({
+            ...ep,
+            status: 'failed',
+            statusCode: 200,
+            latencyMs: latency,
+            message: json.message || 'Health Check Failed',
+            details: json,
+          });
+          if (ep.isPrimaryHealth) {
+            primaryStatusMessage = 'Health Check Failed';
+          }
         }
-      } else if (response.status === 404) {
+      } else if (statusCode === 404) {
         results.push({
           ...ep,
           status: 'failed',
           statusCode: 404,
           latencyMs: latency,
-          message: '404 Not Found (PHP file missing)',
+          message: 'Health API Not Found (HTTP 404)',
         });
-        allHealthy = false;
-      } else if (response.status === 500) {
+        if (ep.isPrimaryHealth) {
+          primaryStatusMessage = 'Health API Not Found';
+        }
+      } else if (statusCode === 500) {
         results.push({
           ...ep,
           status: 'failed',
           statusCode: 500,
           latencyMs: latency,
-          message: '500 Server Error (PHP/MySQL error)',
+          message: 'Health API Server Error (HTTP 500)',
         });
-        allHealthy = false;
+        if (ep.isPrimaryHealth) {
+          primaryStatusMessage = 'Health API Server Error';
+        }
       } else {
         results.push({
           ...ep,
           status: 'failed',
-          statusCode: response.status,
+          statusCode: statusCode,
           latencyMs: latency,
-          message: `HTTP ${response.status} Error`,
+          message: `HTTP ${statusCode} Error`,
         });
-        allHealthy = false;
+        if (ep.isPrimaryHealth) {
+          primaryStatusMessage = `HTTP ${statusCode} Error`;
+        }
       }
     } catch (networkError) {
       clearTimeout(timeoutId);
-      const errorMsg = networkError.name === 'AbortError' 
-        ? 'Connection Timeout (6s)'
-        : 'DNS / Connection Failed';
+      const isTimeout = networkError.name === 'AbortError';
+      const errorMsg = isTimeout ? 'Connection Timeout (8s)' : 'Server Offline (DNS / Network Failed)';
+      console.warn(`[ServerHealth] Network error on ${ep.url}:`, networkError.message);
 
       results.push({
         ...ep,
@@ -154,19 +198,21 @@ export const testAllApiEndpoints = async () => {
         latencyMs: 0,
         message: errorMsg,
       });
-      allHealthy = false;
+      if (ep.isPrimaryHealth) {
+        primaryStatusMessage = isTimeout ? 'Connection Timeout' : 'Server Offline';
+      }
     }
   }
 
   addBackupActivityLog(
     'health_check',
-    allHealthy ? 'success' : 'failed',
-    allHealthy ? 'PHP server & API endpoints verified ✓' : 'Health check: Server offline or endpoint error'
+    primaryHealthWorking ? 'success' : 'failed',
+    primaryHealthWorking ? `Server verified: ${primaryStatusMessage} ✓` : `Health check failed: ${primaryStatusMessage}`
   );
 
   return {
-    serverConnected: allHealthy,
-    overallStatus: allHealthy ? 'Online' : 'Offline / Error',
+    serverConnected: primaryHealthWorking,
+    overallStatus: primaryStatusMessage,
     endpoints: results,
   };
 };

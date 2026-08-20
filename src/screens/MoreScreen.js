@@ -193,53 +193,96 @@ export const MoreScreen = () => {
         )}
 
         {/* Sync Status Banner */}
-        <TouchableOpacity
-          style={[styles.syncStatusCard, Shadows.sm]}
-          onPress={openBackupReport}
-          activeOpacity={0.85}
-        >
-          <View style={styles.syncStatusHeader}>
-            <View style={styles.syncIconContainer}>
-              <Ionicons
-                name={syncStats.pendingCount > 0 ? 'cloud-upload-outline' : 'checkmark-circle-outline'}
-                size={28}
-                color={syncStats.pendingCount > 0 ? '#B45309' : Colors.got}
-              />
+        {isLoggedIn ? (
+          <TouchableOpacity
+            style={[styles.syncStatusCard, Shadows.sm]}
+            onPress={openBackupReport}
+            activeOpacity={0.85}
+          >
+            <View style={styles.syncStatusHeader}>
+              <View style={styles.syncIconContainer}>
+                <Ionicons
+                  name={syncStats.pendingCount > 0 ? 'cloud-upload-outline' : 'checkmark-circle-outline'}
+                  size={28}
+                  color={syncStats.pendingCount > 0 ? '#B45309' : Colors.got}
+                />
+              </View>
+              <View style={styles.syncTextContainer}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={styles.syncStateHeading}>
+                    {syncStats.pendingCount > 0
+                      ? `${syncStats.pendingCount} transactions pending`
+                      : 'All data is saved & synchronized'}
+                  </Text>
+                  <View style={styles.activePill}>
+                    <Text style={styles.activePillText}>Enabled ✓</Text>
+                  </View>
+                </View>
+                <Text style={styles.syncStateSub}>
+                  Network: {networkStatus.isConnected ? 'Connected' : 'Offline'} · Tap for Dashboard &rarr;
+                </Text>
+              </View>
             </View>
-            <View style={styles.syncTextContainer}>
-              <Text style={styles.syncStateHeading}>
-                {syncStats.pendingCount > 0
-                  ? `${syncStats.pendingCount} transactions pending`
-                  : 'All data is saved & synchronized'}
-              </Text>
-              <Text style={styles.syncStateSub}>
-                Network: {networkStatus.isConnected ? 'Connected' : 'Offline'} · Tap for Backup Report &rarr;
-              </Text>
+
+            <View style={styles.syncCardActionRow}>
+              <TouchableOpacity
+                style={[styles.syncTriggerBtn, isSyncing && { opacity: 0.7 }]}
+                onPress={handleManualSync}
+                disabled={isSyncing}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="refresh-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.syncTriggerBtnText}>
+                  {isSyncing ? 'Syncing...' : 'Sync Now'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.viewReportBtn}
+                onPress={openBackupReport}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.viewReportBtnText}>View Dashboard</Text>
+              </TouchableOpacity>
             </View>
-          </View>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.syncStatusCard, styles.syncDisabledCard, Shadows.sm]}
+            onPress={openLoginModal}
+            activeOpacity={0.85}
+          >
+            <View style={styles.syncStatusHeader}>
+              <View style={[styles.syncIconContainer, styles.lockIconContainer]}>
+                <Ionicons name="lock-closed" size={26} color="#D97706" />
+              </View>
+              <View style={styles.syncTextContainer}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.syncStateHeading, { color: '#92400E' }]}>
+                    Cloud Backup is Disabled
+                  </Text>
+                  <View style={styles.disabledPill}>
+                    <Text style={styles.disabledPillText}>Disabled</Text>
+                  </View>
+                </View>
+                <Text style={styles.syncStateSub}>
+                  Offline local storage only. Sign in to enable secure cloud backup &amp; multi-device sync.
+                </Text>
+              </View>
+            </View>
 
-          <View style={styles.syncCardActionRow}>
-            <TouchableOpacity
-              style={[styles.syncTriggerBtn, isSyncing && { opacity: 0.7 }]}
-              onPress={handleManualSync}
-              disabled={isSyncing}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="refresh-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-              <Text style={styles.syncTriggerBtnText}>
-                {isSyncing ? 'Syncing...' : 'Sync Now'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.viewReportBtn}
-              onPress={openBackupReport}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.viewReportBtnText}>View Report</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+            <View style={styles.syncCardActionRow}>
+              <TouchableOpacity
+                style={[styles.loginToBackupBtn, { flex: 1 }]}
+                onPress={openLoginModal}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="log-in-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.loginToBackupBtnText}>Log In to Enable Cloud Backup</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        )}
 
         {/* Master Management */}
         {renderSection('MANAGEMENT', [
@@ -264,12 +307,15 @@ export const MoreScreen = () => {
         {/* Data & Backup */}
         {renderSection('DATA & BACKUP', [
           {
-            icon: 'cloud-done-outline',
-            iconColor: Colors.online,
-            iconBg: Colors.onlineLight,
-            label: 'Backup & Sync Report',
-            sublabel: 'Live sync status, image schedule & metrics',
-            onPress: openBackupReport,
+            icon: isLoggedIn ? 'cloud-done-outline' : 'lock-closed-outline',
+            iconColor: isLoggedIn ? Colors.online : '#D97706',
+            iconBg: isLoggedIn ? Colors.onlineLight : '#FEF3C7',
+            label: isLoggedIn ? 'Cloud Backup & Sync' : 'Cloud Backup (Login Required)',
+            sublabel: isLoggedIn
+              ? 'Live sync status, image schedule & metrics'
+              : '🔒 Login to your account to enable automatic cloud backup',
+            rightText: isLoggedIn ? 'Enabled ✓' : 'Disabled',
+            onPress: isLoggedIn ? openBackupReport : openLoginModal,
           },
         ])}
 
@@ -324,6 +370,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.borderLight,
   },
+  syncDisabledCard: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
   syncStatusHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -331,6 +381,36 @@ const styles = StyleSheet.create({
   },
   syncIconContainer: {
     marginRight: Spacing.md,
+  },
+  lockIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FEF3C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activePill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+  },
+  activePillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  disabledPill: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+  },
+  disabledPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#B91C1C',
   },
   syncTextContainer: {
     flex: 1,
@@ -359,6 +439,20 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
   syncTriggerBtnText: {
+    color: '#FFFFFF',
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  loginToBackupBtn: {
+    flex: 1.4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#D97706',
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.md,
+  },
+  loginToBackupBtnText: {
     color: '#FFFFFF',
     fontSize: Typography.fontSizes.xs + 1,
     fontWeight: Typography.fontWeights.bold,

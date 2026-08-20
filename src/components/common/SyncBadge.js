@@ -6,11 +6,28 @@ import { Typography, Spacing, BorderRadius } from '../../constants/theme';
 import { useApp } from '../../context/AppContext';
 
 export const SyncBadge = () => {
-  const { syncStats, isSyncing, openBackupReport, networkStatus } = useApp();
+  const { syncStats, isSyncing, openBackupReport, isLoggedIn, openLoginModal } = useApp();
 
   const handlePress = () => {
-    openBackupReport();
+    if (!isLoggedIn) {
+      openLoginModal();
+    } else {
+      openBackupReport();
+    }
   };
+
+  if (!isLoggedIn) {
+    return (
+      <TouchableOpacity
+        style={[styles.container, styles.loggedOutBg]}
+        onPress={handlePress}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="lock-closed-outline" size={12} color="#D97706" style={{ marginRight: 4 }} />
+        <Text style={[styles.text, { color: '#B45309', fontWeight: '600' }]}>Login to Backup</Text>
+      </TouchableOpacity>
+    );
+  }
 
   if (isSyncing) {
     return (
@@ -30,7 +47,7 @@ export const SyncBadge = () => {
       >
         <Ionicons name="cloud-upload-outline" size={13} color={Colors.warning} style={{ marginRight: 4 }} />
         <Text style={[styles.text, { color: '#B45309' }]}>
-          {syncStats.pendingCount} {syncStats.pendingCount === 1 ? 'pending' : 'pending'}
+          {syncStats.pendingCount} pending
         </Text>
       </TouchableOpacity>
     );
@@ -43,7 +60,7 @@ export const SyncBadge = () => {
       activeOpacity={0.7}
     >
       <Ionicons name="checkmark-circle" size={13} color={Colors.got} style={{ marginRight: 4 }} />
-      <Text style={[styles.text, { color: Colors.gotDark }]}>All data synced</Text>
+      <Text style={[styles.text, { color: Colors.gotDark }]}>Cloud Synced</Text>
     </TouchableOpacity>
   );
 };
@@ -68,6 +85,10 @@ const styles = StyleSheet.create({
   syncingBg: {
     backgroundColor: Colors.onlineBg,
     borderColor: Colors.onlineLight,
+  },
+  loggedOutBg: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
   },
   text: {
     fontSize: Typography.fontSizes.xs,

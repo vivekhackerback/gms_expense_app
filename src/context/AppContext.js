@@ -115,10 +115,14 @@ export const AppProvider = ({ children }) => {
       setBackupActivityLogs(logs);
 
       const session = getAuthSession();
-      if (session.isLoggedIn) {
+      if (session.isLoggedIn && session.user) {
         setCurrentUser(session.user);
         setAuthToken(session.token);
         setIsLoggedIn(true);
+      } else {
+        setCurrentUser(null);
+        setAuthToken(null);
+        setIsLoggedIn(false);
       }
     } catch (err) {
       console.error('Error refreshing state:', err);
@@ -134,7 +138,9 @@ export const AppProvider = ({ children }) => {
       const net = await checkNetworkConnectivity();
       setNetworkStatus(net);
 
-      if (net.isConnected) {
+      // Only perform cloud backup/sync when user is logged in
+      const session = getAuthSession();
+      if (net.isConnected && session.isLoggedIn) {
         // 1. Auto-sync pending text data
         const textRes = await autoSyncTextIfConnected();
         if (textRes && textRes.success && textRes.count > 0) {
@@ -318,6 +324,13 @@ export const AppProvider = ({ children }) => {
 
   // Sync Actions
   const triggerSync = async () => {
+    if (!isLoggedIn) {
+      return {
+        success: false,
+        requiresLogin: true,
+        message: 'Please sign in or create an account to enable cloud backup.',
+      };
+    }
     if (isSyncing) return;
     setIsSyncing(true);
     const result = await syncTextData();
@@ -327,6 +340,13 @@ export const AppProvider = ({ children }) => {
   };
 
   const triggerImageSync = async () => {
+    if (!isLoggedIn) {
+      return {
+        success: false,
+        requiresLogin: true,
+        message: 'Please sign in to backup receipt photos to cloud.',
+      };
+    }
     if (isImageSyncing) return;
     setIsImageSyncing(true);
     const result = await uploadPendingImages();
@@ -388,7 +408,11 @@ export const AppProvider = ({ children }) => {
         setIsLoginModalOpen(false);
         addBackupActivityLog('auth', 'success', `User logged in: ${data.user.name || phone}`);
         refreshAll();
-        return { success: true, user: data.user, message: data.message || 'Login successful.' };
+        // Immediately trigger cloud sync now that user is authenticated
+        setTimeout(() => {
+          runBackgroundChecks();
+        }, 300);
+        return { success: true, user: data.user, message: data.message || 'Login successful. Cloud backup is now enabled!' };
       } else {
         const failMsg = data.message || 'Invalid mobile number or password.';
         addBackupActivityLog('auth', 'failed', `Login failed for ${phone}: ${failMsg}`);
@@ -428,7 +452,11 @@ export const AppProvider = ({ children }) => {
         setIsLoginModalOpen(false);
         addBackupActivityLog('auth', 'success', `New account registered: ${data.user.name} (${data.user.phone})`);
         refreshAll();
-        return { success: true, user: data.user, message: data.message || 'Account created successfully.' };
+        // Immediately trigger cloud sync for newly registered account
+        setTimeout(() => {
+          runBackgroundChecks();
+        }, 300);
+        return { success: true, user: data.user, message: data.message || 'Account created successfully. Cloud backup is now enabled!' };
       } else {
         const failMsg = data.message || 'Unable to create account. Please check your details.';
         addBackupActivityLog('auth', 'failed', `Registration failed for ${phone}: ${failMsg}`);
