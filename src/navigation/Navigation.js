@@ -28,6 +28,7 @@ import { FullScreenImageViewer } from '../components/modals/FullScreenImageViewe
 import { ManageCategoriesModal } from '../components/modals/ManageCategoriesModal';
 import { ManagePartiesModal } from '../components/modals/ManagePartiesModal';
 import { LoginModal } from '../components/modals/LoginModal';
+import { LogoutModal } from '../components/modals/LogoutModal';
 import { FloatingAddButton } from '../components/common/FloatingAddButton';
 
 const TABS = [
@@ -115,6 +116,7 @@ export const Navigation = () => {
       <ManageCategoriesModal />
       <ManagePartiesModal />
       <LoginModal />
+      <LogoutModal />
     </View>
   );
 };

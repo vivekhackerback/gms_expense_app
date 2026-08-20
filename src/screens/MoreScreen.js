@@ -28,6 +28,7 @@ export const MoreScreen = () => {
     currentUser,
     isLoggedIn,
     openLoginModal,
+    openLogoutModal,
     updateUserProfile,
     logoutUser,
     refreshAll,
@@ -68,21 +69,7 @@ export const MoreScreen = () => {
   };
 
   const handleLogoutPress = () => {
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out of your account on this device?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: async () => {
-            await logoutUser();
-            Alert.alert('Logged Out', 'You have been logged out successfully.');
-          },
-        },
-      ]
-    );
+    openLogoutModal();
   };
 
   const renderSection = (title, items) => (

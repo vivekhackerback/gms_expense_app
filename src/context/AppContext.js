@@ -8,6 +8,7 @@ import {
   getSyncStats,
   getDetailedBackupReportStats,
   getBackupActivityLogs,
+  addBackupActivityLog,
   getAuthSession,
   saveAuthSession,
   clearAuthSession,
@@ -44,6 +45,7 @@ export const AppProvider = ({ children }) => {
   const [authToken, setAuthToken] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
   // App Data State
   const [balances, setBalances] = useState({
@@ -381,6 +383,14 @@ export const AppProvider = ({ children }) => {
     setIsLoginModalOpen(false);
   };
 
+  const openLogoutModal = () => {
+    setIsLogoutModalOpen(true);
+  };
+
+  const closeLogoutModal = () => {
+    setIsLogoutModalOpen(false);
+  };
+
   const loginUser = async (phone, password) => {
     try {
       const net = await checkNetworkConnectivity();
@@ -405,7 +415,6 @@ export const AppProvider = ({ children }) => {
         setCurrentUser(data.user);
         setAuthToken(data.token);
         setIsLoggedIn(true);
-        setIsLoginModalOpen(false);
         addBackupActivityLog('auth', 'success', `User logged in: ${data.user.name || phone}`);
         refreshAll();
         // Immediately trigger cloud sync now that user is authenticated
@@ -449,7 +458,6 @@ export const AppProvider = ({ children }) => {
         setCurrentUser(data.user);
         setAuthToken(data.token);
         setIsLoggedIn(true);
-        setIsLoginModalOpen(false);
         addBackupActivityLog('auth', 'success', `New account registered: ${data.user.name} (${data.user.phone})`);
         refreshAll();
         // Immediately trigger cloud sync for newly registered account
@@ -563,6 +571,9 @@ export const AppProvider = ({ children }) => {
         isLoginModalOpen,
         openLoginModal,
         closeLoginModal,
+        isLogoutModalOpen,
+        openLogoutModal,
+        closeLogoutModal,
         loginUser,
         registerUser,
         updateUserProfile,

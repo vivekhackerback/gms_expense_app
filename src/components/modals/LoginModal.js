@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -39,11 +40,51 @@ export const LoginModal = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Status
+  // Status & Success Animation
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [successInfo, setSuccessInfo] = useState(null);
+
+  const successOpacity = useRef(new Animated.Value(0)).current;
+  const successScale = useRef(new Animated.Value(0.4)).current;
 
   if (!isLoginModalOpen) return null;
+
+  const triggerSuccessAnimation = (userInfo, isNewAccount = false) => {
+    setSuccessInfo({
+      name: userInfo?.name || 'User',
+      isNewAccount,
+    });
+    successOpacity.setValue(0);
+    successScale.setValue(0.4);
+
+    Animated.parallel([
+      Animated.timing(successOpacity, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.spring(successScale, {
+        toValue: 1,
+        friction: 6,
+        tension: 80,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Keep visible for 800ms, then smoothly close modal
+    setTimeout(() => {
+      Animated.timing(successOpacity, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start(() => {
+        resetForm();
+        setSuccessInfo(null);
+        closeLoginModal();
+      });
+    }, 800);
+  };
 
   const handleAuthSubmit = async () => {
     setErrorMessage('');
@@ -82,21 +123,20 @@ export const LoginModal = () => {
       if (authMode === 'login') {
         const result = await loginUser(cleanPhone, password.trim());
         if (result.success) {
-          resetForm();
-          Alert.alert('Login Successful', `Welcome back, ${result.user?.name || 'User'}!`);
+          triggerSuccessAnimation(result.user, false);
         } else {
           setErrorMessage(result.message || 'Login failed. Please check your credentials.');
         }
       } else {
         const result = await registerUser(name.trim(), cleanPhone, password.trim());
         if (result.success) {
-          resetForm();
-          Alert.alert('Account Created', `Welcome to GMS Expense & Khata, ${result.user?.name || 'User'}!`);
+          triggerSuccessAnimation(result.user, true);
         } else {
           setErrorMessage(result.message || 'Registration failed. Please check your details.');
         }
       }
     } catch (e) {
+      console.error('Authentication Error:', e);
       setErrorMessage('Unable to connect to authentication server.');
     } finally {
       setIsLoading(false);
@@ -112,6 +152,7 @@ export const LoginModal = () => {
   };
 
   const handleClose = () => {
+    if (successInfo) return; // prevent closing midway through success anim
     resetForm();
     closeLoginModal();
   };
@@ -135,78 +176,105 @@ export const LoginModal = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={[styles.modalCard, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-          {/* Header */}
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <View style={[styles.iconCircle, isRegister && { backgroundColor: '#DCFCE7' }]}>
-                <Ionicons
-                  name={isRegister ? 'person-add' : 'person'}
-                  size={22}
-                  color={isRegister ? '#15803D' : Colors.primaryDark}
-                />
+          {successInfo ? (
+            /* Animated Success Overlay */
+            <Animated.View
+              style={[
+                styles.successContainer,
+                {
+                  opacity: successOpacity,
+                  transform: [{ scale: successScale }],
+                },
+              ]}
+            >
+              <View style={styles.successIconCircle}>
+                <Ionicons name="checkmark-circle" size={64} color="#16A34A" />
               </View>
-              <View style={{ marginLeft: 12 }}>
-                <Text style={styles.title}>
-                  {isRegister ? 'Create Account' : 'User Account Login'}
-                </Text>
-                <Text style={styles.subtitle}>
-                  {isRegister ? 'Register your mobile for cloud backup' : 'Sign in with mobile & password'}
-                </Text>
+              <Text style={styles.successTitle}>
+                {successInfo.isNewAccount ? 'Account Created!' : 'Login Successful!'}
+              </Text>
+              <Text style={styles.successSub}>
+                Welcome back, <Text style={{ fontWeight: 'bold', color: Colors.textPrimary }}>{successInfo.name}</Text>
+              </Text>
+              <View style={styles.successBadge}>
+                <Ionicons name="cloud-done-outline" size={16} color="#15803D" style={{ marginRight: 6 }} />
+                <Text style={styles.successBadgeText}>Cloud Backup Activated</Text>
               </View>
-            </View>
+            </Animated.View>
+          ) : (
+            <>
+              {/* Header */}
+              <View style={styles.header}>
+                <View style={styles.headerLeft}>
+                  <View style={[styles.iconCircle, isRegister && { backgroundColor: '#DCFCE7' }]}>
+                    <Ionicons
+                      name={isRegister ? 'person-add' : 'person'}
+                      size={22}
+                      color={isRegister ? '#15803D' : Colors.primaryDark}
+                    />
+                  </View>
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={styles.title}>
+                      {isRegister ? 'Create Account' : 'User Account Login'}
+                    </Text>
+                    <Text style={styles.subtitle}>
+                      {isRegister ? 'Register your mobile for cloud backup' : 'Sign in with mobile & password'}
+                    </Text>
+                  </View>
+                </View>
 
-            <TouchableOpacity
-              style={styles.closeBtn}
-              onPress={handleClose}
-              activeOpacity={0.7}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="close" size={22} color={Colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
+                <TouchableOpacity
+                  style={styles.closeBtn}
+                  onPress={handleClose}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={22} color={Colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
 
-          {/* Mode Switcher Tabs */}
-          <View style={styles.tabContainer}>
-            <TouchableOpacity
-              style={[styles.tabBtn, !isRegister && styles.tabBtnActive]}
-              onPress={() => switchMode('login')}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="log-in-outline"
-                size={16}
-                color={!isRegister ? Colors.primaryDark : Colors.textMuted}
-                style={{ marginRight: 6 }}
-              />
-              <Text style={[styles.tabBtnText, !isRegister && styles.tabBtnTextActive]}>
-                Sign In
-              </Text>
-            </TouchableOpacity>
+              {/* Mode Switcher Tabs */}
+              <View style={styles.tabContainer}>
+                <TouchableOpacity
+                  style={[styles.tabBtn, !isRegister && styles.tabBtnActive]}
+                  onPress={() => switchMode('login')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="log-in-outline"
+                    size={16}
+                    color={!isRegister ? Colors.primaryDark : Colors.textMuted}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={[styles.tabBtnText, !isRegister && styles.tabBtnTextActive]}>
+                    Sign In
+                  </Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.tabBtn, isRegister && styles.tabBtnActive]}
-              onPress={() => switchMode('register')}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="person-add-outline"
-                size={16}
-                color={isRegister ? Colors.primaryDark : Colors.textMuted}
-                style={{ marginRight: 6 }}
-              />
-              <Text style={[styles.tabBtnText, isRegister && styles.tabBtnTextActive]}>
-                Create Account
-              </Text>
-            </TouchableOpacity>
-          </View>
+                <TouchableOpacity
+                  style={[styles.tabBtn, isRegister && styles.tabBtnActive]}
+                  onPress={() => switchMode('register')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="person-add-outline"
+                    size={16}
+                    color={isRegister ? Colors.primaryDark : Colors.textMuted}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={[styles.tabBtnText, isRegister && styles.tabBtnTextActive]}>
+                    Create Account
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.scrollContent}
-          >
-            {/* Offline Notice */}
-            {!networkStatus.isConnected && (
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.scrollContent}
+              >
+                {/* Offline Notice */}
+                {!networkStatus.isConnected && (
               <View style={styles.offlineNotice}>
                 <Ionicons name="cloud-offline-outline" size={16} color="#DC2626" style={{ marginRight: 6 }} />
                 <Text style={styles.offlineText}>Internet connection required to {isRegister ? 'create account' : 'sign in'}.</Text>
@@ -378,6 +446,8 @@ export const LoginModal = () => {
               </View>
             )}
           </ScrollView>
+            </>
+          )}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -634,5 +704,48 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     flex: 1,
     lineHeight: 16,
+  },
+  successContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.xxl + 8,
+    paddingHorizontal: Spacing.lg,
+  },
+  successIconCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+    ...Shadows.md,
+  },
+  successTitle: {
+    fontSize: Typography.fontSizes.xl,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#15803D',
+    marginBottom: 6,
+  },
+  successSub: {
+    fontSize: Typography.fontSizes.sm,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.lg,
+    textAlign: 'center',
+  },
+  successBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  successBadgeText: {
+    fontSize: Typography.fontSizes.xs,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#15803D',
   },
 });
