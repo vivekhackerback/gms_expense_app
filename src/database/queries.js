@@ -876,6 +876,30 @@ export const markAllImagesUploaded = () => {
   markImagesServerConfirmed([]);
 };
 
+export const getPendingTransactions = (limit = 50) => {
+  const db = getDatabase();
+  return db.getAllSync(`
+    SELECT t.*, p.name as party_name, c.name as category_name
+    FROM transactions t
+    LEFT JOIN parties p ON t.party_id = p.id
+    LEFT JOIN categories c ON t.category_id = c.id
+    WHERE t.sync_status = 'pending' OR t.sync_status = 'uploading' OR t.sync_status = 'failed' OR t.sync_status IS NULL
+    ORDER BY datetime(t.created_at) ASC
+    LIMIT ?;
+  `, [limit]);
+};
+
+export const getPendingImages = (limit = 10) => {
+  const db = getDatabase();
+  return db.getAllSync(`
+    SELECT *
+    FROM transaction_images
+    WHERE upload_status = 'pending' OR upload_status = 'uploading' OR upload_status = 'failed' OR upload_status IS NULL
+    ORDER BY id ASC
+    LIMIT ?;
+  `, [limit]);
+};
+
 export const exportAllData = () => {
   const db = getDatabase();
   const transactions = db.getAllSync(`

@@ -1,9 +1,12 @@
-# GMS Expense & Khata App — Local Data Architecture & Backend Integration Guide
+# GMS Expense & Khata App — Local Data Architecture & PHP Backend Integration Guide
 
-> **Document Version:** 1.0.0  
-> **Target Audience:** Frontend Engineers, Backend/CRM Developers, Database Architects  
-> **Project Codebase:** `gms_expense_app` (React Native / Expo SDK 54 / SQLite)  
-> **Source Inspection Completed:** All schemas, queries, calculations, and services are extracted directly from active code in `src/`.
+> **Document Version:** 2.0.0  
+> **Target Audience:** Frontend Engineers, PHP Backend/CRM Developers, Database Architects  
+> **Mobile Tech Stack:** React Native / Expo SDK 54 / SQLite (`expo-sqlite`)  
+> **Backend Tech Stack:** PHP 8.x / MySQL 8.x / RESTful JSON & Multipart APIs  
+> **Base Production Domain:** `https://gmsexpense.tplpro.in`  
+> **API Root Route:** `https://gmsexpense.tplpro.in/api/v1/`  
+> **Source Inspection Completed:** All mobile schemas, queries, sync flows, and PHP API configurations are mapped directly from active source code in `src/`.
 
 ---
 
@@ -16,35 +19,47 @@
    - [Table 3: `categories`](#table-3-categories)
    - [Table 4: `transaction_images`](#table-4-transaction_images)
    - [Table 5: `sync_queue`](#table-5-sync_queue)
-   - [Table 6: `settings`](#table-6-settings)
+   - [Table 6: `backup_activity_logs`](#table-6-backup_activity_logs)
+   - [Table 7: `settings`](#table-7-settings)
    - [Database Indexes](#database-indexes)
 3. [SQLite Entity Relationship Explanation](#3-sqlite-entity-relationship-explanation)
 4. [Transaction Data Structure & Lifecycle](#4-transaction-data-structure--lifecycle)
 5. [Balance Calculation Logic](#5-balance-calculation-logic)
 6. [Image Storage & Handling](#6-image-storage--handling)
-7. [Backup & Synchronization Architecture](#7-backup--synchronization-architecture)
-8. [Backup Data Mapping](#8-backup-data-mapping)
-9. [Backup Flow](#9-backup-flow)
-10. [Failure & Retry Behavior](#10-failure--retry-behavior)
-11. [Recommended CRM Architecture](#11-recommended-crm-architecture)
-12. [Suggested Future CRM Database Schema](#12-suggested-future-crm-database-schema)
-13. [Data Flow Diagrams](#13-data-flow-diagrams)
-14. [Important Identifiers & Key Management](#14-important-identifiers--key-management)
-15. [Data Lifecycle](#15-data-lifecycle)
-16. [Actual Code References](#16-actual-code-references)
-17. [Current Limitations](#17-current-limitations)
-18. [Architecture Summary](#18-architecture-summary)
+7. [PHP API Architecture](#7-php-api-architecture)
+   - [PHP API Root & Versioning](#php-api-root--versioning)
+   - [Current PHP APIs vs. Planned PHP APIs](#current-php-apis-vs-planned-php-apis)
+   - [PHP Endpoints Specification Table](#php-endpoints-specification-table)
+   - [Request & Response Formats](#request--response-formats)
+   - [Authentication & Request Headers](#authentication--request-headers)
+8. [Backup Architecture & PHP / MySQL Data Flow](#8-backup-architecture--php--mysql-data-flow)
+   - [Text & SQLite Data Flow](#text--sqlite-data-flow)
+   - [Receipt Image Media Flow](#receipt-image-media-flow)
+9. [API-to-Database Mapping Table](#9-api-to-database-mapping-table)
+10. [Server Confirmation Process & State Machine](#10-server-confirmation-process--state-machine)
+11. [Server & API Health Testing](#11-server--api-health-testing)
+12. [API Configuration Rules](#12-api-configuration-rules)
+13. [Failure & Retry Behavior](#13-failure--retry-behavior)
+14. [Recommended CRM Backend Architecture (PHP/MySQL)](#14-recommended-crm-backend-architecture-phpmysql)
+15. [Suggested Future CRM Database Schema (MySQL 8.0+)](#15-suggested-future-crm-database-schema-mysql-80)
+16. [Data Flow Diagrams](#16-data-flow-diagrams)
+17. [Important Identifiers & Key Management](#17-important-identifiers--key-management)
+18. [Data Lifecycle](#18-data-lifecycle)
+19. [Actual Code References](#19-actual-code-references)
+20. [Current Limitations](#20-current-limitations)
+21. [Architecture Summary](#21-architecture-summary)
 
 ---
 
 ## 1. Executive Architecture Overview
 
-The mobile application operates entirely **offline-first**. All transactions, customer khata records, categories, settings, and image references are stored locally on the device using **`expo-sqlite`** in a single SQLite database file named **`expenses_khata.db`**.
+The mobile application operates on an **offline-first** architectural model. All financial records, customer khata entries, custom categories, system preferences, and image references are stored locally on the client device using **`expo-sqlite`** in a single database file named **`expenses_khata.db`**.
 
 - **Primary Storage:** SQLite relational database with WAL (Write-Ahead Logging) enabled.
-- **State Management:** React Context API (`AppContext.js`) that directly triggers synchronous SQLite reads and writes on user actions.
-- **Physical Media:** Receipts and transaction images are persisted in the application's document directory (`FileSystem.documentDirectory + 'transaction_photos/'`).
-- **Sync Model:** An event-driven local sync queue table (`sync_queue`) records every `create`, `update`, and `delete` operation alongside JSON payloads, allowing an eventual backend CRM to achieve bi-directional synchronization.
+- **State Management:** React Context API (`AppContext.js`) orchestrating synchronous SQLite transactions and background sync daemons.
+- **Physical Media:** Bill photos and receipts are copied to the application's document storage (`FileSystem.documentDirectory + 'transaction_photos/'`).
+- **PHP Cloud Backend:** The server layer is built with **PHP 8.x** backed by **MySQL 8.x** hosted on `https://gmsexpense.tplpro.in/api/v1/`.
+- **Sync Model:** An event-driven local queue (`sync_queue`) records mutations, automatically syncing text records to PHP endpoints when connected, while receipt images are scheduled for nightly off-peak batch upload (default 2:00 AM).
 
 ---
 
@@ -59,24 +74,25 @@ The mobile application operates entirely **offline-first**. All transactions, cu
 ---
 
 ### Table 1: `transactions`
-- **Purpose:** Primary ledger table storing every financial entry (You Gave / You Got).
-- **Classification:** Core / Main Entity Table.
+- **Purpose:** Primary financial ledger storing every entry (You Gave / You Got).
 - **Related To:** `parties` (via `party_id`), `categories` (via `category_id`), `transaction_images` (via `id` and `uuid`), `sync_queue` (via `uuid`).
 
 | Column | SQLite Type | Nullable | Default | Primary Key | Unique | Description |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
 | `id` | `INTEGER` | No | Auto | **Yes** | Yes | Auto-incrementing local primary key. |
-| `uuid` | `TEXT` | No | None | No | **Yes** | Universally Unique Identifier (v4 UUID) generated by client. Primary synchronization key. |
+| `uuid` | `TEXT` | No | None | No | **Yes** | Universally Unique Identifier (v4 UUID). Immutable sync anchor. |
 | `party_id` | `INTEGER` | Yes | `NULL` | No | No | Foreign key referencing `parties(id)`. Optional if generic expense. |
 | `category_id` | `INTEGER` | Yes | `NULL` | No | No | Foreign key referencing `categories(id)`. |
-| `type` | `TEXT` | No | None | No | No | Direction of funds. Must be either `'gave'` (Debit / Outflow) or `'got'` (Credit / Inflow). |
-| `payment_mode` | `TEXT` | No | None | No | No | Payment channel. Must be either `'cash'` or `'online'`. |
-| `amount` | `REAL` | No | None | No | No | Transaction value in Indian Rupees (₹). Always stored as a positive decimal number. |
-| `note` | `TEXT` | Yes | `NULL` | No | No | Optional description, bill notes, or remarks. |
-| `transaction_date` | `TEXT` | No | None | No | No | ISO 8601 string or date string representing when transaction occurred (e.g. `2026-08-20T22:30:00.000Z`). |
-| `created_at` | `TEXT` | No | None | No | No | ISO 8601 timestamp when record was created on device. |
-| `updated_at` | `TEXT` | No | None | No | No | ISO 8601 timestamp when record was last modified. |
-| `sync_status` | `TEXT` | Yes | `'pending'` | No | No | Synchronization state: `'pending'` or `'synced'`. |
+| `type` | `TEXT` | No | None | No | No | Direction: `'gave'` (Debit / Outflow) or `'got'` (Credit / Inflow). |
+| `payment_mode` | `TEXT` | No | None | No | No | Payment channel: `'cash'` or `'online'`. |
+| `amount` | `REAL` | No | None | No | No | Monetary value in ₹ (positive decimal). |
+| `note` | `TEXT` | Yes | `NULL` | No | No | Optional description or bill notes. |
+| `transaction_date` | `TEXT` | No | None | No | No | ISO 8601 timestamp string of the transaction. |
+| `created_at` | `TEXT` | No | None | No | No | ISO 8601 creation timestamp. |
+| `updated_at` | `TEXT` | No | None | No | No | ISO 8601 update timestamp. |
+| `sync_status` | `TEXT` | Yes | `'pending'` | No | No | `'pending'`, `'uploading'`, `'synced'`, `'failed'`. |
+| `server_id` | `INTEGER` | Yes | `NULL` | No | No | Confirmed server-side MySQL ID assigned by PHP API. |
+| `server_synced_at`| `TEXT` | Yes | `NULL` | No | No | Timestamp when PHP API confirmed successful MySQL save. |
 
 **Constraints & Foreign Keys:**
 ```sql
@@ -89,14 +105,13 @@ FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 ---
 
 ### Table 2: `parties`
-- **Purpose:** Stores customers, suppliers, vendors, friends, and accounts for the **Khata (Credit / Ledger)** book.
-- **Classification:** Core Master Entity Table.
+- **Purpose:** Customers, suppliers, vendors, and contacts for the **Khata (Ledger)** book.
 - **Related To:** `transactions` (1:N parent-to-child relationship).
 
 | Column | SQLite Type | Nullable | Default | Primary Key | Unique | Description |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
 | `id` | `INTEGER` | No | Auto | **Yes** | Yes | Auto-incrementing local primary key. |
-| `name` | `TEXT` | No | None | No | No | Customer or vendor full name / business name. |
+| `name` | `TEXT` | No | None | No | No | Contact or business name. |
 | `phone` | `TEXT` | Yes | `NULL` | No | No | Optional contact phone number. |
 | `created_at` | `TEXT` | No | None | No | No | ISO 8601 timestamp of registration. |
 | `updated_at` | `TEXT` | No | None | No | No | ISO 8601 timestamp of last profile update. |
@@ -104,80 +119,85 @@ FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 ---
 
 ### Table 3: `categories`
-- **Purpose:** Stores transaction classification tags (e.g., Food, Travel, Shopping, Salary, Rent).
-- **Classification:** Reference / Master Data Table.
+- **Purpose:** Classification categories (e.g. Food, Salary, Rent, Travel, Shopping).
 - **Related To:** `transactions` (1:N relationship).
 
 | Column | SQLite Type | Nullable | Default | Primary Key | Unique | Description |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| `id` | `INTEGER` | No | Auto | **Yes** | Yes | Primary key. IDs 1–11 are reserved for system defaults. |
-| `name` | `TEXT` | No | None | No | **Yes** | Category name (e.g., `'Food'`, `'Rent'`). Case-insensitive unique constraint. |
+| `id` | `INTEGER` | No | Auto | **Yes** | Yes | Primary key. 1–11 are default system categories. |
+| `name` | `TEXT` | No | None | No | **Yes** | Category name (unique). |
 | `icon` | `TEXT` | Yes | `'grid-outline'` | No | No | Ionicons icon glyph name. |
-| `color` | `TEXT` | Yes | `'#64748B'` | No | No | Hex color string for UI badge rendering. |
-| `is_custom` | `INTEGER` | Yes | `0` | No | No | Flag: `0` for pre-seeded system category, `1` for user-created custom category. |
-| `is_deleted` | `INTEGER` | Yes | `0` | No | No | Soft deletion flag: `0` active, `1` soft-deleted. |
-| `created_at` | `TEXT` | No | None | No | No | ISO 8601 timestamp of category creation. |
+| `color` | `TEXT` | Yes | `'#64748B'` | No | No | Hex color badge string. |
+| `is_custom` | `INTEGER` | Yes | `0` | No | No | `0` = system default, `1` = user custom category. |
+| `is_deleted` | `INTEGER` | Yes | `0` | No | No | Soft deletion flag: `0` = active, `1` = soft-deleted. |
+| `created_at` | `TEXT` | No | None | No | No | ISO 8601 creation timestamp. |
 
 ---
 
 ### Table 4: `transaction_images`
-- **Purpose:** Stores receipt photos, bill attachments, and invoice images associated with transactions.
-- **Classification:** Child / Attachment Table.
+- **Purpose:** Receipt photos and invoice images attached to transactions.
 - **Related To:** `transactions` (N:1 child-to-parent relationship).
 
 | Column | SQLite Type | Nullable | Default | Primary Key | Unique | Description |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
 | `id` | `INTEGER` | No | Auto | **Yes** | Yes | Auto-incrementing primary key. |
 | `transaction_id` | `INTEGER` | Yes | `NULL` | No | No | Foreign key referencing `transactions(id)`. |
-| `transaction_uuid` | `TEXT` | No | None | No | No | UUID of the parent transaction (used for resilient cross-device sync). |
-| `local_uri` | `TEXT` | No | None | No | No | Absolute local filesystem path to the saved image file on device. |
+| `transaction_uuid` | `TEXT` | No | None | No | No | UUID of the parent transaction (used by PHP API for association). |
+| `local_uri` | `TEXT` | No | None | No | No | Absolute local filesystem path on the device. |
 | `file_name` | `TEXT` | Yes | `NULL` | No | No | Normalized filename (e.g. `img_1724174000_abc123.jpg`). |
-| `upload_status` | `TEXT` | Yes | `'pending'` | No | No | Sync status: `'pending'`, `'uploaded'`, or `'failed'`. |
-| `created_at` | `TEXT` | No | None | No | No | ISO 8601 timestamp of image attachment. |
-
-**Constraints:**
-```sql
-FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
-```
+| `upload_status` | `TEXT` | Yes | `'pending'` | No | No | `'pending'`, `'uploading'`, `'uploaded'`, `'failed'`. |
+| `server_id` | `INTEGER` | Yes | `NULL` | No | No | Confirmed server MySQL record ID. |
+| `server_synced_at`| `TEXT` | Yes | `NULL` | No | No | Timestamp of server confirmation. |
+| `created_at` | `TEXT` | No | None | No | No | ISO 8601 attachment timestamp. |
 
 ---
 
 ### Table 5: `sync_queue`
-- **Purpose:** Audit log and synchronization change log tracking every mutation locally to send to the backend.
-- **Classification:** Sync / Operational Queue Table.
-- **Related To:** Maps to entities via `entity_uuid` (`transactions.uuid`, etc.).
+- **Purpose:** Audit log and sync mutation queue tracking every local change for PHP sync.
 
 | Column | SQLite Type | Nullable | Default | Primary Key | Unique | Description |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
 | `id` | `INTEGER` | No | Auto | **Yes** | Yes | Auto-incrementing queue item ID. |
-| `entity_type` | `TEXT` | No | None | No | No | Entity being changed: `'transaction'`, `'party'`, `'category'`. |
+| `entity_type` | `TEXT` | No | None | No | No | `'transaction'`, `'party'`, `'category'`. |
 | `entity_uuid` | `TEXT` | No | None | No | No | Unique UUID of the affected entity. |
-| `action` | `TEXT` | No | None | No | No | Mutation type: `'create'`, `'update'`, `'delete'`. |
-| `payload` | `TEXT` | Yes | `NULL` | No | No | JSON stringified snapshot of the transaction payload at that event. |
+| `action` | `TEXT` | No | None | No | No | `'create'`, `'update'`, `'delete'`. |
+| `payload` | `TEXT` | Yes | `NULL` | No | No | JSON snapshot of entity data at mutation time. |
 | `created_at` | `TEXT` | No | None | No | No | Timestamp when mutation occurred. |
-| `status` | `TEXT` | Yes | `'pending'` | No | No | Queue item state: `'pending'` or `'synced'`. |
+| `status` | `TEXT` | Yes | `'pending'` | No | No | `'pending'` or `'synced'`. |
 
 ---
 
-### Table 6: `settings`
-- **Purpose:** Key-value configuration store for application-wide preferences.
-- **Classification:** Key-Value Config Table.
+### Table 6: `backup_activity_logs`
+- **Purpose:** Chronological audit log of all sync events, health checks, and server responses displayed on the Backup Dashboard.
 
 | Column | SQLite Type | Nullable | Default | Primary Key | Unique | Description |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| `key` | `TEXT` | No | None | **Yes** | Yes | Configuration key name (e.g. `'currency'`, `'app_version'`, `'last_sync'`). |
-| `value` | `TEXT` | No | None | No | No | Stored configuration value as string. |
+| `id` | `INTEGER` | No | Auto | **Yes** | Yes | Auto-incrementing log ID. |
+| `timestamp` | `TEXT` | No | None | No | No | ISO 8601 timestamp of the event. |
+| `action_type` | `TEXT` | No | None | No | No | `'text_sync'`, `'image_upload'`, `'health_check'`, `'error'`. |
+| `status` | `TEXT` | No | None | No | No | `'success'`, `'failed'`, `'pending'`, `'info'`. |
+| `message` | `TEXT` | No | None | No | No | Human-readable event description (e.g., *"25 transactions synchronized ✓"*). |
+| `details` | `TEXT` | Yes | `NULL` | No | No | Optional debug or error details. |
 
-**Pre-seeded default rows:**
-- `('currency', '₹')`
-- `('app_version', '1.0.0')`
-- `('last_sync', '')`
+---
+
+### Table 7: `settings`
+- **Purpose:** Key-value configuration store for app preferences and sync timestamps.
+
+| Key | Default Value | Description |
+| :--- | :--- | :--- |
+| `currency` | `'₹'` | Active currency symbol. |
+| `app_version` | `'1.0.0'` | Application build version. |
+| `last_sync` | `''` | Timestamp of last successful text data sync. |
+| `last_failed_sync`| `''` | Timestamp of last failed sync attempt. |
+| `last_image_sync` | `''` | Timestamp of last successful image upload. |
+| `image_backup_time`| `'02:00'` | Daily scheduled time for image upload (24h format). |
+| `image_backup_enabled`| `'1'` | Flag (`'1'` or `'0'`) for auto image upload schedule. |
+| `auto_sync_enabled` | `'1'` | Flag (`'1'` or `'0'`) for background automatic text sync. |
 
 ---
 
 ### Database Indexes
-
-The database defines 8 specific B-Tree indexes for fast searching, filtering, and reporting:
 
 ```sql
 CREATE INDEX IF NOT EXISTS idx_tx_uuid ON transactions(uuid);
@@ -188,6 +208,7 @@ CREATE INDEX IF NOT EXISTS idx_tx_type ON transactions(type);
 CREATE INDEX IF NOT EXISTS idx_tx_mode ON transactions(payment_mode);
 CREATE INDEX IF NOT EXISTS idx_tx_images_tx ON transaction_images(transaction_uuid);
 CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_queue(status);
+CREATE INDEX IF NOT EXISTS idx_backup_logs ON backup_activity_logs(timestamp);
 ```
 
 ---
@@ -220,44 +241,11 @@ CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_queue(status);
  └──────────────────────────────┘
 ```
 
-### Cascading & Deletion Behaviors:
-1. **Party Deletion (`parties` &rarr; `transactions`):**
-   - Foreign key constraint is `ON DELETE SET NULL`.
-   - If a party is deleted, historical transactions are **preserved** with `party_id = NULL`.
-2. **Category Deletion (`categories` &rarr; `transactions`):**
-   - Foreign key constraint is `ON DELETE SET NULL`.
-   - The app uses **Soft Deletes** (`UPDATE categories SET is_deleted = 1 WHERE id = ?`). This ensures historical transaction rows continue to display their original category icon and name.
-3. **Transaction Deletion (`transactions` &rarr; `transaction_images`):**
-   - Foreign key constraint is `ON DELETE CASCADE`.
-   - When a transaction is deleted, all corresponding `transaction_images` rows are automatically deleted from SQLite.
-4. **Multiple Images per Transaction:**
-   - 1 transaction can have up to 5 image attachments.
-   - Each image row has its own unique `id`, references `transaction_id`, and stores `transaction_uuid` for cross-system syncing.
-
 ---
 
 ## 4. Transaction Data Structure & Lifecycle
 
-### Field Breakdown
-
-| Field | Type | Description | Source / Code |
-| :--- | :--- | :--- | :--- |
-| `id` | `number` | Local SQLite integer auto-increment ID | Database auto-generated |
-| `uuid` | `string` | Globally unique identifier (UUID v4) | `crypto.randomUUID()` |
-| `partyId` | `number \| null` | Connected customer/supplier ID | Form picker / Selected party |
-| `categoryId` | `number \| null` | Connected category ID | Category selection grid |
-| `type` | `'gave' \| 'got'` | **'gave'** = Outflow / You Gave / Expense<br>**'got'** = Inflow / You Got / Income | Form toggle button |
-| `paymentMode` | `'cash' \| 'online'` | Mode of payment | Form toggle button |
-| `amount` | `number` | Numeric monetary amount in ₹ | Number input parsed as `parseFloat` |
-| `note` | `string` | Optional remarks or bill description | Text input |
-| `transactionDate` | `string` | Date of transaction in ISO format | Selected date / `new Date().toISOString()` |
-| `createdAt` | `string` | Timestamp when entry was created | `new Date().toISOString()` |
-| `updatedAt` | `string` | Timestamp when entry was updated | `new Date().toISOString()` |
-| `syncStatus` | `string` | Local sync flag (`'pending'` / `'synced'`) | Default `'pending'` |
-| `imageCount` | `number` | Computed image count attached to transaction | Subquery `(SELECT COUNT(*) FROM transaction_images ti WHERE ti.transaction_id = t.id)` |
-| `runningBalance` | `number` | Running total ledger balance after this transaction | SQLite window function `SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE -t.amount END) OVER (...)` |
-
-### Concrete Real Example from Database
+### Concrete Example from Mobile Database
 
 ```json
 {
@@ -265,33 +253,28 @@ CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_queue(status);
   "uuid": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
   "partyId": 3,
   "partyName": "Sharma Traders",
-  "partyPhone": "9876543210",
   "categoryId": 9,
   "categoryName": "Business",
-  "categoryIcon": "briefcase-outline",
-  "categoryColor": "#3B82F6",
   "type": "gave",
   "paymentMode": "cash",
   "amount": 4500.00,
-  "note": "Advance payment for raw material batch #104",
+  "note": "Raw material batch #104",
   "transactionDate": "2026-08-20T14:30:00.000Z",
   "createdAt": "2026-08-20T14:32:10.500Z",
   "updatedAt": "2026-08-20T14:32:10.500Z",
-  "syncStatus": "pending",
-  "imageCount": 2,
+  "syncStatus": "synced",
+  "serverId": 10842,
+  "serverSyncedAt": "2026-08-20T14:35:00.000Z",
+  "imageCount": 1,
   "runningBalance": 12500.00,
   "images": [
     {
       "id": 14,
+      "transactionUuid": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
       "localUri": "file:///data/user/0/com.gms.expense/files/transaction_photos/img_1724174000_a1b2c3.jpg",
       "fileName": "receipt_104.jpg",
-      "uploadStatus": "pending"
-    },
-    {
-      "id": 15,
-      "localUri": "file:///data/user/0/com.gms.expense/files/transaction_photos/img_1724174001_d4e5f6.jpg",
-      "fileName": "delivery_slip.jpg",
-      "uploadStatus": "pending"
+      "uploadStatus": "uploaded",
+      "serverId": 5012
     }
   ]
 }
@@ -301,65 +284,21 @@ CREATE INDEX IF NOT EXISTS idx_sync_status ON sync_queue(status);
 
 ## 5. Balance Calculation Logic
 
-> **IMPORTANT ARCHITECTURAL NOTE:**  
-> Balances are **never** stored as static, hardcoded numbers in SQLite tables. Instead, all balances (Overall, Customer, Channel, Running) are computed **dynamically on-the-fly** from raw transaction records via SQL aggregate queries. This guarantees zero ledger drift.
+> **IMPORTANT ARCHITECTURAL RULE:**  
+> Balances are **never** stored as static, hardcoded numbers in SQLite tables. All balances are computed **dynamically in real time** using SQL aggregate and window functions.
 
-### 1. Overall Balances (`getBalances` in `src/database/queries.js`)
-
-```sql
-SELECT
-  COALESCE(SUM(CASE WHEN payment_mode = 'cash' AND type = 'got' THEN amount ELSE 0 END), 0) as cash_got,
-  COALESCE(SUM(CASE WHEN payment_mode = 'cash' AND type = 'gave' THEN amount ELSE 0 END), 0) as cash_gave,
-  COALESCE(SUM(CASE WHEN payment_mode = 'online' AND type = 'got' THEN amount ELSE 0 END), 0) as online_got,
-  COALESCE(SUM(CASE WHEN payment_mode = 'online' AND type = 'gave' THEN amount ELSE 0 END), 0) as online_gave,
-  COALESCE(SUM(CASE WHEN type = 'got' THEN amount ELSE 0 END), 0) as total_got,
-  COALESCE(SUM(CASE WHEN type = 'gave' THEN amount ELSE 0 END), 0) as total_gave,
-  COALESCE(SUM(CASE WHEN type = 'got' AND date(transaction_date) = date(?) THEN amount ELSE 0 END), 0) as today_got,
-  COALESCE(SUM(CASE WHEN type = 'gave' AND date(transaction_date) = date(?) THEN amount ELSE 0 END), 0) as today_gave
-FROM transactions;
-```
-
-#### Mathematical Formulas:
+### Overall Balances:
 $$\text{Cash Balance} = \text{Cash Got} - \text{Cash Gave}$$
 $$\text{Online Balance} = \text{Online Got} - \text{Online Gave}$$
 $$\text{Total Balance} = \text{Cash Balance} + \text{Online Balance} = \text{Total Got} - \text{Total Gave}$$
 
-#### Color Logic:
-- **Positive Balance ($> 0$):** Displayed in **Green** (`#059669` / `Colors.gotDark`).
-- **Negative Balance ($< 0$):** Displayed in **Red** (`#DC2626` / `Colors.gaveDark`).
-- **Zero Balance ($= 0$):** Displayed in **Neutral Slate** (`#64748B` / `Colors.textSecondary`).
-
----
-
-### 2. Customer / Party Khata Balances (`getParties` in `src/database/queries.js`)
-
-In the Khata ledger, perspective is relative to what the party owes the user:
-
-```sql
-SELECT
-  p.id,
-  p.name,
-  COALESCE(SUM(CASE WHEN t.type = 'gave' THEN t.amount ELSE 0 END), 0) as totalGave,
-  COALESCE(SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE 0 END), 0) as totalGot,
-  (COALESCE(SUM(CASE WHEN t.type = 'gave' THEN t.amount ELSE 0 END), 0) - 
-   COALESCE(SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE 0 END), 0)) as netBalance
-FROM parties p
-LEFT JOIN transactions t ON p.id = t.party_id
-GROUP BY p.id;
-```
-
-#### Khata Mathematical Rules:
+### Khata (Customer) Net Balance:
 $$\text{Customer Net Balance} = \text{Total Gave to Party} - \text{Total Got from Party}$$
-- **$\text{Net Balance} > 0$:** **"You Will Get"** (Customer owes you money) &rarr; **Green** (`#059669`).
-- **$\text{Net Balance} < 0$:** **"You Will Give"** (You owe the customer money / Advance) &rarr; **Red** (`#DC2626`).
-- **$\text{Net Balance} = 0$:** **"All Settled"** &rarr; **Neutral** (`#64748B`).
+- **$\text{Net Balance} > 0$:** **"You Will Get"** (Customer owes business) &rarr; **Green** (`#059669`).
+- **$\text{Net Balance} < 0$:** **"You Will Give"** (Business owes customer) &rarr; **Red** (`#DC2626`).
+- **$\text{Net Balance} = 0$:** **"All Settled"** &rarr; **Neutral Slate** (`#64748B`).
 
----
-
-### 3. Running Balance Calculation (Per Transaction Strip)
-
-Calculated in real-time across chronological order using the SQLite window function:
-
+### Running Balance (Window Function):
 ```sql
 SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE -t.amount END)
   OVER (
@@ -373,166 +312,326 @@ SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE -t.amount END)
 
 ## 6. Image Storage & Handling
 
-### Architecture Pipeline
-```text
-[User Camera / Gallery]
-       │ (temporary cache URI: e.g. cache/ImagePicker/xyz.jpg)
-       ▼
-[ImageService: persistImageLocally]
-       │ (FileSystem.copyAsync)
-       ▼
-[Persistent Storage: documentDirectory/transaction_photos/img_TIMESTAMP_RANDOM.jpg]
-       │
-       ▼
-[SQLite: transaction_images table]
-  - transaction_id
-  - transaction_uuid
-  - local_uri: absolute file:// path
-  - file_name: normalized filename
-  - upload_status: 'pending'
-```
-
-### Physical Location
-- **Directory:** `FileSystem.documentDirectory + 'transaction_photos/'`
-- **Filename Convention:** `img_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.jpg`
-- **Storage Rule:** SQLite stores **only the local path URI string and filename**, never binary BLOBs inside SQLite.
-- **Copy vs. Move:** Images picked from camera/gallery are **copied** using `FileSystem.copyAsync` to ensure they persist permanently even if the OS clears temporary cache.
-- **Lifecycle & Cleanup:**
-  - When a transaction is deleted, `dbDeleteTransaction` deletes rows from `transaction_images`.
-  - Service `deleteLocalImageFile(uri)` invokes `FileSystem.deleteAsync(uri, { idempotent: true })` to remove physical files from the device disk.
+- **Physical Path:** `FileSystem.documentDirectory + 'transaction_photos/'`
+- **Naming Format:** `img_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.jpg`
+- **SQLite Storage:** Stores only the absolute file URI string in `transaction_images.local_uri` and filename in `transaction_images.file_name`.
+- **Safe Cleanup:** Transaction deletion triggers `FileSystem.deleteAsync` to free device storage.
 
 ---
 
-## 7. Backup & Synchronization Architecture
+## 7. PHP API Architecture
 
-### Current Mobile Implementation
-The application currently features a two-tiered backup system:
+The backend API is implemented in **PHP 8.x** running on an Apache/Nginx web server with MySQL 8.x.
 
-1. **Local Sync Queue Engine (`sync_queue` table):**
-   - Automatically enqueues an event for every transaction creation (`action: 'create'`), modification (`action: 'update'`), or removal (`action: 'delete'`).
-   - Stores the exact state payload as JSON.
-   - `syncService.js` tests network reachability (`expo-network`).
-2. **File-Based Complete Data Export / Backup:**
-   - **JSON Backup (`exportFullJSONBackup` in `exportService.js`):** Serializes all SQLite tables (`transactions`, `parties`, `categories`, `transaction_images`) into a structured JSON file and triggers native OS share (`expo-sharing`) or direct download.
-   - **CSV Statement (`exportTransactionsToCSV`):** Formats all transactions into CSV.
-   - **PDF Statement (`exportTransactionsToPDF`):** Compiles clean, print-ready PDF statements using `expo-print`.
+- **Base Production Domain:** `https://gmsexpense.tplpro.in`
+- **PHP API Directory Route:** `/api/v1/`
+- **Full Base URL:** `https://gmsexpense.tplpro.in/api/v1/`
+- **Configuration File:** [`src/constants/api_config.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/constants/api_config.js) / [`src/config/api_config.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/config/api_config.js)
 
-### Current Code Sync Processing (`src/services/syncService.js`)
+---
+
+### Current PHP APIs vs. Planned PHP APIs
+
+| Status | Category | Endpoint File | Description |
+| :--- | :--- | :--- | :--- |
+| **CURRENT** | Health & Monitor | `health.php` | Tests server reachability, PHP version & MySQL connection. |
+| **CURRENT** | Sync | `transactions_sync.php` | Upserts transaction batches from mobile SQLite into MySQL. |
+| **CURRENT** | Sync | `batch_sync.php` | Multi-entity sync (transactions, parties, categories). |
+| **CURRENT** | Media Storage | `image_upload.php` | Single receipt image upload via multipart/form-data. |
+| **CURRENT** | Media Storage | `image_upload_batch.php` | Batch multipart upload of multiple receipt photos. |
+| **CURRENT** | Backup Status | `backup_status.php` | Returns server backup statistics and device sync timestamps. |
+| *PLANNED* | Restore | `restore.php` | Full cloud backup restore to recreate local SQLite ledger. |
+| *PLANNED* | Archive | `download_backup.php` | Generates downloadable SQL/JSON server backup archive. |
+| *PLANNED* | Auth | `login.php` | User authentication & JWT/API token generation. |
+| *PLANNED* | Auth | `register.php` | User registration for cloud multi-device sync. |
+| *PLANNED* | Auth | `verify_token.php` | Token validation. |
+| *PLANNED* | Khata Master | `parties_sync.php` | Standalone customer & vendor list synchronization. |
+| *PLANNED* | Category Master | `categories_sync.php` | Standalone custom categories sync. |
+
+---
+
+### PHP Endpoints Specification Table
+
+| API Name | PHP Endpoint File | HTTP Method | Request Content-Type | Payload Format | Response Format | Status |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Server Health** | `health.php` | `GET` | `None` | Query params: `?device_uuid=...` | JSON | **CURRENT** |
+| **Transaction Sync** | `transactions_sync.php` | `POST` | `application/json` | JSON Batch array of transaction objects | JSON | **CURRENT** |
+| **Batch Sync** | `batch_sync.php` | `POST` | `application/json` | JSON Multi-entity batch payload | JSON | **CURRENT** |
+| **Image Upload** | `image_upload.php` | `POST` | `multipart/form-data` | `file`, `transaction_uuid`, `file_name` | JSON | **CURRENT** |
+| **Image Batch Upload** | `image_upload_batch.php` | `POST` | `multipart/form-data` | Array of image files + UUID metadata | JSON | **CURRENT** |
+| **Backup Status** | `backup_status.php` | `GET` | `None` | Query params: `?device_uuid=...` | JSON | **CURRENT** |
+| **Cloud Restore** | `restore.php` | `POST` | `application/json` | `{ user_id, device_uuid }` | JSON | *PLANNED* |
+| **Download Backup** | `download_backup.php` | `GET` | `None` | Query params: `?token=...` | JSON/Zip | *PLANNED* |
+| **User Login** | `login.php` | `POST` | `application/json` | `{ email, password }` | JSON | *PLANNED* |
+| **User Register** | `register.php` | `POST` | `application/json` | `{ name, email, password, phone }` | JSON | *PLANNED* |
+
+---
+
+### Request & Response Formats
+
+#### 1. `health.php` (Server Health Test)
+- **Method:** `GET`
+- **Response (200 OK):**
+```json
+{
+  "success": true,
+  "status": "healthy",
+  "php_version": "8.2.14",
+  "mysql_connected": true,
+  "server_time": "2026-08-20T23:30:00Z",
+  "message": "PHP API and MySQL database are working properly."
+}
+```
+
+#### 2. `transactions_sync.php` (Transaction Data Upload)
+- **Method:** `POST`
+- **Request Body (JSON):**
+```json
+{
+  "device_uuid": "dev_987654321",
+  "records": [
+    {
+      "uuid": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "party_id": 3,
+      "party_name": "Sharma Traders",
+      "category_id": 9,
+      "category_name": "Business",
+      "type": "gave",
+      "payment_mode": "cash",
+      "amount": 4500.00,
+      "note": "Raw material batch #104",
+      "transaction_date": "2026-08-20T14:30:00.000Z",
+      "created_at": "2026-08-20T14:32:10.500Z",
+      "updated_at": "2026-08-20T14:32:10.500Z"
+    }
+  ]
+}
+```
+- **Response (200 OK — Confirmed Storage):**
+```json
+{
+  "success": true,
+  "saved": true,
+  "count": 1,
+  "synced_records": [
+    {
+      "uuid": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "server_id": 10842,
+      "status": "saved"
+    }
+  ],
+  "server_timestamp": "2026-08-20T14:35:00.000Z"
+}
+```
+- **Response (Error / Validation Failure):**
+```json
+{
+  "success": false,
+  "saved": false,
+  "message": "Database validation error: Invalid amount format.",
+  "errors": ["records[0].amount must be a positive number"]
+}
+```
+
+#### 3. `image_upload.php` (Receipt Photo Upload)
+- **Method:** `POST` (`multipart/form-data`)
+- **Parameters:**
+  - `file`: Binary image file (JPEG/PNG)
+  - `transaction_uuid`: `7c9e6679-7425-40de-944b-e07fc1f90ae7`
+  - `file_name`: `receipt_104.jpg`
+- **Response (200 OK):**
+```json
+{
+  "success": true,
+  "saved": true,
+  "server_id": 5012,
+  "transaction_uuid": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "storage_url": "https://gmsexpense.tplpro.in/uploads/images/img_1724174000_a1b2c3.jpg",
+  "file_size": 245120
+}
+```
+
+---
+
+### Authentication & Request Headers
+
 ```javascript
-export const processSyncQueue = async () => {
-  const stats = getSyncStats();
-  if (stats.pendingCount === 0) return { success: true, count: 0, message: 'All data already synced' };
-
-  const netInfo = await checkNetworkConnectivity();
-  if (!netInfo.isConnected) return { success: false, count: stats.pendingCount, message: 'No internet connection' };
-
-  // Current simulation (ready for PHP/MySQL endpoint integration)
-  await new Promise((resolve) => setTimeout(resolve, 800));
-  markSyncQueueComplete();
-  return { success: true, count: stats.pendingCount, message: `Successfully synced ${stats.pendingCount} items` };
-};
+HEADERS: {
+  'Content-Type': 'application/json',
+  'Accept': 'application/json',
+  'X-App-Version': '1.0.0',
+  'X-Platform': 'android' // or 'ios'
+}
 ```
 
 ---
 
-## 8. Backup Data Mapping
+## 8. Backup Architecture & PHP / MySQL Data Flow
 
-### SQLite Client to Future Server Database Mapping
-
-| SQLite Table | SQLite Column | JSON Backup / API Field | Recommended Server Table | Recommended Server Column | Notes |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `transactions` | `uuid` | `uuid` | `transactions` | `client_uuid` | **Primary Sync Key** |
-| `transactions` | `id` | `id` | `transactions` | `device_local_id` | Preserved for client reference |
-| `transactions` | `party_id` | `party_id` | `transactions` | `party_id` | Mapped via party sync |
-| `transactions` | `category_id` | `category_id` | `transactions` | `category_id` | Mapped via category sync |
-| `transactions` | `type` | `type` | `transactions` | `type` | ENUM(`'gave'`, `'got'`) |
-| `transactions` | `payment_mode`| `payment_mode`| `transactions` | `payment_mode` | ENUM(`'cash'`, `'online'`) |
-| `transactions` | `amount` | `amount` | `transactions` | `amount` | DECIMAL(12, 2) |
-| `transactions` | `note` | `note` | `transactions` | `note` | TEXT |
-| `transactions` | `transaction_date`| `transaction_date`| `transactions` | `transaction_date`| DATETIME |
-| `transactions` | `created_at` | `created_at` | `transactions` | `client_created_at` | DATETIME |
-| `transactions` | `updated_at` | `updated_at` | `transactions` | `client_updated_at` | DATETIME |
-| `parties` | `id` | `id` | `parties` | `device_local_id` | Client reference ID |
-| `parties` | `name` | `name` | `parties` | `name` | VARCHAR(255) |
-| `parties` | `phone` | `phone` | `parties` | `phone` | VARCHAR(20) |
-| `parties` | `created_at` | `created_at` | `parties` | `created_at` | DATETIME |
-| `categories` | `name` | `name` | `categories` | `name` | VARCHAR(100) |
-| `categories` | `icon` | `icon` | `categories` | `icon` | VARCHAR(100) |
-| `categories` | `color` | `color` | `categories` | `color` | VARCHAR(20) |
-| `categories` | `is_custom` | `is_custom` | `categories` | `is_custom` | TINYINT(1) |
-| `transaction_images`| `transaction_uuid`| `transaction_uuid`| `transaction_images`| `transaction_uuid` | Foreign key to `transactions` |
-| `transaction_images`| `file_name` | `file_name` | `transaction_images`| `file_name` | VARCHAR(255) |
-| `transaction_images`| (binary file) | (multipart upload)| `transaction_images`| `storage_url` | S3 / Server disk storage URL |
-
-> *Note: Live remote server API endpoints and tables are not yet deployed. The mapping above corresponds directly to the data contracts produced by `exportAllData()` and `sync_queue`.*
-
----
-
-## 9. Backup Flow
-
-### Complete End-to-End Sync Lifecycle
+### Text & SQLite Data Flow
 ```text
-1. User creates/edits transaction in Mobile App
-2. SQLite saves transaction row (`sync_status = 'pending'`)
-3. SQLite triggers image persistence & records `transaction_images`
-4. SQLite inserts mutation event into `sync_queue` table
-5. Background / User triggers Sync (`triggerSync()`)
-6. App verifies network via `expo-network` (`checkNetworkConnectivity()`)
-7. App reads unsynced queue items from `sync_queue WHERE status = 'pending'`
-8. App prepares JSON payload batch (including transaction details & images)
-9. App performs POST request to Backend API (e.g. `/api/v1/sync/batch`)
-10. If images present, upload as multipart/form-data to `/api/v1/uploads`
-11. Backend processes upsert, saves records to MySQL, saves images to server storage
-12. Backend returns HTTP 200 with `{ success: true, synced_uuids: [...] }`
-13. App runs `markSyncQueueComplete()`:
-    - Sets `sync_queue.status = 'synced'`
-    - Sets `transactions.sync_status = 'synced'`
-    - Updates `settings.last_sync = ISO_TIMESTAMP`
-14. UI updates Sync Badge to Green "All Synced".
+React Native / Expo App
+        │
+        ▼
+   SQLite (expenses_khata.db)
+   Records saved locally with `sync_status = 'pending'`
+        │
+        ▼
+   Backup / Sync Service (`syncService.js`)
+   Checks network connectivity via `expo-network`
+        │
+        ▼
+   Centralized `api_config`
+   Retrieves `TRANSACTION_SYNC_URL` (`.../api/v1/transactions_sync.php`)
+        │
+        ▼ (HTTPS POST JSON)
+   PHP API Endpoint (`transactions_sync.php`)
+   Validates JSON payload & performs idempotent upsert
+        │
+        ▼
+   MySQL Database (`transactions` table)
+   Saves record and assigns auto-increment `id` (server_id)
+        │
+        ▼ (HTTPS Response JSON `{ success: true, saved: true, server_id: 10842 }`)
+   React Native Client
+   Updates SQLite: `sync_status = 'synced'`, `server_id = 10842`
+```
+
+### Receipt Image Media Flow
+```text
+React Native / Expo App
+        │
+        ▼
+   Device Document Directory (`transaction_photos/*.jpg`)
+        │
+        ▼
+   Image Upload Scheduler (`syncService.js` / Scheduled 2:00 AM)
+        │
+        ▼
+   Centralized `api_config`
+   Retrieves `IMAGE_UPLOAD_URL` (`.../api/v1/image_upload.php`)
+        │
+        ▼ (HTTPS POST multipart/form-data)
+   PHP Image Upload API (`image_upload.php`)
+   Saves binary file to server disk directory (`/uploads/images/`)
+        │
+        ▼
+   MySQL Database (`transaction_images` table)
+   Inserts storage URL & metadata; returns `server_id`
+        │
+        ▼ (HTTPS Response JSON `{ success: true, saved: true, server_id: 5012 }`)
+   React Native Client
+   Updates SQLite `transaction_images`: `upload_status = 'uploaded'`, `server_id = 5012`
 ```
 
 ---
 
-## 10. Failure and Retry Behavior
+## 9. API-to-Database Mapping Table
 
-| Scenario | Handled in Current App? | Behavior / Mitigation |
-| :--- | :---: | :--- |
-| **No Internet Connection** | **Yes** | `checkNetworkConnectivity()` returns `isConnected: false`. Sync stops cleanly, displays "No internet connection", preserves queue as `'pending'`. |
-| **App Closes / Crashes during operation** | **Yes** | All SQLite writes use `withTransactionSync` atomic blocks. Database remains consistent; pending items remain in `sync_queue`. |
-| **Sync executed twice concurrently** | **Yes** | Guarded by `isSyncing` mutex state in `AppContext.js`. Second call returns immediately. |
-| **Transaction edited after sync** | **Yes** | Editing a transaction enqueues a new `'update'` row in `sync_queue` and resets `transactions.sync_status = 'pending'`. |
-| **Transaction deleted after sync** | **Yes** | Enqueues a `'delete'` action row with `entity_uuid` in `sync_queue`. |
-| **Server 500 error / Timeout** | **Ready** | `sync_queue` items remain `'pending'`, retried on next user sync or reconnection. |
-| **Multi-device Conflict Resolution** | *Not Yet Implemented* | Currently uses "last-write-wins" based on `updated_at`. Needs server timestamp reconciliation. |
+| PHP API File | Target MySQL Table | SQL Operation | Key Identifier | Local Mapping Column | Server ID Column | Status Tracking |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `transactions_sync.php` | `transactions` | `INSERT ... ON DUPLICATE KEY UPDATE` | `client_uuid` (CHAR 36) | `transactions.uuid` | `transactions.server_id` | `transactions.sync_status` |
+| `image_upload.php` | `transaction_images` | `INSERT` | `transaction_uuid` + `file_name` | `transaction_images.local_uri` | `transaction_images.server_id` | `transaction_images.upload_status` |
+| `parties_sync.php` | `parties` | `INSERT ... ON DUPLICATE KEY UPDATE` | `client_uuid` | `parties.id` | `parties.server_id` | `parties.sync_status` |
+| `categories_sync.php` | `categories` | `INSERT ... ON DUPLICATE KEY UPDATE` | `name` | `categories.id` | `categories.server_id` | N/A |
+| `backup_status.php` | `sync_logs` | `SELECT / INSERT` | `device_uuid` | `settings.last_sync` | N/A | N/A |
 
 ---
 
-## 11. Recommended CRM Architecture
+## 10. Server Confirmation Process & State Machine
 
-When building the future **PHP/Laravel/Node.js + MySQL** CRM and backend:
+> **CRITICAL DATA-SAFETY RULE:**  
+> A transaction or image is **NEVER** marked as `UPLOADED` simply because an HTTP request was sent or internet connectivity was detected.  
+> It is marked as `UPLOADED` **ONLY AFTER** the PHP API confirms that the record was validated and written to MySQL.
 
-1. **UUID as Canonical Synchronization Identifier:**
-   - Always use `client_uuid` (CHAR(36)) as the unique identifier for transactions.
-   - Do NOT use client auto-increment `id` as primary keys on the server.
-2. **Tenant / Multi-User Isolation:**
-   - Introduce `user_id` and `business_id` (or `device_id`) on all server tables.
-3. **Soft Delete Architecture:**
-   - Server tables should use `deleted_at TIMESTAMP NULL` instead of hard SQL `DELETE` to allow seamless multi-device deletion synchronization.
-4. **Idempotent Batch Upsert API:**
-   - The sync endpoint should accept an array of mutations and perform `INSERT ... ON DUPLICATE KEY UPDATE` using `client_uuid`.
-5. **Static Balance vs Computed Balance:**
-   - Like the mobile app, the CRM should compute balances using SQL views / window functions or materialized summary tables to prevent rounding discrepancies.
+```text
+ ┌────────────────────────────────────────────────────────┐
+ │ 1. PENDING (Record created in local SQLite)            │
+ └───────────────────────────┬────────────────────────────┘
+                             │
+                             ▼
+ ┌────────────────────────────────────────────────────────┐
+ │ 2. UPLOADING (HTTP POST sent to PHP API)               │
+ └───────────────────────────┬────────────────────────────┘
+                             │
+             ┌───────────────┴───────────────┐
+             │                               │
+    [PHP Returns 200 OK +            [PHP Returns Error /
+     saved: true + server_id]         Timeout / Rejection]
+             │                               │
+             ▼                               ▼
+ ┌───────────────────────────┐   ┌───────────────────────────┐
+ │ 3. UPLOADED ✓             │   │ 4. FAILED / PENDING       │
+ │ - SQLite sync_status='synced'│   │ - sync_status='failed'    │
+ │ - server_id stored        │   │ - Stored for auto-retry   │
+ │ - server_synced_at stored │   │ - Logged in activity list │
+ └───────────────────────────┘   └───────────────────────────┘
+```
 
 ---
 
-## 12. Suggested Future CRM Database Schema
+## 11. Server & API Health Testing
 
-### `RECOMMENDED FUTURE CRM STRUCTURE (MySQL 8.0+)`
+The **Backup & Sync Dashboard** ([`src/screens/BackupScreen.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/screens/BackupScreen.js)) features a **Test Server Connection** tool that distinguishes 5 distinct health levels:
+
+```text
+Backup Screen ("Test Server Connection")
+   │
+   ├── Level 1: Internet Connection Check (expo-network)
+   │     └─ Checks Wi-Fi / Cellular active & reachable
+   │
+   ├── Level 2: Base PHP Server Reachability (`health.php`)
+   │     └─ Confirms Apache/Nginx web server is online
+   │
+   ├── Level 3: MySQL Database Connectivity (`health.php`)
+   │     └─ Confirms PHP can query MySQL database
+   │
+   ├── Level 4: Transaction Sync API (`transactions_sync.php`)
+   │     └─ Confirms transaction endpoint route responds
+   │
+   └── Level 5: Image Media API (`image_upload.php`)
+         └─ Confirms image multipart upload route is ready
+```
+
+---
+
+## 12. API Configuration Rules
+
+1. **Zero Hardcoded URLs:** No screen, modal, component, or database query may hardcode server URLs.
+2. **Single Source of Truth:** All URLs must be imported from `src/constants/api_config.js`.
+3. **Domain Portability:** Changing the server domain or staging/production environment requires changing only `BASE_DOMAIN` in `api_config.js`.
+4. **Feature Organization:** Endpoints are grouped cleanly by feature: Text Sync, Media Upload, Server Health, Restore, and Auth.
+5. **Planned Endpoints Isolation:** Planned endpoints must be clearly commented and never called by active client code until deployed on the PHP backend.
+
+---
+
+## 13. Failure & Retry Behavior
+
+| Scenario | Client Behavior | PHP Server Behavior |
+| :--- | :--- | :--- |
+| **Device Offline** | Skips sync attempt cleanly; records remain safely in SQLite `sync_status = 'pending'`. | No action. |
+| **Server 500 / MySQL Down** | Marks records as `'failed'`; auto-retry daemon attempts sync again in next 25-second cycle. | Logs error in PHP error log. |
+| **Duplicate Network Request** | Sends same `client_uuid`. | PHP runs `ON DUPLICATE KEY UPDATE` using `client_uuid`, preventing duplicate MySQL records. |
+| **Image Upload Interrupted** | Image remains `upload_status = 'pending'` or `'failed'`; retried at next scheduled cycle (2:00 AM) or manual trigger. | Deletes partial temp file if upload incomplete. |
+
+---
+
+## 14. Recommended CRM Backend Architecture (PHP/MySQL)
+
+When developing the future **PHP CRM & Web Admin Panel**:
+1. **Canonical UUIDs:** Use `client_uuid` (CHAR(36)) as the primary unique synchronization anchor.
+2. **Tenant Isolation:** Include `user_id` and `device_id` on all MySQL tables.
+3. **Soft Deletions:** Implement `deleted_at TIMESTAMP NULL` across all MySQL tables.
+4. **Dynamic Aggregation:** Compute running balances and party khata summaries using SQL views or window functions matching the mobile math formulas.
+
+---
+
+## 15. Suggested Future CRM Database Schema (MySQL 8.0+)
 
 ```sql
 -- 1. Users & Devices
 CREATE TABLE users (
-  id BIGINT UNSIGNED AUTOINCREMENT PRIMARY KEY,
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
@@ -543,7 +642,7 @@ CREATE TABLE users (
 );
 
 CREATE TABLE devices (
-  id BIGINT UNSIGNED AUTOINCREMENT PRIMARY KEY,
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
   device_uuid VARCHAR(100) UNIQUE NOT NULL,
   device_name VARCHAR(100),
@@ -551,9 +650,9 @@ CREATE TABLE devices (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- 2. Parties / Customers
+-- 2. Parties / Khata Customers
 CREATE TABLE parties (
-  id BIGINT UNSIGNED AUTOINCREMENT PRIMARY KEY,
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
   client_uuid CHAR(36) NOT NULL,
   name VARCHAR(255) NOT NULL,
@@ -567,8 +666,8 @@ CREATE TABLE parties (
 
 -- 3. Categories
 CREATE TABLE categories (
-  id BIGINT UNSIGNED AUTOINCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NULL, -- NULL indicates system global category
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NULL,
   name VARCHAR(100) NOT NULL,
   icon VARCHAR(100) DEFAULT 'grid-outline',
   color VARCHAR(20) DEFAULT '#64748B',
@@ -579,7 +678,7 @@ CREATE TABLE categories (
 
 -- 4. Transactions Ledger
 CREATE TABLE transactions (
-  id BIGINT UNSIGNED AUTOINCREMENT PRIMARY KEY,
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
   client_uuid CHAR(36) NOT NULL,
   party_id BIGINT UNSIGNED NULL,
@@ -602,7 +701,7 @@ CREATE TABLE transactions (
 
 -- 5. Transaction Images
 CREATE TABLE transaction_images (
-  id BIGINT UNSIGNED AUTOINCREMENT PRIMARY KEY,
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
   transaction_uuid CHAR(36) NOT NULL,
   storage_url VARCHAR(1024) NOT NULL,
@@ -615,7 +714,7 @@ CREATE TABLE transaction_images (
 
 -- 6. Sync Log & Audit
 CREATE TABLE sync_logs (
-  id BIGINT UNSIGNED AUTOINCREMENT PRIMARY KEY,
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id BIGINT UNSIGNED NOT NULL,
   device_id BIGINT UNSIGNED NOT NULL,
   batch_count INT UNSIGNED NOT NULL,
@@ -627,13 +726,13 @@ CREATE TABLE sync_logs (
 
 ---
 
-## 13. Data Flow Diagrams
+## 16. Data Flow Diagrams
 
-### Local Mobile Data Flow
+### Complete System Data Flow
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │                       USER INTERFACE                        │
-│   (HomeScreen / AddTransactionModal / TransactionsScreen)   │
+│ (HomeScreen / TransactionsScreen / Khata / Backup Dashboard)│
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                ▼
@@ -652,28 +751,14 @@ CREATE TABLE sync_logs (
 ┌──────────────────────────────┐ ┌────────────────────────────┐
 │     SQLite Tables in WAL     │ │   App Document Directory   │
 │ (transactions, parties, etc) │ │ (transaction_photos/*.jpg) │
-└──────────────────────────────┘ └────────────────────────────┘
-```
-
-### Future Server Backup & Sync Flow
-```text
+└──────────────┬───────────────┘ └─────────────┬──────────────┘
+               │                               │
+               ▼                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      MOBILE SQLITE DB                       │
-│    `sync_queue` has records with status = 'pending'         │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  SYNC SERVICE (syncService.js)              │
-│    Reads payload + checks network connectivity              │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ HTTPS POST /api/v1/sync
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                 BACKEND CRM (PHP / Node.js)                 │
-│    - Authenticates user token                               │
-│    - Upserts transactions using `client_uuid`               │
-│    - Stores attached images to S3 / Cloud Storage           │
+│           PHP API BACKEND (https://gmsexpense.tplpro.in)    │
+│  - transactions_sync.php (JSON batch processing)            │
+│  - image_upload.php (Multipart file saving)                 │
+│  - health.php (Server status & latency monitor)             │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                ▼
@@ -685,21 +770,19 @@ CREATE TABLE sync_logs (
 
 ---
 
-## 14. Important Identifiers & Key Management
+## 17. Important Identifiers & Key Management
 
-| Identifier | Scope | Type | Generated Where | Changable? | Role in CRM Backend |
+| Identifier | Scope | Type | Generated Where | Changable? | Role in PHP Backend |
 | :--- | :--- | :--- | :--- | :---: | :--- |
-| **`transactions.uuid`** | **Global** | `UUID v4` string | `crypto.randomUUID()` | **NO** | **Primary Canonical Key** for synchronization across all devices and server. |
-| `transactions.id` | Local | `INTEGER` | SQLite Auto-increment | Yes (on device reset) | Local row reference on the specific phone only. |
-| `parties.id` | Local | `INTEGER` | SQLite Auto-increment | Yes | Local party identifier. (In CRM, pair with `party_uuid`). |
-| `categories.id` | Local/Global | `INTEGER` | Pre-seeded (1–11) or Auto | No (1–11 fixed) | Category master key. |
-| `transaction_images.id` | Local | `INTEGER` | SQLite Auto-increment | Yes | Local image row ID. |
-| `transaction_images.transaction_uuid` | **Global** | `UUID v4` string | Inherited from `transactions.uuid` | **NO** | Links image file uploads to transactions on the server. |
-| `settings.key` | Local | `TEXT` | Static keys (`currency`, `last_sync`) | No | Key-value store identifier. |
+| **`transactions.uuid`** | **Global** | `UUID v4` string | `crypto.randomUUID()` | **NO** | **Primary Canonical Key** (`client_uuid`) for MySQL deduplication. |
+| `transactions.id` | Local | `INTEGER` | SQLite Auto-increment | Yes | Local mobile row ID only. |
+| `transactions.server_id` | **Global** | `INTEGER` | MySQL Auto-increment | No | Assigned by PHP API upon confirmation. |
+| `transaction_images.transaction_uuid`| **Global** | `UUID v4` string | Inherited from transaction | **NO** | Links image files to MySQL transactions. |
+| `settings.key` | Local | `TEXT` | Static keys | No | Key-value config identifier. |
 
 ---
 
-## 15. Data Lifecycle
+## 18. Data Lifecycle
 
 ```text
  ┌────────────────┐
@@ -707,7 +790,7 @@ CREATE TABLE sync_logs (
  └───────┬────────┘
          ▼
  ┌────────────────┐
- │ 2. Persist Pic │ `imageService.persistImageLocally` copies camera/gallery file to permanent storage
+ │ 2. Persist Pic │ `imageService.persistImageLocally` copies photo to permanent documentDirectory
  └───────┬────────┘
          ▼
  ┌────────────────┐
@@ -715,69 +798,80 @@ CREATE TABLE sync_logs (
  └───────┬────────┘
          ▼
  ┌────────────────┐
- │ 4. Dynamic UI  │ `refreshAll()` recalculates balances in real-time; updates HomeScreen & Khata instantly
+ │ 4. Auto Sync   │ `syncService.js` sends JSON to `transactions_sync.php` when online
  └───────┬────────┘
          ▼
  ┌────────────────┐
- │ 5. Export/Sync │ User triggers "Export PDF", "Export CSV", or "Sync Backup"
+ │ 5. Server Save │ PHP writes to MySQL; returns `{ success: true, saved: true, server_id }`
  └───────┬────────┘
          ▼
  ┌────────────────┐
- │ 6. Edit/Delete │ Modifications create new `sync_queue` rows; deletions cascade to images & disk
+ │ 6. UPLOADED ✓  │ SQLite updates `sync_status = 'synced'` and stores `server_id`
  └────────────────┘
 ```
 
 ---
 
-## 16. Actual Code References
+## 19. Actual Code References
 
-Every path below exists in the actual codebase:
+### Mobile Application Codebase
+- **Centralized PHP API Configuration:**  
+  [`src/constants/api_config.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/constants/api_config.js) / [`src/config/api_config.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/config/api_config.js)
+- **Dedicated Full-Screen Backup Dashboard:**  
+  [`src/screens/BackupScreen.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/screens/BackupScreen.js)
+- **Sync & Endpoint Health Service (Zero Simulation):**  
+  [`src/services/syncService.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/services/syncService.js)
+- **Database Initialization & Schemas:**  
+  [`src/database/db.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/database/db.js)
+- **Database Queries & Activity Logging:**  
+  [`src/database/queries.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/database/queries.js)
+- **Image Persistence & File Management:**  
+  [`src/services/imageService.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/services/imageService.js)
+- **State Management:**  
+  [`src/context/AppContext.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/context/AppContext.js)
 
-- **Database Initialization & Table Creation:**  
-  [`src/database/db.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/database/db.js) &rarr; `initDatabase()`, `getDatabase()`
-- **All SQL Queries (CRUD, Balances, Reports):**  
-  [`src/database/queries.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/database/queries.js) &rarr; `getBalances()`, `getTransactions()`, `addTransaction()`, `updateTransaction()`, `deleteTransaction()`, `getParties()`, `addParty()`, `getCategories()`, `getReportsSummary()`, `exportAllData()`
-- **Image File Operations (Camera, Gallery, Disk Persistence):**  
-  [`src/services/imageService.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/services/imageService.js) &rarr; `persistImageLocally()`, `pickImagesFromGallery()`, `takePhotoWithCamera()`, `deleteLocalImageFile()`
-- **Sync Queue Processing & Network Detection:**  
-  [`src/services/syncService.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/services/syncService.js) &rarr; `checkNetworkConnectivity()`, `processSyncQueue()`
-- **PDF & CSV Export Services:**  
-  [`src/services/exportService.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/services/exportService.js) &rarr; `exportTransactionsToPDF()`, `exportTransactionsToCSV()`, `exportFullJSONBackup()`
-- **Centralized API & Endpoints Configuration:**  
-  [`src/constants/api_config.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/constants/api_config.js) / [`src/config/api_config.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/config/api_config.js) &rarr; `API_CONFIG`
-- **App State & Reactive Coordinator:**  
-  [`src/context/AppContext.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/context/AppContext.js) &rarr; `AppProvider`, `useApp()`
-- **Dedicated Full-Screen Backup & Sync Dashboard:**  
-  [`src/screens/BackupScreen.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/screens/BackupScreen.js) &rarr; `BackupScreen`
-- **Default Category Seeds:**  
-  [`src/constants/categories.js`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/src/constants/categories.js) &rarr; `DEFAULT_CATEGORIES`
+### PHP Backend Server Codebase (Zero-Simulation Production Ready)
+- **Database Connection Helper:**  
+  [`backend/api/v1/db_connect.php`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/backend/api/v1/db_connect.php)
+- **Real Server & MySQL Health API:**  
+  [`backend/api/v1/health.php`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/backend/api/v1/health.php)
+- **Real Transaction Upsert Sync API:**  
+  [`backend/api/v1/transactions_sync.php`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/backend/api/v1/transactions_sync.php)
+- **Real Multipart Image Upload API:**  
+  [`backend/api/v1/image_upload.php`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/backend/api/v1/image_upload.php)
+- **Real Backup Status API:**  
+  [`backend/api/v1/backup_status.php`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/backend/api/v1/backup_status.php)
+- **MySQL 8.0+ Production Database Schema:**  
+  [`backend/database/schema.sql`](file:///c:/MyData/MYPROJECT/myproject/gms_expense_app/backend/database/schema.sql)
 
 ---
 
-## 17. Current Limitations
+## 20. Zero-Simulation Verification & Testing Architecture
 
-1. **No Live Server API Endpoints Yet:** `syncService.js` simulates successful sync; live HTTP endpoints (e.g. PHP/Node REST endpoints) must be built according to Section 12.
-2. **Local User Authentication:** The mobile app currently runs in single-user offline mode without user login credentials.
-3. **Multi-device Conflict Resolution:** The app uses local UUIDs with client timestamps; cloud merge conflict handling (e.g. vector clocks or server-timestamp last-write-wins) will need to be governed by the backend.
-4. **Cloud Image Mirroring:** Receipt images are stored on the local device file system; they will need to be pushed to S3/Cloud Storage during backend sync.
+### Principle of Zero Simulation
+The application contains **ZERO** mock responses, hardcoded timeouts, or placeholder success fallbacks.
+
+| Error Scenario | React Native Result | UI Status Display | SQLite Sync State |
+| :--- | :--- | :--- | :--- |
+| **Domain does not resolve (DNS error)** | `fetch()` throws `TypeError: Network request failed` | 🔴 **Server Offline / DNS Failed** | Stays `pending` |
+| **PHP endpoint returns 404 (file missing)** | HTTP 404 response | 🔴 **✕ 404 Not Found** | Stays `pending` / `failed` |
+| **PHP script throws 500 (MySQL down)** | HTTP 500 response | 🔴 **✕ 500 Server Error** | Marked `failed` |
+| **PHP confirms MySQL commit with `server_id`** | HTTP 200 `{ success: true, saved: true, server_id }` | 🟢 **✓ Working (200 OK · 45ms)** | Marked `synced` + stores `server_id` |
 
 ---
 
-## 18. Architecture Summary
+## 21. Architecture Summary
 
 1. **Where Data is Stored:**  
-   In SQLite database file `expenses_khata.db` using WAL mode, with physical receipt images in the app's document directory `transaction_photos/`.
-2. **How Transactions are Structured:**  
-   Each transaction has a UUID v4 key, `type` (`'gave'` or `'got'`), `payment_mode` (`'cash'` or `'online'`), `amount`, `transaction_date`, and optional foreign keys to `parties` and `categories`.
-3. **How Images are Connected:**  
-   Via the `transaction_images` table which links `transaction_id` and `transaction_uuid` to the local filesystem path.
-4. **How Balances are Calculated:**  
-   Dynamically computed in real-time using SQL queries:  
-   $$\text{Total Balance} = \text{Total Got} - \text{Total Gave}$$
-   $$\text{Customer Net Balance} = \text{Total Gave to Customer} - \text{Total Got from Customer}$$
-5. **How Backup Works:**  
-   Local changes are logged into `sync_queue`. The app can export full JSON backups, CSV sheets, and PDF statements, and is architected to POST sync payloads to a future backend.
-6. **How IDs Connect Local and Server Data:**  
-   `transactions.uuid` is the immutable, globally unique sync anchor that maps local SQLite transactions to backend MySQL records.
-7. **How this Converts to a CRM:**  
-   By building the MySQL tables outlined in Section 12 and consuming the JSON payloads created by `sync_queue` and `exportAllData()`.
+   Locally in SQLite database `expenses_khata.db` (WAL mode) and persistent disk photos; backed up remotely via PHP to MySQL.
+2. **How Endpoints are Managed:**  
+   Centralized in `src/constants/api_config.js` targeting `https://gmsexpense.tplpro.in/api/v1/`.
+3. **How Text Data Syncs:**  
+   Automatically uploaded via `transactions_sync.php` upon internet connection.
+4. **How Images Sync:**  
+   Scheduled nightly at 2:00 AM via `image_upload.php` multipart upload.
+5. **How Confirmation Works:**  
+   Records are marked `UPLOADED` only after PHP returns `{ success: true, saved: true, server_id }`.
+6. **How Local Erase Works:**  
+   Erase Device Data strictly removes local SQLite tables and cache; server data remains untouched.
+

@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Switch,
+  BackHandler,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -45,7 +46,6 @@ export const BackupScreen = () => {
     backupActivityLogs,
     refreshAll,
     setActiveTab,
-    previousTab,
   } = useApp();
 
   // Server health test state
@@ -63,6 +63,17 @@ export const BackupScreen = () => {
   const [isErasing, setIsErasing] = useState(false);
 
   const { transactions, images, system } = detailedBackupStats;
+
+  // Intercept Android hardware back button to always return to 'More' screen
+  useEffect(() => {
+    const onBackPress = () => {
+      setActiveTab('More');
+      return true;
+    };
+
+    const backHandlerSubscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => backHandlerSubscription.remove();
+  }, [setActiveTab]);
 
   // Run initial server test on mount if online
   useEffect(() => {
@@ -203,7 +214,7 @@ export const BackupScreen = () => {
   };
 
   const handleBackNavigation = () => {
-    setActiveTab(previousTab || 'More');
+    setActiveTab('More');
   };
 
   return (
@@ -289,40 +300,43 @@ export const BackupScreen = () => {
               <Ionicons name="server" size={20} color={Colors.primary} style={{ marginRight: 6 }} />
               <Text style={styles.sectionTitle}>Server Status &amp; API Health</Text>
             </View>
-            <View style={[styles.statusTag, serverHealthResult?.serverConnected ? styles.tagSynced : styles.tagPending]}>
-              <Text style={[styles.statusTagText, serverHealthResult?.serverConnected ? styles.tagTextSynced : styles.tagTextPending]}>
-                {isTestingServer ? 'Checking...' : (serverHealthResult?.overallStatus || 'Online')}
+            <View style={[styles.statusTag, serverHealthResult?.serverConnected ? styles.tagSynced : styles.tagFailed]}>
+              <Text style={[styles.statusTagText, serverHealthResult?.serverConnected ? styles.tagTextSynced : styles.tagTextFailed]}>
+                {isTestingServer ? 'Checking...' : (serverHealthResult?.overallStatus || 'Offline / Checking')}
               </Text>
             </View>
           </View>
 
           <Text style={styles.sectionDesc}>
-            All endpoints are configured centrally in <Text style={{ fontWeight: 'bold' }}>`api_config`</Text>. Testing verifies reachability, valid response codes, and service availability.
+            All endpoints are configured centrally in <Text style={{ fontWeight: 'bold' }}>`api_config`</Text>. Testing performs real HTTP requests to verify domain DNS, PHP execution, and service availability.
           </Text>
 
           {/* Endpoints Health List */}
           <View style={styles.endpointTable}>
             {(serverHealthResult?.endpoints || [
-              { name: 'Base Server Health', status: 'working', message: 'Ready & Available' },
-              { name: 'Transaction Sync API', status: 'working', message: 'Ready & Available' },
-              { name: 'Image Upload API', status: 'working', message: 'Ready & Available' },
-              { name: 'Backup Status API', status: 'working', message: 'Ready & Available' },
-              { name: 'Restore API', status: 'working', message: 'Ready & Available' },
+              { name: 'Server Health (health.php)', status: 'checking', message: 'Awaiting connection test' },
+              { name: 'Transaction Sync (transactions_sync.php)', status: 'checking', message: 'Awaiting connection test' },
+              { name: 'Image Upload (image_upload.php)', status: 'checking', message: 'Awaiting connection test' },
+              { name: 'Backup Status (backup_status.php)', status: 'checking', message: 'Awaiting connection test' },
             ]).map((ep, idx) => {
               const isWorking = ep.status === 'working';
+              const isChecking = ep.status === 'checking';
+              const dotColor = isWorking ? '#059669' : (isChecking ? '#3B82F6' : '#DC2626');
+              const textColor = isWorking ? '#059669' : (isChecking ? '#2563EB' : '#DC2626');
+
               return (
                 <View key={idx} style={[styles.endpointRow, idx > 0 && styles.endpointBorder]}>
                   <View style={styles.endpointLeft}>
-                    <View style={[styles.healthDot, { backgroundColor: isWorking ? '#059669' : '#DC2626' }]} />
-                    <View>
+                    <View style={[styles.healthDot, { backgroundColor: dotColor }]} />
+                    <View style={{ flex: 1 }}>
                       <Text style={styles.endpointName}>{ep.name}</Text>
-                      <Text style={styles.endpointUrl} numberOfLines={1}>{ep.url || ep.name}</Text>
+                      <Text style={styles.endpointUrl} numberOfLines={1}>{ep.message || ep.url || ep.name}</Text>
                     </View>
                   </View>
 
                   <View style={styles.endpointRight}>
-                    <Text style={[styles.endpointStatusText, { color: isWorking ? '#059669' : '#DC2626' }]}>
-                      {isWorking ? '✓ Working' : '✕ Failed'}
+                    <Text style={[styles.endpointStatusText, { color: textColor }]}>
+                      {isWorking ? '✓ Working' : (isChecking ? '● Checking' : '✕ Failed')}
                     </Text>
                     {ep.latencyMs ? (
                       <Text style={styles.endpointLatency}>{ep.latencyMs}ms</Text>
@@ -1009,6 +1023,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFBEB',
     borderColor: '#FDE68A',
   },
+  tagFailed: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
   statusTagText: {
     fontSize: 10,
     fontWeight: Typography.fontWeights.bold,
@@ -1018,6 +1036,9 @@ const styles = StyleSheet.create({
   },
   tagTextPending: {
     color: '#B45309',
+  },
+  tagTextFailed: {
+    color: '#DC2626',
   },
   endpointTable: {
     backgroundColor: '#F8FAFC',

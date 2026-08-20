@@ -224,7 +224,7 @@ export const AppProvider = ({ children }) => {
   };
 
   const closeBackupReport = () => {
-    setActiveTab(previousTab || 'More');
+    setActiveTab('More');
   };
 
   // Transaction Operations

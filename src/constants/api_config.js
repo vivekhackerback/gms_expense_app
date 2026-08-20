@@ -1,11 +1,14 @@
 /**
- * Centralized API Configuration
+ * Centralized PHP API Configuration
  * 
- * All remote server, CRM, and backup endpoints are configured here.
- * If the server domain or backend routes change, update this single file.
+ * All remote PHP backend server, CRM, and backup endpoints are configured here.
+ * Base Domain: https://gmsexpense.tplpro.in
+ * Base API Directory: /api/v1/
+ * 
+ * If the server domain or backend directory structure changes, update this single file.
  */
 
-const BASE_DOMAIN = 'https://api.gmsexpense.com'; // Default production domain
+const BASE_DOMAIN = 'https://gmsexpense.tplpro.in';
 const API_VERSION = 'v1';
 const API_BASE = `${BASE_DOMAIN}/api/${API_VERSION}`;
 
@@ -15,34 +18,59 @@ export const API_CONFIG = {
   BASE_URL: `${BASE_DOMAIN}/api`,
   API_BASE,
 
-  // 1. Transaction & SQLite Text Data Sync
-  TRANSACTION_SYNC_URL: `${API_BASE}/transactions/sync`,
-  BATCH_SYNC_URL: `${API_BASE}/sync/batch`,
+  // -------------------------------------------------------------
+  // 1. Transaction & SQLite Text Data Sync (PHP Endpoints)
+  // -------------------------------------------------------------
+  /** Endpoint for single/batch transaction sync from SQLite to MySQL */
+  TRANSACTION_SYNC_URL: `${API_BASE}/transactions_sync.php`,
+  /** Endpoint for full multi-entity batch sync (transactions, parties, categories) */
+  BATCH_SYNC_URL: `${API_BASE}/batch_sync.php`,
 
-  // 2. Image & Media Storage Upload
-  IMAGE_UPLOAD_URL: `${API_BASE}/images/upload`,
-  IMAGE_BATCH_UPLOAD_URL: `${API_BASE}/images/upload-batch`,
+  // -------------------------------------------------------------
+  // 2. Image & Media Storage Upload (PHP Endpoints)
+  // -------------------------------------------------------------
+  /** Endpoint for uploading single receipt photo via multipart/form-data */
+  IMAGE_UPLOAD_URL: `${API_BASE}/image_upload.php`,
+  /** Endpoint for batch uploading multiple receipt photos */
+  IMAGE_BATCH_UPLOAD_URL: `${API_BASE}/image_upload_batch.php`,
 
-  // 3. Backup & Health Status
-  BACKUP_STATUS_URL: `${API_BASE}/backup/status`,
-  SERVER_HEALTH_URL: `${API_BASE}/health`,
+  // -------------------------------------------------------------
+  // 3. Backup & Server Health Status (PHP Endpoints)
+  // -------------------------------------------------------------
+  /** Endpoint to test server reachability, PHP version & MySQL connection */
+  SERVER_HEALTH_URL: `${API_BASE}/health.php`,
+  /** Endpoint to check sync statistics and last backup timestamp for a device */
+  BACKUP_STATUS_URL: `${API_BASE}/backup_status.php`,
 
-  // 4. Cloud Restore / Data Download
-  RESTORE_URL: `${API_BASE}/backup/restore`,
-  DOWNLOAD_BACKUP_URL: `${API_BASE}/backup/download`,
+  // -------------------------------------------------------------
+  // 4. Cloud Restore / Data Download (PLANNED / FUTURE CRM)
+  // -------------------------------------------------------------
+  /** [PLANNED] Endpoint to restore full SQLite database from server backup */
+  RESTORE_URL: `${API_BASE}/restore.php`,
+  /** [PLANNED] Endpoint to download complete user database snapshot */
+  DOWNLOAD_BACKUP_URL: `${API_BASE}/download_backup.php`,
 
-  // 5. Authentication & Account Management (CRM Integration)
-  AUTH_LOGIN_URL: `${API_BASE}/auth/login`,
-  AUTH_REGISTER_URL: `${API_BASE}/auth/register`,
-  AUTH_VERIFY_TOKEN_URL: `${API_BASE}/auth/verify`,
+  // -------------------------------------------------------------
+  // 5. Authentication & Account Management (PLANNED / FUTURE CRM)
+  // -------------------------------------------------------------
+  /** [PLANNED] User login */
+  AUTH_LOGIN_URL: `${API_BASE}/login.php`,
+  /** [PLANNED] User registration */
+  AUTH_REGISTER_URL: `${API_BASE}/register.php`,
+  /** [PLANNED] Bearer token verification */
+  AUTH_VERIFY_TOKEN_URL: `${API_BASE}/verify_token.php`,
 
-  // 6. Parties / Customers API (Khata & Ledger CRM)
-  PARTIES_SYNC_URL: `${API_BASE}/parties/sync`,
+  // -------------------------------------------------------------
+  // 6. Parties / Customers & Categories API (PLANNED / FUTURE CRM)
+  // -------------------------------------------------------------
+  /** [PLANNED] Customer / Khata ledger party synchronization */
+  PARTIES_SYNC_URL: `${API_BASE}/parties_sync.php`,
+  /** [PLANNED] Category master synchronization */
+  CATEGORIES_SYNC_URL: `${API_BASE}/categories_sync.php`,
 
-  // 7. Categories API
-  CATEGORIES_SYNC_URL: `${API_BASE}/categories/sync`,
-
-  // Configuration Constants
+  // -------------------------------------------------------------
+  // Connection & Request Headers
+  // -------------------------------------------------------------
   DEFAULT_TIMEOUT_MS: 15000,
   HEADERS: {
     'Content-Type': 'application/json',
