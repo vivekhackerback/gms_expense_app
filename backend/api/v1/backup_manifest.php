@@ -88,20 +88,29 @@ if (is_dir($txDir)) {
 }
 
 // Build protocol and base URL
-$protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https://' : 'http://';
+$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || 
+           (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ||
+           (isset($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on');
+$protocol = $isHttps ? 'https://' : 'http://';
 $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
-$baseUrl = $protocol . $host . '/';
+
+// Detect script directory to properly handle subfolders like /expense_app_crm/
+$scriptName = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
+$apiDirPos = strpos($scriptName, '/api/v1/');
+$pathPrefix = ($apiDirPos !== false) ? substr($scriptName, 0, $apiDirPos) : '';
+
+$projectBaseUrl = $protocol . $host . $pathPrefix . '/';
 
 $imageList = [];
 foreach ($allImages as $fileName => $relPath) {
     $imageList[] = [
         'file_name'    => $fileName,
-        'download_url' => $baseUrl . $relPath,
+        'download_url' => $projectBaseUrl . $relPath,
         'relative_path'=> $relPath,
     ];
 }
 
-$dbDownloadUrl = $baseUrl . 'api/v1/download_database.php?phone=' . urlencode($cleanPhone);
+$dbDownloadUrl = $projectBaseUrl . 'api/v1/download_database.php?phone=' . urlencode($cleanPhone);
 
 sendJsonResponse([
     'success'         => true,

@@ -257,6 +257,24 @@ export const addTransaction = ({
   const now = getCurrentTimestamp();
   const txDate = transactionDate ? toUnixTimestamp(transactionDate) : now;
   const numAmount = parseFloat(amount) || 0;
+  const cleanType = (type === 'gave' || type === 'give' || type === 'debit') ? 'gave' : 'got';
+  const cleanMode = (paymentMode === 'online' || paymentMode === 'Online') ? 'online' : 'cash';
+
+  let validPartyId = null;
+  if (partyId && Number(partyId) > 0) {
+    try {
+      const pCheck = db.getFirstSync('SELECT id FROM parties WHERE id = ?;', [Number(partyId)]);
+      if (pCheck) validPartyId = pCheck.id;
+    } catch (e) {}
+  }
+
+  let validCategoryId = null;
+  if (categoryId && Number(categoryId) > 0) {
+    try {
+      const cCheck = db.getFirstSync('SELECT id FROM categories WHERE id = ?;', [Number(categoryId)]);
+      if (cCheck) validCategoryId = cCheck.id;
+    } catch (e) {}
+  }
 
   let insertedId = null;
 
@@ -267,10 +285,10 @@ export const addTransaction = ({
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       [
         txUuid,
-        partyId || null,
-        categoryId || null,
-        type,
-        paymentMode,
+        validPartyId,
+        validCategoryId,
+        cleanType,
+        cleanMode,
         numAmount,
         note ? note.trim() : '',
         txDate,
@@ -284,7 +302,9 @@ export const addTransaction = ({
     // Insert images
     if (images && images.length > 0) {
       for (const img of images) {
+        if (!img) continue;
         const uri = typeof img === 'string' ? img : (img.localUri || img.uri);
+        if (!uri) continue;
         const fileName = img.fileName || uri.split('/').pop() || 'photo.jpg';
         db.runSync(
           `INSERT INTO transaction_images (
@@ -295,25 +315,36 @@ export const addTransaction = ({
       }
     }
 
-    // Add to sync_queue
+    // Add to sync_queue with full column compatibility
     const payload = JSON.stringify({
       id: insertedId,
       uuid: txUuid,
-      partyId,
-      categoryId,
-      type,
-      paymentMode,
+      partyId: validPartyId,
+      categoryId: validCategoryId,
+      type: cleanType,
+      paymentMode: cleanMode,
       amount: numAmount,
-      note,
+      note: note ? note.trim() : '',
       transactionDate: txDate,
       imageCount: images ? images.length : 0,
     });
 
-    db.runSync(
-      `INSERT INTO sync_queue (entity_type, entity_uuid, action, payload, created_at, status) 
-       VALUES (?, ?, ?, ?, ?, ?);`,
-      ['transaction', txUuid, 'create', payload, now, 'pending']
-    );
+    try {
+      db.runSync(
+        `INSERT INTO sync_queue (
+          entity_type, entity_uuid, table_name, record_uuid, action, payload, retry_count, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        ['transaction', txUuid, 'transactions', txUuid, 'create', payload, 0, 'pending', now]
+      );
+    } catch (qErr) {
+      console.warn('sync_queue insert fallback:', qErr);
+      try {
+        db.runSync(
+          `INSERT INTO sync_queue (action, table_name, record_uuid, payload, retry_count, created_at) VALUES (?, ?, ?, ?, 0, ?);`,
+          ['create', 'transactions', txUuid, payload, now]
+        );
+      } catch (qErr2) {}
+    }
   });
 
   return getTransactionById(insertedId);
@@ -336,6 +367,24 @@ export const updateTransaction = (
   const now = getCurrentTimestamp();
   const txDate = transactionDate ? toUnixTimestamp(transactionDate) : null;
   const numAmount = parseFloat(amount) || 0;
+  const cleanType = (type === 'gave' || type === 'give' || type === 'debit') ? 'gave' : 'got';
+  const cleanMode = (paymentMode === 'online' || paymentMode === 'Online') ? 'online' : 'cash';
+
+  let validPartyId = null;
+  if (partyId && Number(partyId) > 0) {
+    try {
+      const pCheck = db.getFirstSync('SELECT id FROM parties WHERE id = ?;', [Number(partyId)]);
+      if (pCheck) validPartyId = pCheck.id;
+    } catch (e) {}
+  }
+
+  let validCategoryId = null;
+  if (categoryId && Number(categoryId) > 0) {
+    try {
+      const cCheck = db.getFirstSync('SELECT id FROM categories WHERE id = ?;', [Number(categoryId)]);
+      if (cCheck) validCategoryId = cCheck.id;
+    } catch (e) {}
+  }
 
   db.withTransactionSync(() => {
     // Get existing transaction uuid
@@ -357,10 +406,10 @@ export const updateTransaction = (
         sync_status = 'pending'
       WHERE id = ?;`,
       [
-        partyId || null,
-        categoryId || null,
-        type,
-        paymentMode,
+        validPartyId,
+        validCategoryId,
+        cleanType,
+        cleanMode,
         numAmount,
         note ? note.trim() : '',
         txDate,
@@ -373,7 +422,9 @@ export const updateTransaction = (
     db.runSync('DELETE FROM transaction_images WHERE transaction_id = ?;', [id]);
     if (images && images.length > 0) {
       for (const img of images) {
+        if (!img) continue;
         const uri = typeof img === 'string' ? img : (img.localUri || img.uri);
+        if (!uri) continue;
         const fileName = img.fileName || uri.split('/').pop() || 'photo.jpg';
         db.runSync(
           `INSERT INTO transaction_images (
@@ -388,20 +439,30 @@ export const updateTransaction = (
     const payload = JSON.stringify({
       id,
       uuid: txUuid,
-      partyId,
-      categoryId,
-      type,
-      paymentMode,
+      partyId: validPartyId,
+      categoryId: validCategoryId,
+      type: cleanType,
+      paymentMode: cleanMode,
       amount: numAmount,
-      note,
-      transactionDate,
+      note: note ? note.trim() : '',
+      transactionDate: txDate,
     });
 
-    db.runSync(
-      `INSERT INTO sync_queue (entity_type, entity_uuid, action, payload, created_at, status) 
-       VALUES (?, ?, ?, ?, ?, ?);`,
-      ['transaction', txUuid, 'update', payload, now, 'pending']
-    );
+    try {
+      db.runSync(
+        `INSERT INTO sync_queue (
+          entity_type, entity_uuid, table_name, record_uuid, action, payload, retry_count, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        ['transaction', txUuid, 'transactions', txUuid, 'update', payload, 0, 'pending', now]
+      );
+    } catch (qErr) {
+      try {
+        db.runSync(
+          `INSERT INTO sync_queue (action, table_name, record_uuid, payload, retry_count, created_at) VALUES (?, ?, ?, ?, 0, ?);`,
+          ['update', 'transactions', txUuid, payload, now]
+        );
+      } catch (qErr2) {}
+    }
   });
 
   return getTransactionById(id);
@@ -409,7 +470,7 @@ export const updateTransaction = (
 
 export const deleteTransaction = (id) => {
   const db = getDatabase();
-  const now = new Date().toISOString();
+  const now = getCurrentTimestamp();
 
   db.withTransactionSync(() => {
     const existing = db.getFirstSync('SELECT uuid FROM transactions WHERE id = ?;', [id]);
@@ -420,11 +481,22 @@ export const deleteTransaction = (id) => {
     db.runSync('DELETE FROM transaction_images WHERE transaction_id = ?;', [id]);
     db.runSync('DELETE FROM transactions WHERE id = ?;', [id]);
 
-    db.runSync(
-      `INSERT INTO sync_queue (entity_type, entity_uuid, action, payload, created_at, status) 
-       VALUES (?, ?, ?, ?, ?, ?);`,
-      ['transaction', txUuid, 'delete', JSON.stringify({ id, uuid: txUuid }), now, 'pending']
-    );
+    const payload = JSON.stringify({ id, uuid: txUuid });
+    try {
+      db.runSync(
+        `INSERT INTO sync_queue (
+          entity_type, entity_uuid, table_name, record_uuid, action, payload, retry_count, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        ['transaction', txUuid, 'transactions', txUuid, 'delete', payload, 0, 'pending', now]
+      );
+    } catch (qErr) {
+      try {
+        db.runSync(
+          `INSERT INTO sync_queue (action, table_name, record_uuid, payload, retry_count, created_at) VALUES (?, ?, ?, ?, 0, ?);`,
+          ['delete', 'transactions', txUuid, payload, now]
+        );
+      } catch (qErr2) {}
+    }
   });
 
   return true;
@@ -558,17 +630,18 @@ export const addCategory = ({ name, icon = 'grid-outline', color = '#64748B' }) 
   }
 
   const res = db.runSync(
-    `INSERT INTO categories (name, icon, color, is_custom, is_deleted, created_at) VALUES (?, ?, ?, 1, 0, ?);`,
-    [cleanName, icon, color, now]
+    `INSERT INTO categories (name, icon, color, is_custom, is_deleted, created_at, updated_at) VALUES (?, ?, ?, 1, 0, ?, ?);`,
+    [cleanName, icon, color, now, now]
   );
   return db.getFirstSync('SELECT * FROM categories WHERE id = ?;', [res.lastInsertRowId]);
 };
 
 export const updateCategory = (id, { name, icon, color }) => {
   const db = getDatabase();
+  const now = getCurrentTimestamp();
   db.runSync(
-    `UPDATE categories SET name = ?, icon = ?, color = ? WHERE id = ?;`,
-    [name.trim(), icon, color, id]
+    `UPDATE categories SET name = ?, icon = ?, color = ?, updated_at = ? WHERE id = ?;`,
+    [name.trim(), icon, color, now, id]
   );
   return db.getFirstSync('SELECT * FROM categories WHERE id = ?;', [id]);
 };
@@ -826,10 +899,19 @@ export const addBackupActivityLog = (actionType, status, message, details = '') 
   try {
     const db = getDatabase();
     const now = getCurrentTimestamp();
-    db.runSync(
-      `INSERT INTO backup_activity_logs (timestamp, action_type, status, message, details) VALUES (?, ?, ?, ?, ?);`,
-      [now, actionType, status, message, details ? String(details) : '']
-    );
+    try {
+      db.runSync(
+        `INSERT INTO backup_activity_logs (
+          timestamp, action_type, type, status, message, details, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);`,
+        [now, actionType, actionType, status, message, details ? String(details) : '', now]
+      );
+    } catch (insertErr) {
+      db.runSync(
+        `INSERT INTO backup_activity_logs (type, status, message, created_at) VALUES (?, ?, ?, ?);`,
+        [actionType, status, message, now]
+      );
+    }
 
     // Maintain max 50 recent logs
     db.runSync(`

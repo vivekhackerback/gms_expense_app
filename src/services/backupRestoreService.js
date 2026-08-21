@@ -602,7 +602,7 @@ export const importCloudDataAndRestore = async (onProgress) => {
 
     // 3. Download the database to a temporary staging file first to prevent corruption
     const tempStagingDb = `${FileSystem.cacheDirectory}staging_cloud_db_${Date.now()}.db`;
-    const downloadUrl = info.db_download_url || `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}`;
+    const downloadUrl = `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}`;
     console.log('🚀 [RESTORE_STEP_3] Downloading database file from:', downloadUrl, 'to staging:', tempStagingDb);
 
     const downloadRes = await FileSystem.downloadAsync(
@@ -621,8 +621,11 @@ export const importCloudDataAndRestore = async (onProgress) => {
       console.error('❌ [RESTORE_FAILED] Database Download Failed (HTTP Status non-200):', downloadRes);
       try { await FileSystem.deleteAsync(tempStagingDb, { idempotent: true }); } catch (e) {}
       initDatabase();
-      addBackupActivityLog('cloud_restore', 'failed', `Database download failed (HTTP ${downloadRes.status})`);
-      return { success: false, message: `Failed to download database file (HTTP ${downloadRes.status}).` };
+      const failMsg = downloadRes.status === 404
+        ? 'No cloud database backup found on server for this mobile number. Please tap "Backup to Cloud" first.'
+        : `Failed to download database file (HTTP ${downloadRes.status}).`;
+      addBackupActivityLog('cloud_restore', 'failed', failMsg);
+      return { success: false, message: failMsg };
     }
 
     // Validate the downloaded SQLite file before touching the live database
@@ -684,14 +687,24 @@ export const importCloudDataAndRestore = async (onProgress) => {
 
         for (let i = 0; i < totalImages; i++) {
           const item = imagesToDownload[i];
-          if (!item.file_name || !item.download_url) continue;
+          if (!item || !item.file_name) continue;
+
+          let photoDownloadUrl = item.download_url;
+          if (item.relative_path) {
+            const cleanRel = item.relative_path.replace(/^\/+/, '');
+            photoDownloadUrl = `${API_CONFIG.BASE_DOMAIN}${API_CONFIG.BASE_URL.includes('/expense_app_crm') ? '/expense_app_crm' : ''}/${cleanRel}`;
+          } else if (photoDownloadUrl && API_CONFIG.BASE_DOMAIN.startsWith('https://') && photoDownloadUrl.startsWith('http://')) {
+            photoDownloadUrl = photoDownloadUrl.replace('http://', 'https://');
+          }
+
+          if (!photoDownloadUrl) continue;
 
           const targetImgPath = `${imagesDir}${item.file_name}`;
 
           try {
-            console.log(`📥 [PHOTO_RESTORE_${i + 1}/${totalImages}] Downloading ${item.file_name} from:`, item.download_url);
+            console.log(`📥 [PHOTO_RESTORE_${i + 1}/${totalImages}] Downloading ${item.file_name} from:`, photoDownloadUrl);
             const imgDownloadRes = await FileSystem.downloadAsync(
-              item.download_url,
+              photoDownloadUrl,
               targetImgPath,
               {
                 headers: {
