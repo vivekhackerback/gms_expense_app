@@ -31,6 +31,11 @@ import {
   checkScheduledImageBackup,
   autoSyncTextIfConnected,
 } from '../services/syncService';
+import {
+  uploadEntireDatabaseAndImages,
+  fetchCloudBackupInfo,
+  importCloudDataAndRestore,
+} from '../services/backupRestoreService';
 import API_CONFIG from '../constants/api_config';
 
 const AppContext = createContext(null);
@@ -367,6 +372,37 @@ export const AppProvider = ({ children }) => {
     refreshAll();
   };
 
+  // Full SQLite Database & Media Backup & Restore Actions
+  const uploadFullDatabaseBackup = async (onProgress) => {
+    if (!isLoggedIn) {
+      return {
+        success: false,
+        requiresLogin: true,
+        message: 'Please sign in to backup your database and photos to the cloud.',
+      };
+    }
+    const res = await uploadEntireDatabaseAndImages(onProgress);
+    refreshAll();
+    return res;
+  };
+
+  const getCloudBackupInfo = async () => {
+    return await fetchCloudBackupInfo();
+  };
+
+  const importAndRestoreData = async (onProgress) => {
+    if (!isLoggedIn) {
+      return {
+        success: false,
+        requiresLogin: true,
+        message: 'Please sign in to restore your cloud data.',
+      };
+    }
+    const res = await importCloudDataAndRestore(onProgress);
+    refreshAll();
+    return res;
+  };
+
   // Safe Local-Only Erase
   const eraseLocalDeviceData = () => {
     const success = eraseLocalDeviceDataOnly();
@@ -563,6 +599,9 @@ export const AppProvider = ({ children }) => {
         updateImageSchedule,
         toggleImageScheduleEnabled,
         eraseLocalDeviceData,
+        uploadFullDatabaseBackup,
+        getCloudBackupInfo,
+        importAndRestoreData,
 
         // Authentication State & Actions
         currentUser,

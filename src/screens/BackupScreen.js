@@ -43,6 +43,9 @@ export const BackupScreen = () => {
     updateImageSchedule,
     toggleImageScheduleEnabled,
     eraseLocalDeviceData,
+    uploadFullDatabaseBackup,
+    getCloudBackupInfo,
+    importAndRestoreData,
     backupActivityLogs,
     refreshAll,
     setActiveTab,
@@ -54,6 +57,19 @@ export const BackupScreen = () => {
   // Server health test state
   const [isTestingServer, setIsTestingServer] = useState(false);
   const [serverHealthResult, setServerHealthResult] = useState(null);
+
+  // Full Database Backup & Import States
+  const [isFullBackingUp, setIsFullBackingUp] = useState(false);
+  const [isCheckingImport, setIsCheckingImport] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [cloudBackupInfo, setCloudBackupInfo] = useState(null);
+  const [isImportConfirmModalOpen, setIsImportConfirmModalOpen] = useState(false);
+  const [progressModal, setProgressModal] = useState({
+    visible: false,
+    title: '',
+    subtitle: '',
+    percent: 0,
+  });
 
   // Schedule modal state
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -172,6 +188,106 @@ export const BackupScreen = () => {
     updateImageSchedule(formatted);
     setIsScheduleModalOpen(false);
     Alert.alert('Schedule Updated', `Image uploads will run automatically at ${formatTimeDisplay(formatted)}.`);
+  };
+
+  // Full SQLite Database & Media Cloud Backup Actions
+  const handleFullDatabaseUpload = async () => {
+    if (!isLoggedIn) {
+      openLoginModal();
+      return;
+    }
+    if (!networkStatus.isConnected) {
+      Alert.alert('Offline', 'Internet connection required to upload database backup.');
+      return;
+    }
+
+    setIsFullBackingUp(true);
+    setProgressModal({
+      visible: true,
+      title: 'Backing Up SQLite Database',
+      subtitle: 'Committing changes & preparing backup file...',
+      percent: 15,
+    });
+
+    const res = await uploadFullDatabaseBackup((p) => {
+      setProgressModal({
+        visible: true,
+        title: p.title || 'Backing Up SQLite Database',
+        subtitle: `Step ${p.step} of ${p.totalSteps}`,
+        percent: p.percent || 50,
+      });
+    });
+
+    setIsFullBackingUp(false);
+    setProgressModal({ visible: false, title: '', subtitle: '', percent: 0 });
+
+    if (res.success) {
+      Alert.alert(
+        'Full Cloud Backup Complete ✓',
+        `Your complete SQLite database file (${(res.stats?.dbSize / 1024).toFixed(1)} KB, ${res.stats?.transactions || 0} transactions) and ${res.stats?.images || 0} transaction photos have been safely stored on the server.`
+      );
+    } else {
+      Alert.alert('Backup Failed', res.message || 'Unable to upload database backup.');
+    }
+  };
+
+  const handlePromptImportData = async () => {
+    if (!isLoggedIn) {
+      openLoginModal();
+      return;
+    }
+    if (!networkStatus.isConnected) {
+      Alert.alert('Offline', 'Internet connection required to import data from server.');
+      return;
+    }
+
+    setIsCheckingImport(true);
+    const info = await getCloudBackupInfo();
+    setIsCheckingImport(false);
+
+    if (!info || !info.success || !info.has_backup) {
+      Alert.alert(
+        'No Cloud Backup Found',
+        'There is no database backup found on the server for this account. Please upload a backup first.'
+      );
+      return;
+    }
+
+    setCloudBackupInfo(info);
+    setIsImportConfirmModalOpen(true);
+  };
+
+  const handleExecuteImport = async () => {
+    setIsImportConfirmModalOpen(false);
+    setIsRestoring(true);
+
+    setProgressModal({
+      visible: true,
+      title: 'Importing My Data',
+      subtitle: 'Connecting to backup server...',
+      percent: 10,
+    });
+
+    const res = await importAndRestoreData((p) => {
+      setProgressModal({
+        visible: true,
+        title: p.title || 'Importing My Data',
+        subtitle: p.detail || `Step ${p.step} of ${p.totalSteps}`,
+        percent: p.percent || 50,
+      });
+    });
+
+    setIsRestoring(false);
+    setProgressModal({ visible: false, title: '', subtitle: '', percent: 0 });
+
+    if (res.success) {
+      Alert.alert(
+        'Data Restored Successfully ✓',
+        `Your complete database (${res.stats?.transactions || 0} transactions, ${res.stats?.parties || 0} parties) and ${res.photosRestored || 0} receipt photos have been restored to this device!`
+      );
+    } else {
+      Alert.alert('Import Failed', res.message || 'Unable to complete cloud restoration.');
+    }
   };
 
   // Erase flow
@@ -671,7 +787,67 @@ export const BackupScreen = () => {
           )}
         </View>
 
-        {/* SECTION 5: Manual Offline Archive & Exports */}
+        {/* SECTION 5: Full SQLite Database & Media Cloud Backup */}
+        <View style={[styles.sectionCard, styles.fullBackupContainerCard]}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.sectionTitleGroup}>
+              <Ionicons name="cloud-done" size={20} color={Colors.primary} style={{ marginRight: 6 }} />
+              <Text style={styles.sectionTitle}>Full SQLite &amp; Media Backup</Text>
+            </View>
+            <View style={[styles.statusTag, styles.tagSynced]}>
+              <Text style={[styles.statusTagText, styles.tagTextSynced]}>
+                Cloud Archive ✓
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.sectionDesc}>
+            Upload the entire SQLite database file (`expenses_khata.db`) and all transaction photos to your secure cloud server. If data is deleted from your mobile device, use <Text style={{ fontWeight: 'bold' }}>"Import My Data"</Text> to restore everything.
+          </Text>
+
+          {/* Action Row */}
+          <View style={styles.fullBackupActionGrid}>
+            <TouchableOpacity
+              style={[styles.fullBackupMainBtn, isFullBackingUp && styles.actionBtnDisabled]}
+              onPress={handleFullDatabaseUpload}
+              disabled={isFullBackingUp || isRestoring}
+              activeOpacity={0.8}
+            >
+              {isFullBackingUp ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <View style={styles.btnContentColumn}>
+                  <View style={styles.btnIconRow}>
+                    <Ionicons name="cloud-upload" size={20} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.fullBackupMainBtnText}>Backup Entire Database &amp; Photos</Text>
+                  </View>
+                  <Text style={styles.btnSubText}>Uploads active .db file &amp; all local photos</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.importDataMainBtn, (isCheckingImport || isRestoring) && styles.actionBtnDisabled]}
+              onPress={handlePromptImportData}
+              disabled={isCheckingImport || isRestoring || isFullBackingUp}
+              activeOpacity={0.8}
+            >
+              {isCheckingImport ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <View style={styles.btnContentColumn}>
+                  <View style={styles.btnIconRow}>
+                    <Ionicons name="cloud-download-outline" size={20} color={Colors.primary} style={{ marginRight: 6 }} />
+                    <Text style={styles.importDataMainBtnText}>Import My Data (Restore from Server)</Text>
+                  </View>
+                  <Text style={styles.importBtnSubText}>Downloads database &amp; all photos to this phone</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* SECTION 6: Manual Offline Archive & Exports */}
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Manual Exports &amp; Data Archive</Text>
           <Text style={styles.sectionDesc}>
@@ -708,7 +884,7 @@ export const BackupScreen = () => {
           </View>
         </View>
 
-        {/* SECTION 6: Danger Zone — Single Dedicated Location */}
+        {/* SECTION 7: Danger Zone — Single Dedicated Location */}
         <View style={styles.dangerZoneCard}>
           <View style={styles.dangerHeaderRow}>
             <Ionicons name="warning" size={22} color={Colors.danger} style={{ marginRight: 8 }} />
@@ -955,6 +1131,111 @@ export const BackupScreen = () => {
                 </View>
               </View>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Operation Progress Modal */}
+      <Modal
+        visible={progressModal.visible}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.progressCard, Shadows.lg]}>
+            <ActivityIndicator size="large" color={Colors.primary} style={{ marginBottom: Spacing.md }} />
+            <Text style={styles.progressTitle}>{progressModal.title}</Text>
+            <Text style={styles.progressSubtitle}>{progressModal.subtitle}</Text>
+
+            <View style={styles.progressBarTrack}>
+              <View style={[styles.progressBarFill, { width: `${progressModal.percent}%` }]} />
+            </View>
+            <Text style={styles.progressPercentText}>{progressModal.percent}%</Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Import My Data Confirmation Modal */}
+      <Modal
+        visible={isImportConfirmModalOpen}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsImportConfirmModalOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.importModalCard, Shadows.lg]}>
+            <View style={styles.modalHeaderRow}>
+              <Ionicons name="cloud-download" size={24} color={Colors.primary} style={{ marginRight: 8 }} />
+              <Text style={styles.modalHeaderTitle}>Import My Data</Text>
+            </View>
+
+            <Text style={styles.importModalSub}>
+              We discovered the following verified cloud backup on the server for this account:
+            </Text>
+
+            {/* Cloud Backup Summary Grid */}
+            <View style={styles.importStatsCard}>
+              <View style={styles.importStatsRow}>
+                <Text style={styles.importStatsLabel}>Last Backup Date:</Text>
+                <Text style={styles.importStatsValue}>
+                  {cloudBackupInfo?.backup_time
+                    ? formatFullDateTime(cloudBackupInfo.backup_time).combined
+                    : 'Recent'}
+                </Text>
+              </View>
+
+              <View style={styles.importStatsRow}>
+                <Text style={styles.importStatsLabel}>Database File Size:</Text>
+                <Text style={styles.importStatsValue}>
+                  {cloudBackupInfo?.db_size ? `${(cloudBackupInfo.db_size / 1024).toFixed(1)} KB` : 'N/A'}
+                </Text>
+              </View>
+
+              <View style={styles.importStatsRow}>
+                <Text style={styles.importStatsLabel}>Total Transactions:</Text>
+                <Text style={[styles.importStatsValue, { color: Colors.primary }]}>
+                  {cloudBackupInfo?.stats?.transactions || 0}
+                </Text>
+              </View>
+
+              <View style={styles.importStatsRow}>
+                <Text style={styles.importStatsLabel}>Contacts / Parties:</Text>
+                <Text style={styles.importStatsValue}>
+                  {cloudBackupInfo?.stats?.parties || 0}
+                </Text>
+              </View>
+
+              <View style={styles.importStatsRow}>
+                <Text style={styles.importStatsLabel}>Receipt Photos:</Text>
+                <Text style={[styles.importStatsValue, { color: Colors.gotDark }]}>
+                  {cloudBackupInfo?.image_count || cloudBackupInfo?.stats?.images || 0} photos
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.importWarningBox}>
+              <Ionicons name="information-circle" size={20} color="#B45309" style={{ marginRight: 6 }} />
+              <Text style={styles.importWarningText}>
+                Importing will replace your current local SQLite database with this cloud snapshot and download all receipt images.
+              </Text>
+            </View>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setIsImportConfirmModalOpen(false)}
+              >
+                <Text style={styles.modalCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.importProceedBtn}
+                onPress={handleExecuteImport}
+              >
+                <Ionicons name="cloud-download-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.importProceedBtnText}>Restore Data Now</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1798,5 +2079,167 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSizes.xs,
     color: Colors.textSecondary,
     lineHeight: 16,
+  },
+  // Full Backup & Import Styles
+  fullBackupContainerCard: {
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+    backgroundColor: '#F8FAFC',
+  },
+  fullBackupActionGrid: {
+    gap: Spacing.md,
+  },
+  fullBackupMainBtn: {
+    backgroundColor: Colors.primaryDark || '#1E40AF',
+    borderRadius: BorderRadius.lg,
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.sm,
+  },
+  btnContentColumn: {
+    alignItems: 'center',
+  },
+  btnIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  fullBackupMainBtnText: {
+    color: '#FFFFFF',
+    fontSize: Typography.fontSizes.sm + 1,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  btnSubText: {
+    color: '#E0E7FF',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  importDataMainBtn: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: BorderRadius.lg,
+    paddingVertical: 14,
+    paddingHorizontal: Spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    ...Shadows.sm,
+  },
+  importDataMainBtnText: {
+    color: Colors.primary,
+    fontSize: Typography.fontSizes.sm + 1,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  importBtnSubText: {
+    color: Colors.textSecondary,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  progressCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 380,
+  },
+  progressTitle: {
+    fontSize: Typography.fontSizes.md + 1,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  progressSubtitle: {
+    fontSize: Typography.fontSizes.xs + 1,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.lg,
+    textAlign: 'center',
+  },
+  progressBarTrack: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: Colors.primary,
+    borderRadius: 4,
+  },
+  progressPercentText: {
+    fontSize: 12,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.primary,
+  },
+  importModalCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    width: '100%',
+    maxWidth: 440,
+  },
+  importModalSub: {
+    fontSize: Typography.fontSizes.xs + 1,
+    color: Colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: Spacing.md,
+  },
+  importStatsCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    gap: 8,
+    marginBottom: Spacing.md,
+  },
+  importStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  importStatsLabel: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: Typography.fontWeights.medium,
+  },
+  importStatsValue: {
+    fontSize: 12.5,
+    color: Colors.textPrimary,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  importWarningBox: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFBEB',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    marginBottom: Spacing.md,
+  },
+  importWarningText: {
+    flex: 1,
+    fontSize: 11.5,
+    color: '#92400E',
+    lineHeight: 16,
+  },
+  importProceedBtn: {
+    flex: 1.5,
+    flexDirection: 'row',
+    backgroundColor: Colors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  importProceedBtnText: {
+    color: '#FFFFFF',
+    fontSize: Typography.fontSizes.sm,
+    fontWeight: Typography.fontWeights.bold,
   },
 });

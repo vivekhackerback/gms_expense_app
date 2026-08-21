@@ -304,6 +304,14 @@ export const MoreScreen = () => {
             rightText: isLoggedIn ? 'Enabled ✓' : 'Disabled',
             onPress: isLoggedIn ? openBackupReport : openLoginModal,
           },
+          {
+            icon: 'cloud-download-outline',
+            iconColor: Colors.primary,
+            iconBg: Colors.surfaceSubtle,
+            label: 'Import My Data',
+            sublabel: 'Restore complete SQLite database & photos from cloud backup',
+            onPress: isLoggedIn ? openBackupReport : openLoginModal,
+          },
         ])}
 
         {/* App Info */}

@@ -1,9 +1,35 @@
 import * as SQLite from 'expo-sqlite';
+import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 import { DEFAULT_CATEGORIES } from '../constants/categories';
 import { getCurrentTimestamp, toUnixTimestamp } from '../utils/formatters';
 
 let dbInstance = null;
+
+export const getDatabaseFilePath = () => {
+  return FileSystem.documentDirectory ? `${FileSystem.documentDirectory}SQLite/expenses_khata.db` : null;
+};
+
+export const checkpointDatabase = () => {
+  try {
+    const db = getDatabase();
+    db.execSync('PRAGMA wal_checkpoint(TRUNCATE);');
+  } catch (e) {
+    console.warn('Could not checkpoint WAL:', e);
+  }
+};
+
+export const closeDatabase = () => {
+  if (dbInstance) {
+    try {
+      checkpointDatabase();
+      dbInstance.closeSync();
+    } catch (e) {
+      console.warn('Error closing database instance:', e);
+    }
+    dbInstance = null;
+  }
+};
 
 export const getDatabase = () => {
   if (!dbInstance) {

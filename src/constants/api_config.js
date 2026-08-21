@@ -9,7 +9,7 @@
  */
 
 // const BASE_DOMAIN = 'https://gmsexpense.tplpro.in';
-const BASE_DOMAIN = 'https://50df-2401-4900-b519-8a3c-487-9fb4-de-1d64.ngrok-free.app';
+const BASE_DOMAIN = 'https://e931-2401-4900-b57f-81cf-f105-2804-b059-6441.ngrok-free.app';
 const API_VERSION = 'v1';
 
 // Automatically append project subfolder if hosting under local Apache/XAMPP or ngrok
@@ -47,8 +47,14 @@ export const API_CONFIG = {
   BACKUP_STATUS_URL: `${API_BASE}/backup_status.php`,
 
   // -------------------------------------------------------------
-  // 4. Cloud Restore / Data Download (PLANNED / FUTURE CRM)
+  // 4. Cloud Restore / SQLite Database & Media Backup (PHP Endpoints)
   // -------------------------------------------------------------
+  /** Endpoint to upload full SQLite database file (.db) to server */
+  DATABASE_BACKUP_UPLOAD_URL: `${API_BASE}/upload_database_backup.php`,
+  /** Endpoint to get latest cloud backup info, stats, and image download list */
+  DATABASE_BACKUP_INFO_URL: `${API_BASE}/backup_manifest.php`,
+  /** Endpoint to stream/download user's SQLite database (.db) file */
+  DATABASE_BACKUP_DOWNLOAD_URL: `${API_BASE}/download_database.php`,
   /** [PLANNED] Endpoint to restore full SQLite database from server backup */
   RESTORE_URL: `${API_BASE}/restore.php`,
   /** [PLANNED] Endpoint to download complete user database snapshot */
