@@ -94,11 +94,6 @@ export const BackupScreen = () => {
     return () => backHandlerSubscription.remove();
   }, [setActiveTab]);
 
-  // Run initial server test on mount if online
-  useEffect(() => {
-    handleTestServerConnection(true);
-  }, []);
-
   const handleTestServerConnection = async (isSilent = false) => {
     setIsTestingServer(true);
     try {
@@ -517,29 +512,40 @@ export const BackupScreen = () => {
               <Ionicons name="server" size={20} color={Colors.primary} style={{ marginRight: 6 }} />
               <Text style={styles.sectionTitle}>Server Status &amp; API Health</Text>
             </View>
-            <View style={[styles.statusTag, serverHealthResult?.serverConnected ? styles.tagSynced : styles.tagFailed]}>
-              <Text style={[styles.statusTagText, serverHealthResult?.serverConnected ? styles.tagTextSynced : styles.tagTextFailed]}>
-                {isTestingServer ? 'Checking...' : (serverHealthResult?.overallStatus || 'Offline / Checking')}
+            <View style={[
+              styles.statusTag,
+              serverHealthResult
+                ? (serverHealthResult.serverConnected ? styles.tagSynced : styles.tagFailed)
+                : { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' }
+            ]}>
+              <Text style={[
+                styles.statusTagText,
+                serverHealthResult
+                  ? (serverHealthResult.serverConnected ? styles.tagTextSynced : styles.tagTextFailed)
+                  : { color: '#64748B' }
+              ]}>
+                {isTestingServer ? 'Checking...' : (serverHealthResult ? (serverHealthResult.serverConnected ? 'Server Online' : 'Server Offline') : 'Not Tested')}
               </Text>
             </View>
           </View>
 
           <Text style={styles.sectionDesc}>
-            All endpoints are configured centrally in <Text style={{ fontWeight: 'bold' }}>`api_config`</Text>. Testing performs real HTTP requests to verify domain DNS, PHP execution, and service availability.
+            Press <Text style={{ fontWeight: 'bold' }}>"Test Server Connection"</Text> below to send a live ping to verify domain DNS, PHP execution, and service availability.
           </Text>
 
           {/* Endpoints Health List */}
           <View style={styles.endpointTable}>
             {(serverHealthResult?.endpoints || [
-              { name: 'Server Health (health.php)', status: 'checking', message: 'Awaiting connection test' },
-              { name: 'Transaction Sync (transactions_sync.php)', status: 'checking', message: 'Awaiting connection test' },
-              { name: 'Image Upload (image_upload.php)', status: 'checking', message: 'Awaiting connection test' },
-              { name: 'Backup Status (backup_status.php)', status: 'checking', message: 'Awaiting connection test' },
+              { name: 'Server Health (health.php)', status: 'idle', message: 'Press "Test Server Connection" to verify' },
+              { name: 'Transaction Sync (transactions_sync.php)', status: 'idle', message: 'Press "Test Server Connection" to verify' },
+              { name: 'Backup Status (backup_status.php)', status: 'idle', message: 'Press "Test Server Connection" to verify' },
+              { name: 'Database Download (download_database.php)', status: 'idle', message: 'Press "Test Server Connection" to verify' },
             ]).map((ep, idx) => {
               const isWorking = ep.status === 'working';
               const isChecking = ep.status === 'checking';
-              const dotColor = isWorking ? '#059669' : (isChecking ? '#3B82F6' : '#DC2626');
-              const textColor = isWorking ? '#059669' : (isChecking ? '#2563EB' : '#DC2626');
+              const isIdle = ep.status === 'idle';
+              const dotColor = isWorking ? '#059669' : (isChecking ? '#3B82F6' : (isIdle ? '#94A3B8' : '#DC2626'));
+              const textColor = isWorking ? '#059669' : (isChecking ? '#2563EB' : (isIdle ? '#64748B' : '#DC2626'));
 
               return (
                 <View key={idx} style={[styles.endpointRow, idx > 0 && styles.endpointBorder]}>
@@ -553,7 +559,7 @@ export const BackupScreen = () => {
 
                   <View style={styles.endpointRight}>
                     <Text style={[styles.endpointStatusText, { color: textColor }]}>
-                      {isWorking ? '✓ Working' : (isChecking ? '● Checking' : '✕ Failed')}
+                      {isWorking ? '✓ Working' : (isChecking ? '● Checking' : (isIdle ? '○ Ready' : '✕ Failed'))}
                     </Text>
                     {ep.latencyMs ? (
                       <Text style={styles.endpointLatency}>{ep.latencyMs}ms</Text>
@@ -655,15 +661,15 @@ export const BackupScreen = () => {
               <Ionicons name="images" size={20} color={Colors.online} style={{ marginRight: 6 }} />
               <Text style={styles.sectionTitle}>Receipt &amp; Image Media Backup</Text>
             </View>
-            <View style={[styles.statusTag, images.pending > 0 ? styles.tagPending : styles.tagSynced]}>
-              <Text style={[styles.statusTagText, images.pending > 0 ? styles.tagTextPending : styles.tagTextSynced]}>
-                {images.pending > 0 ? `${images.pending} Waiting` : 'Uploaded ✓'}
+            <View style={[styles.statusTag, { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' }]}>
+              <Text style={[styles.statusTagText, { color: '#64748B' }]}>
+                Paused (Future Feature)
               </Text>
             </View>
           </View>
 
           <Text style={styles.sectionDesc}>
-            Receipt photos use a separate daily upload cycle to optimize network bandwidth and battery life.
+            Receipt photos cloud backup and synchronization is currently paused and will be enabled in a future release. All transaction records and ledger balances continue to backup normally.
           </Text>
 
           {/* 4-Card Metric Grid */}

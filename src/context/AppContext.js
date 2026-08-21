@@ -153,12 +153,6 @@ export const AppProvider = ({ children }) => {
         if (textRes && textRes.success && textRes.count > 0) {
           refreshAll();
         }
-
-        // 2. Check scheduled image backup
-        const imgRes = await checkScheduledImageBackup();
-        if (imgRes && imgRes.success && imgRes.count > 0) {
-          refreshAll();
-        }
       }
     } catch (err) {
       console.warn('Background sync check error:', err);

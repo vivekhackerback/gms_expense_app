@@ -313,129 +313,21 @@ export const processSyncQueue = async () => {
 };
 
 /**
- * Real Receipt Image Multipart Upload to PHP (ZERO SIMULATION)
+ * Receipt Image Upload (Paused for now - Future Feature)
  */
 export const uploadPendingImages = async () => {
-  const pendingImages = getPendingImages(5);
-  const pendingCount = pendingImages.length;
-
-  if (pendingCount === 0) {
-    return { success: true, count: 0, message: 'All images are already uploaded.' };
-  }
-
-  const netInfo = await checkNetworkConnectivity();
-  if (!netInfo.isConnected) {
-    addBackupActivityLog('image_upload', 'pending', `${pendingCount} images waiting for upload`);
-    return { success: false, count: pendingCount, message: 'Offline. Image upload will run when connected at scheduled time.' };
-  }
-
-  const imageIds = pendingImages.map(img => img.id);
-  markImagesUploading(imageIds);
-
-  const auth = getAuthSession();
-  const userPhone = auth?.user?.phone || '9876543210';
-  const userId = auth?.user?.id || 1;
-
-  let successCount = 0;
-  const confirmedImages = [];
-
-  for (const img of pendingImages) {
-    try {
-      const formData = new FormData();
-      formData.append('transaction_uuid', img.transaction_uuid);
-      if (img.transaction_id) {
-        formData.append('transaction_id', String(img.transaction_id));
-      }
-      formData.append('phone', userPhone);
-      formData.append('user_id', String(userId));
-      formData.append('file_name', img.file_name || 'receipt.jpg');
-      formData.append('file', {
-        uri: img.local_uri,
-        name: img.file_name || 'receipt.jpg',
-        type: 'image/jpeg',
-      });
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-      const headers = {
-        'Accept': 'application/json',
-      };
-      if (auth?.token) {
-        headers['Authorization'] = `Bearer ${auth.token}`;
-      }
-
-      const response = await fetch(API_CONFIG.IMAGE_UPLOAD_URL, {
-        method: 'POST',
-        headers,
-        body: formData,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success === true && data.saved === true) {
-          successCount++;
-          confirmedImages.push({
-            id: img.id,
-            transaction_uuid: img.transaction_uuid,
-            server_id: data.server_id,
-          });
-        }
-      }
-    } catch (err) {
-      console.warn('Image upload network failure for photo:', img.id, err);
-    }
-  }
-
-  if (confirmedImages.length > 0) {
-    markImagesServerConfirmed(confirmedImages);
-    addBackupActivityLog('image_upload', 'success', `Image upload completed (${confirmedImages.length} photos) ✓`);
-    return {
-      success: true,
-      count: confirmedImages.length,
-      message: `Successfully uploaded ${confirmedImages.length} images to server.`,
-    };
-  } else {
-    markImagesFailed(imageIds);
-    addBackupActivityLog('image_upload', 'failed', 'Image upload failed on server');
-    return { success: false, count: pendingCount, message: 'Image upload failed. Server did not confirm storage.' };
-  }
+  return {
+    success: true,
+    count: 0,
+    message: 'Image backup is currently paused and will be enabled in a future release.',
+  };
 };
 
 /**
- * Checks if the scheduled image backup time (e.g. 2:00 AM) is due
+ * Checks if the scheduled image backup time (Paused for now)
  */
 export const checkScheduledImageBackup = async () => {
-  try {
-    const stats = getDetailedBackupReportStats();
-    if (!stats.images.scheduleEnabled || stats.images.pending === 0) {
-      return { skipped: true, reason: 'Disabled or no pending images' };
-    }
-
-    const scheduledTime = stats.images.scheduleTime || '02:00';
-    const [schedHours, schedMinutes] = scheduledTime.split(':').map(Number);
-
-    const now = new Date();
-    const currentHours = now.getHours();
-    const currentMinutes = now.getMinutes();
-
-    const currentTotalMin = currentHours * 60 + currentMinutes;
-    const schedTotalMin = (schedHours || 2) * 60 + (schedMinutes || 0);
-
-    const diff = Math.abs(currentTotalMin - schedTotalMin);
-    if (diff <= 30) {
-      const netInfo = await checkNetworkConnectivity();
-      if (netInfo.isConnected) {
-        return await uploadPendingImages();
-      }
-    }
-    return { skipped: true, reason: 'Not scheduled time yet' };
-  } catch (err) {
-    console.warn('Scheduled image check error:', err);
-    return { skipped: true, error: err };
-  }
+  return { skipped: true, reason: 'Image backup is currently paused' };
 };
 
 /**

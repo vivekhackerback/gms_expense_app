@@ -301,115 +301,26 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
       };
     }
 
-    onProgress?.({ step: 2, totalSteps: 2, title: 'Uploading Associated Photos...', percent: 70 });
-
-    // 8. Scan & Upload All Photos in transaction_photos Directory
-    let uploadedImagesCount = 0;
-    let failedImagesCount = 0;
-    const imagesDir = getImagesDir();
-    console.log(`📸 [BACKUP_STEP_8] Photos directory: ${imagesDir}`);
-
-    if (imagesDir && Platform.OS !== 'web') {
-      try {
-        const dirInfo = await FileSystem.getInfoAsync(imagesDir);
-        console.log('📸 [BACKUP_STEP_8] Photos directory info:', dirInfo);
-
-        if (dirInfo.exists) {
-          const files = await FileSystem.readDirectoryAsync(imagesDir);
-          const totalFiles = files.length;
-          console.log(`📸 [BACKUP_STEP_8] Found ${totalFiles} local photo file(s) to check and upload.`);
-
-          for (let i = 0; i < totalFiles; i++) {
-            const fileName = files[i];
-            const fileUri = `${imagesDir}${fileName}`;
-            
-            try {
-              console.log(`📤 [PHOTO_UPLOAD_${i + 1}/${totalFiles}] Uploading photo: ${fileName}...`);
-              const formData = new FormData();
-              formData.append('transaction_uuid', 'BACKUP_' + fileName.replace(/[^a-zA-Z0-9]/g, '_'));
-              formData.append('phone', String(userPhone));
-              formData.append('user_id', String(userId));
-              formData.append('file_name', fileName);
-              formData.append('file', {
-                uri: fileUri,
-                name: fileName,
-                type: 'image/jpeg',
-              });
-
-              const photoHeaders = {
-                'Accept': 'application/json',
-                'ngrok-skip-browser-warning': 'true',
-                ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
-              };
-
-              const imgRes = await fetch(API_CONFIG.IMAGE_UPLOAD_URL, {
-                method: 'POST',
-                headers: photoHeaders,
-                body: formData,
-              });
-
-              const imgText = await imgRes.text();
-              console.log(`📥 [PHOTO_UPLOAD_${i + 1}/${totalFiles}] ${fileName} HTTP ${imgRes.status} Response:`, imgText.substring(0, 150));
-
-              if (imgRes.ok) {
-                uploadedImagesCount++;
-              } else {
-                failedImagesCount++;
-                console.error(`⚠️ [PHOTO_UPLOAD_FAILED] Photo upload error for ${fileName}:`, {
-                  httpStatus: imgRes.status,
-                  responseBody: imgText,
-                });
-              }
-            } catch (photoErr) {
-              failedImagesCount++;
-              console.error(`❌ [PHOTO_UPLOAD_EXCEPTION] Exception uploading photo ${fileName}:`, {
-                fileName,
-                fileUri,
-                error: photoErr?.message,
-                stack: photoErr?.stack,
-              });
-            }
-
-            const currentPercent = 70 + Math.round(((i + 1) / (totalFiles || 1)) * 28);
-            onProgress?.({
-              step: 2,
-              totalSteps: 2,
-              title: `Uploading Associated Photos (${i + 1}/${totalFiles})...`,
-              percent: Math.min(currentPercent, 98),
-            });
-          }
-        } else {
-          console.log('ℹ️ [BACKUP_STEP_8] Photos directory does not exist yet (no local receipts stored).');
-        }
-      } catch (imgDirErr) {
-        console.error('⚠️ [BACKUP_STEP_8] Error scanning photos directory:', {
-          imagesDir,
-          error: imgDirErr?.message,
-          stack: imgDirErr?.stack,
-        });
-      }
-    }
-
     onProgress?.({ step: 2, totalSteps: 2, title: 'Backup Completed!', percent: 100 });
 
     const sizeKb = fileSize > 0 ? (fileSize / 1024).toFixed(1) : '0';
-    const successMsg = `Full database (${sizeKb} KB, ${txCount} txs) and ${uploadedImagesCount} photos backed up to server ✓`;
+    const successMsg = `Full database (${sizeKb} KB, ${txCount} txs) backed up to server ✓`;
     console.log('\n========================================');
-    console.log('🎉 [BACKUP_SUCCESS] Full backup completed successfully!');
-    console.log(`📊 Summary: ${sizeKb} KB DB file, ${txCount} transactions, ${partyCount} parties, ${uploadedImagesCount} photos uploaded (${failedImagesCount} failed).`);
+    console.log('🎉 [BACKUP_SUCCESS] Full database backup completed successfully!');
+    console.log(`📊 Summary: ${sizeKb} KB DB file, ${txCount} transactions, ${partyCount} parties backed up.`);
     console.log('========================================\n');
 
     addBackupActivityLog('db_backup_upload', 'success', successMsg);
 
     return {
       success: true,
-      message: 'Complete SQLite database and photos successfully uploaded to server.',
+      message: 'Complete SQLite database successfully uploaded to server.',
       stats: {
         transactions: txCount,
         parties: partyCount,
         categories: categoryCount,
-        images: uploadedImagesCount,
-        failedImages: failedImagesCount,
+        images: 0,
+        failedImages: 0,
         dbSize: fileSize,
       },
     };
@@ -667,117 +578,28 @@ export const importCloudDataAndRestore = async (onProgress) => {
     try { await FileSystem.deleteAsync(tempStagingDb, { idempotent: true }); } catch (e) {}
     console.log('✅ [RESTORE_STEP_4] Verified database moved to target destination:', targetDbPath);
 
-    onProgress?.({ step: 2, totalSteps: 3, title: 'Downloading Associated Photos...', percent: 60 });
-
-    // 4. Download Photos
-    let downloadedPhotosCount = 0;
-    const imagesDir = getImagesDir();
-    console.log('📸 [RESTORE_STEP_4] Local images directory:', imagesDir);
-
-    if (imagesDir && Platform.OS !== 'web') {
-      try {
-        const imgDirInfo = await FileSystem.getInfoAsync(imagesDir);
-        if (!imgDirInfo.exists) {
-          await FileSystem.makeDirectoryAsync(imagesDir, { intermediates: true });
-        }
-
-        const imagesToDownload = info.images || [];
-        const totalImages = imagesToDownload.length;
-        console.log(`📸 [RESTORE_STEP_4] Downloading ${totalImages} associated photo(s)...`);
-
-        for (let i = 0; i < totalImages; i++) {
-          const item = imagesToDownload[i];
-          if (!item || !item.file_name) continue;
-
-          let photoDownloadUrl = item.download_url;
-          if (item.relative_path) {
-            const cleanRel = item.relative_path.replace(/^\/+/, '');
-            photoDownloadUrl = `${API_CONFIG.BASE_DOMAIN}${API_CONFIG.BASE_URL.includes('/expense_app_crm') ? '/expense_app_crm' : ''}/${cleanRel}`;
-          } else if (photoDownloadUrl && API_CONFIG.BASE_DOMAIN.startsWith('https://') && photoDownloadUrl.startsWith('http://')) {
-            photoDownloadUrl = photoDownloadUrl.replace('http://', 'https://');
-          }
-
-          if (!photoDownloadUrl) continue;
-
-          const targetImgPath = `${imagesDir}${item.file_name}`;
-
-          try {
-            console.log(`📥 [PHOTO_RESTORE_${i + 1}/${totalImages}] Downloading ${item.file_name} from:`, photoDownloadUrl);
-            const imgDownloadRes = await FileSystem.downloadAsync(
-              photoDownloadUrl,
-              targetImgPath,
-              {
-                headers: {
-                  'ngrok-skip-browser-warning': 'true',
-                  ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
-                },
-              }
-            );
-
-            if (imgDownloadRes.status === 200) {
-              downloadedPhotosCount++;
-            } else {
-              console.warn(`⚠️ [PHOTO_RESTORE_FAIL] Failed download for ${item.file_name}: HTTP ${imgDownloadRes.status}`);
-            }
-          } catch (imgErr) {
-            console.error(`❌ [PHOTO_RESTORE_ERR] Error downloading photo ${item.file_name}:`, imgErr);
-          }
-
-          const currentPercent = 60 + Math.round(((i + 1) / (totalImages || 1)) * 30);
-          onProgress?.({
-            step: 2,
-            totalSteps: 3,
-            title: `Downloading Associated Photos (${i + 1}/${totalImages})...`,
-            percent: Math.min(currentPercent, 90),
-          });
-        }
-      } catch (imgDirErr) {
-        console.error('⚠️ [RESTORE_STEP_4] Photos directory error:', imgDirErr);
-      }
-    }
-
-    onProgress?.({ step: 3, totalSteps: 3, title: 'Restoring & Indexing Local Ledger...', percent: 95 });
+    onProgress?.({ step: 2, totalSteps: 2, title: 'Restoring Local Ledger...', percent: 90 });
 
     // 5. Re-open and Re-initialize SQLite Database
     console.log('🔄 [RESTORE_STEP_5] Re-opening and verifying SQLite database...');
     const db = initDatabase();
 
-    // 6. Normalize local_uri Paths
-    if (imagesDir) {
-      try {
-        const allImgs = db.getAllSync('SELECT id, file_name FROM transaction_images WHERE file_name IS NOT NULL;');
-        console.log(`🖼️ [RESTORE_STEP_6] Normalizing ${allImgs?.length || 0} photo URI records in SQLite...`);
-        if (allImgs && allImgs.length > 0) {
-          for (const row of allImgs) {
-            const correctUri = `${imagesDir}${row.file_name}`;
-            db.runSync('UPDATE transaction_images SET local_uri = ?, upload_status = ? WHERE id = ?;', [
-              correctUri,
-              'uploaded',
-              row.id,
-            ]);
-          }
-        }
-      } catch (normErr) {
-        console.warn('⚠️ [RESTORE_STEP_6] Warning normalizing photo URIs:', normErr);
-      }
-    }
-
-    onProgress?.({ step: 3, totalSteps: 3, title: 'Data Restoration Completed!', percent: 100 });
+    onProgress?.({ step: 2, totalSteps: 2, title: 'Data Restoration Completed!', percent: 100 });
 
     const txCount = info.stats?.transactions || 0;
-    const restoreMsg = `Restored ${txCount} transactions & ${downloadedPhotosCount} photos from server ✓`;
+    const restoreMsg = `Restored ${txCount} transactions from server ✓`;
     console.log('\n========================================');
-    console.log('🎉 [RESTORE_SUCCESS] Full restoration completed successfully!');
-    console.log(`📊 Summary: ${txCount} transactions, ${downloadedPhotosCount} photos restored.`);
+    console.log('🎉 [RESTORE_SUCCESS] Full database restoration completed successfully!');
+    console.log(`📊 Summary: ${txCount} transactions restored.`);
     console.log('========================================\n');
 
     addBackupActivityLog('cloud_restore', 'success', restoreMsg);
 
     return {
       success: true,
-      message: 'Your complete data and photos have been restored successfully!',
+      message: 'Your complete database has been restored successfully!',
       stats: info.stats,
-      photosRestored: downloadedPhotosCount,
+      photosRestored: 0,
     };
   } catch (error) {
     console.error('\n========================================');
