@@ -222,12 +222,24 @@ export const BackupScreen = () => {
     setProgressModal({ visible: false, title: '', subtitle: '', percent: 0 });
 
     if (res.success) {
+      console.log('🎉 [BackupScreen] Full database backup succeeded:', res);
       Alert.alert(
         'Full Cloud Backup Complete ✓',
         `Your complete SQLite database file (${(res.stats?.dbSize / 1024).toFixed(1)} KB, ${res.stats?.transactions || 0} transactions) and ${res.stats?.images || 0} transaction photos have been safely stored on the server.`
       );
     } else {
-      Alert.alert('Backup Failed', res.message || 'Unable to upload database backup.');
+      console.error('❌ [BackupScreen] Full database backup failed:', {
+        message: res.message,
+        stage: res.stage,
+        httpStatus: res.httpStatus,
+        responseBody: res.responseBody,
+        errorDetails: res.errorDetails,
+        fullResult: res,
+      });
+      Alert.alert(
+        'Backup Failed',
+        `${res.message || 'Unable to upload database backup.'}\n\n(Full error details and HTTP response are logged in the console)`
+      );
     }
   };
 
@@ -237,6 +249,7 @@ export const BackupScreen = () => {
       return;
     }
     if (!networkStatus.isConnected) {
+      console.warn('⚠️ [BackupScreen] Import failed: Device offline');
       Alert.alert('Offline', 'Internet connection required to import data from server.');
       return;
     }
@@ -246,6 +259,7 @@ export const BackupScreen = () => {
     setIsCheckingImport(false);
 
     if (!info || !info.success || !info.has_backup) {
+      console.warn('ℹ️ [BackupScreen] No cloud backup found on server:', info);
       Alert.alert(
         'No Cloud Backup Found',
         'There is no database backup found on the server for this account. Please upload a backup first.'
@@ -281,12 +295,14 @@ export const BackupScreen = () => {
     setProgressModal({ visible: false, title: '', subtitle: '', percent: 0 });
 
     if (res.success) {
+      console.log('🎉 [BackupScreen] Restore succeeded:', res);
       Alert.alert(
         'Data Restored Successfully ✓',
-        `Your complete database (${res.stats?.transactions || 0} transactions, ${res.stats?.parties || 0} parties) and ${res.photosRestored || 0} receipt photos have been restored to this device!`
+        `Successfully restored ${res.stats?.transactions || 0} transactions, ${res.stats?.parties || 0} parties, and ${res.photosRestored || 0} photos from cloud database.`
       );
     } else {
-      Alert.alert('Import Failed', res.message || 'Unable to complete cloud restoration.');
+      console.error('❌ [BackupScreen] Restore failed:', res);
+      Alert.alert('Import Failed', res.message || 'Unable to restore data from server.');
     }
   };
 
