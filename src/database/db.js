@@ -136,9 +136,39 @@ export const getDatabase = () => {
 export const initDatabase = () => {
   if (dbInstance) return dbInstance;
 
-  try {
+  const purgeAllDatabaseFiles = (name = 'expenses_khata.db') => {
+    try {
+      if (dbInstance) {
+        try { dbInstance.closeSync(); } catch (e) {}
+        dbInstance = null;
+      }
+    } catch (e) {}
+
+    // 1. Try standard expo-sqlite deleteDatabaseSync
+    try {
+      SQLite.deleteDatabaseSync(name);
+    } catch (delErr) {
+      console.warn(`[DB_PURGE] deleteDatabaseSync(${name}) warning:`, delErr);
+    }
+
+    // 2. Try deleting from known candidate directory paths
+    const docDir = FileSystem.documentDirectory;
+    if (docDir) {
+      try {
+        SQLite.deleteDatabaseSync(name, docDir);
+      } catch (e) {}
+      try {
+        SQLite.deleteDatabaseSync(name, `${docDir.replace(/\/+$/, '')}/SQLite/`);
+      } catch (e) {}
+      try {
+        SQLite.deleteDatabaseSync(name, `${docDir.replace(/\/+$/, '')}/databases/`);
+      } catch (e) {}
+    }
+  };
+
+  const openAndSetup = (dbName = 'expenses_khata.db') => {
     // Open synchronously per Expo SQLite SDK 54 specification
-    dbInstance = SQLite.openDatabaseSync('expenses_khata.db');
+    dbInstance = SQLite.openDatabaseSync(dbName);
 
     // Enable WAL mode for better concurrency and write performance
     dbInstance.execSync('PRAGMA journal_mode = WAL;');
@@ -146,6 +176,11 @@ export const initDatabase = () => {
 
     // 1. App Configuration & Key-Value Store
     dbInstance.execSync(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+      );
       CREATE TABLE IF NOT EXISTS app_settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
@@ -160,6 +195,8 @@ export const initDatabase = () => {
         name TEXT NOT NULL UNIQUE,
         icon TEXT NOT NULL,
         color TEXT NOT NULL,
+        is_custom INTEGER DEFAULT 0,
+        is_deleted INTEGER DEFAULT 0,
         is_default INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1,
         created_at INTEGER NOT NULL,
@@ -207,6 +244,7 @@ export const initDatabase = () => {
     dbInstance.execSync(`
       CREATE TABLE IF NOT EXISTS transaction_images (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE,
         transaction_uuid TEXT NOT NULL REFERENCES transactions(uuid) ON DELETE CASCADE,
         local_uri TEXT NOT NULL,
         server_url TEXT,
@@ -220,12 +258,15 @@ export const initDatabase = () => {
     dbInstance.execSync(`
       CREATE TABLE IF NOT EXISTS sync_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        action TEXT NOT NULL, -- 'INSERT', 'UPDATE', 'DELETE'
-        table_name TEXT NOT NULL,
-        record_uuid TEXT NOT NULL,
+        entity_type TEXT,
+        entity_uuid TEXT,
+        action TEXT NOT NULL, -- 'create', 'update', 'delete', 'INSERT', 'UPDATE', 'DELETE'
+        table_name TEXT,
+        record_uuid TEXT,
         payload TEXT NOT NULL,
         retry_count INTEGER DEFAULT 0,
         last_attempt INTEGER,
+        status TEXT DEFAULT 'pending',
         created_at INTEGER NOT NULL
       );
     `);
@@ -234,12 +275,67 @@ export const initDatabase = () => {
     dbInstance.execSync(`
       CREATE TABLE IF NOT EXISTS backup_activity_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        type TEXT NOT NULL,
+        timestamp TEXT,
+        action_type TEXT,
+        type TEXT,
         status TEXT NOT NULL,
         message TEXT NOT NULL,
-        created_at INTEGER NOT NULL
+        details TEXT,
+        created_at INTEGER
       );
     `);
+
+    // Dynamic Schema Migrations for existing DB instances
+    try {
+      const catCols = dbInstance.getAllSync("PRAGMA table_info('categories');");
+      if (!catCols.some((col) => col.name === 'is_custom')) {
+        dbInstance.execSync('ALTER TABLE categories ADD COLUMN is_custom INTEGER DEFAULT 0;');
+      }
+      if (!catCols.some((col) => col.name === 'is_deleted')) {
+        dbInstance.execSync('ALTER TABLE categories ADD COLUMN is_deleted INTEGER DEFAULT 0;');
+      }
+    } catch (migErr) {
+      console.warn('Migration error for categories columns:', migErr);
+    }
+
+    try {
+      const imgCols = dbInstance.getAllSync("PRAGMA table_info('transaction_images');");
+      if (!imgCols.some((col) => col.name === 'transaction_id')) {
+        dbInstance.execSync('ALTER TABLE transaction_images ADD COLUMN transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE;');
+      }
+    } catch (migErr) {
+      console.warn('Migration error for transaction_images.transaction_id:', migErr);
+    }
+
+    try {
+      const queueCols = dbInstance.getAllSync("PRAGMA table_info('sync_queue');");
+      if (!queueCols.some((col) => col.name === 'status')) {
+        dbInstance.execSync("ALTER TABLE sync_queue ADD COLUMN status TEXT DEFAULT 'pending';");
+      }
+      if (!queueCols.some((col) => col.name === 'entity_type')) {
+        dbInstance.execSync('ALTER TABLE sync_queue ADD COLUMN entity_type TEXT;');
+      }
+      if (!queueCols.some((col) => col.name === 'entity_uuid')) {
+        dbInstance.execSync('ALTER TABLE sync_queue ADD COLUMN entity_uuid TEXT;');
+      }
+    } catch (migErr) {
+      console.warn('Migration error for sync_queue columns:', migErr);
+    }
+
+    try {
+      const logCols = dbInstance.getAllSync("PRAGMA table_info('backup_activity_logs');");
+      if (!logCols.some((col) => col.name === 'timestamp')) {
+        dbInstance.execSync('ALTER TABLE backup_activity_logs ADD COLUMN timestamp TEXT;');
+      }
+      if (!logCols.some((col) => col.name === 'action_type')) {
+        dbInstance.execSync('ALTER TABLE backup_activity_logs ADD COLUMN action_type TEXT;');
+      }
+      if (!logCols.some((col) => col.name === 'details')) {
+        dbInstance.execSync('ALTER TABLE backup_activity_logs ADD COLUMN details TEXT;');
+      }
+    } catch (migErr) {
+      console.warn('Migration error for backup_activity_logs:', migErr);
+    }
 
     // Create Indexes for ultra-fast listing & querying
     dbInstance.execSync(`
@@ -247,17 +343,42 @@ export const initDatabase = () => {
       CREATE INDEX IF NOT EXISTS idx_tx_party ON transactions(party_id);
       CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category_id);
       CREATE INDEX IF NOT EXISTS idx_tx_sync ON transactions(sync_status);
+      CREATE INDEX IF NOT EXISTS idx_img_tx_id ON transaction_images(transaction_id);
       CREATE INDEX IF NOT EXISTS idx_img_tx_uuid ON transaction_images(transaction_uuid);
       CREATE INDEX IF NOT EXISTS idx_img_upload_status ON transaction_images(upload_status);
+      CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
     `);
 
     // Seed default categories if table is empty
     seedDefaultCategories(dbInstance);
 
     return dbInstance;
+  };
+
+  try {
+    return openAndSetup('expenses_khata.db');
   } catch (error) {
-    console.error('Failed to initialize database:', error);
-    throw error;
+    console.error('Failed to initialize database, initiating recovery:', error);
+    const errMsg = String(error?.message || '');
+    
+    // Perform purge of corrupted files
+    console.warn('⚠️ Corrupted/non-database file detected. Recreating clean database...');
+    purgeAllDatabaseFiles('expenses_khata.db');
+
+    try {
+      // Retry opening fresh expenses_khata.db
+      return openAndSetup('expenses_khata.db');
+    } catch (secondErr) {
+      console.error('Failed on second attempt, trying fallback database file:', secondErr);
+      try {
+        // As a last-resort fallback to ensure app NEVER crashes on launch, use alternate clean DB name
+        purgeAllDatabaseFiles('expenses_khata_recovered.db');
+        return openAndSetup('expenses_khata_recovered.db');
+      } catch (recoveryErr) {
+        console.error('Fatal recovery error in initDatabase:', recoveryErr);
+        throw recoveryErr;
+      }
+    }
   }
 };
 
@@ -267,8 +388,8 @@ const seedDefaultCategories = (db) => {
     const now = getCurrentTimestamp();
     for (const cat of DEFAULT_CATEGORIES) {
       db.runSync(
-        `INSERT INTO categories (name, icon, color, is_default, is_active, created_at, updated_at, sync_status)
-         VALUES (?, ?, ?, 1, 1, ?, ?, 'synced');`,
+        `INSERT INTO categories (name, icon, color, is_custom, is_deleted, is_default, is_active, created_at, updated_at, sync_status)
+         VALUES (?, ?, ?, 0, 0, 1, 1, ?, ?, 'synced');`,
         [cat.name, cat.icon, cat.color, now, now]
       );
     }

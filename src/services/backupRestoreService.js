@@ -169,8 +169,12 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
 
     onProgress?.({ step: 1, totalSteps: 2, title: 'Uploading SQLite Database File...', percent: 45 });
 
-    // 6. Upload SQLite .db file to Server
-    console.log('🚀 [BACKUP_STEP_6] Initiating multipart database upload...');
+    // 6. Upload SQLite .db file to Server using fetch & FormData
+    console.log('🚀 [BACKUP_STEP_6] Initiating multipart database upload via fetch/FormData...');
+    console.log('📤 [BACKUP_STEP_6] Method: fetch / FormData');
+    console.log('📤 [BACKUP_STEP_6] Database filename: expenses_khata.db');
+    console.log('📤 [BACKUP_STEP_6] Database MIME type: application/octet-stream');
+    console.log('📤 [BACKUP_STEP_6] Database size:', fileSize, 'bytes');
     console.log('📤 [BACKUP_STEP_6] Target Upload URL:', API_CONFIG.DATABASE_BACKUP_UPLOAD_URL);
     console.log('📤 [BACKUP_STEP_6] Upload Parameters:', {
       phone: String(userPhone),
@@ -181,30 +185,36 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
       image_count: String(imagesInDbCount),
     });
 
+    const formData = new FormData();
+    formData.append('db_file', {
+      uri: dbPath,
+      name: 'expenses_khata.db',
+      type: 'application/octet-stream',
+    });
+    formData.append('phone', String(userPhone));
+    formData.append('user_id', String(userId));
+    formData.append('tx_count', String(txCount));
+    formData.append('party_count', String(partyCount));
+    formData.append('category_count', String(categoryCount));
+    formData.append('image_count', String(imagesInDbCount));
+
     const uploadHeaders = {
       'Accept': 'application/json',
       'ngrok-skip-browser-warning': 'true',
       ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
     };
-    console.log('📤 [BACKUP_STEP_6] Upload Headers:', uploadHeaders);
+    // Note: Do NOT set Content-Type header when using FormData; let React Native/fetch set multipart boundary automatically.
 
     const uploadStartTime = Date.now();
-    let uploadResult = null;
+    let response = null;
+    let responseText = '';
     try {
-      uploadResult = await FileSystem.uploadAsync(API_CONFIG.DATABASE_BACKUP_UPLOAD_URL, dbPath, {
-        httpMethod: 'POST',
-        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-        fieldName: 'db_file',
-        parameters: {
-          phone: String(userPhone),
-          user_id: String(userId),
-          tx_count: String(txCount),
-          party_count: String(partyCount),
-          category_count: String(categoryCount),
-          image_count: String(imagesInDbCount),
-        },
+      response = await fetch(API_CONFIG.DATABASE_BACKUP_UPLOAD_URL, {
+        method: 'POST',
         headers: uploadHeaders,
+        body: formData,
       });
+      responseText = await response.text();
     } catch (uploadReqErr) {
       const uploadDuration = Date.now() - uploadStartTime;
       console.error('❌ [BACKUP_FAILED] Database File Upload Network / Request Exception:', {
@@ -233,48 +243,46 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
 
     const uploadDuration = Date.now() - uploadStartTime;
     console.log(`📥 [BACKUP_STEP_6] Server response received in ${uploadDuration}ms:`, {
-      httpStatus: uploadResult?.status,
-      headers: uploadResult?.headers,
-      bodyPreview: uploadResult?.body?.substring ? uploadResult.body.substring(0, 300) : uploadResult?.body,
+      httpStatus: response?.status,
+      bodyPreview: responseText?.substring ? responseText.substring(0, 300) : responseText,
     });
 
-    if (uploadResult.status !== 200) {
+    if (response.status !== 200) {
       console.error('❌ [BACKUP_FAILED] Database Upload Server Error (Non-200 HTTP Status):', {
-        httpStatus: uploadResult.status,
-        responseBody: uploadResult.body,
-        responseHeaders: uploadResult.headers,
+        httpStatus: response.status,
+        responseBody: responseText,
         targetUrl: API_CONFIG.DATABASE_BACKUP_UPLOAD_URL,
         dbPath,
         fileSize,
       });
 
-      const errMsg = `Server returned HTTP ${uploadResult.status}: ${uploadResult.body?.substring(0, 120) || 'Unknown error'}`;
-      addBackupActivityLog('db_backup_upload', 'failed', `Database upload failed (HTTP ${uploadResult.status})`);
+      const errMsg = `Server returned HTTP ${response.status}: ${responseText.substring(0, 120) || 'Unknown error'}`;
+      addBackupActivityLog('db_backup_upload', 'failed', `Database upload failed (HTTP ${response.status})`);
       return {
         success: false,
-        message: `Database upload failed: HTTP ${uploadResult.status}`,
+        message: `Database upload failed: HTTP ${response.status}`,
         stage: 'http_error_status',
-        httpStatus: uploadResult.status,
-        responseBody: uploadResult.body,
+        httpStatus: response.status,
+        responseBody: responseText,
       };
     }
 
     // 7. Parse Server Response JSON
     let uploadJson = null;
     try {
-      uploadJson = JSON.parse(uploadResult.body);
+      uploadJson = JSON.parse(responseText);
       console.log('✅ [BACKUP_STEP_7] Parsed Server Response JSON:', uploadJson);
     } catch (jsonErr) {
       console.error('❌ [BACKUP_FAILED] JSON Parse Error on Database Upload Response:', {
         parseError: jsonErr?.message,
-        rawResponseBody: uploadResult.body,
+        rawResponseBody: responseText,
       });
       addBackupActivityLog('db_backup_upload', 'failed', 'Invalid JSON response from backup server');
       return {
         success: false,
         message: 'Invalid response from backup server (Non-JSON).',
         stage: 'json_parse_error',
-        rawBody: uploadResult.body,
+        rawBody: responseText,
       };
     }
 
@@ -491,6 +499,45 @@ export const fetchCloudBackupInfo = async () => {
 };
 
 /**
+ * Validate that a file is a genuine SQLite 3 database
+ */
+export const validateSQLiteFile = async (filePath) => {
+  try {
+    const info = await FileSystem.getInfoAsync(filePath);
+    if (!info || !info.exists) {
+      return { isValid: false, reason: 'File does not exist on device.' };
+    }
+    if (info.size < 100) {
+      let content = '';
+      try {
+        content = await FileSystem.readAsStringAsync(filePath, { length: 200 });
+      } catch (e) {}
+      return {
+        isValid: false,
+        reason: `File size is too small (${info.size} bytes). Server returned: ${content || 'empty content'}`,
+      };
+    }
+
+    // Read the first 16 bytes to check SQLite magic header: "SQLite format 3\000"
+    const header = await FileSystem.readAsStringAsync(filePath, { length: 16 });
+    if (!header || !header.startsWith('SQLite format 3')) {
+      let preview = '';
+      try {
+        preview = await FileSystem.readAsStringAsync(filePath, { length: 200 });
+      } catch (e) {}
+      return {
+        isValid: false,
+        reason: `Not a valid SQLite database. Server response: ${preview.substring(0, 150)}`,
+      };
+    }
+
+    return { isValid: true, size: info.size };
+  } catch (error) {
+    return { isValid: false, reason: error?.message || 'Error checking file format' };
+  }
+};
+
+/**
  * Download complete SQLite database and all associated images from server and restore locally
  */
 export const importCloudDataAndRestore = async (onProgress) => {
@@ -532,16 +579,12 @@ export const importCloudDataAndRestore = async (onProgress) => {
 
     onProgress?.({ step: 1, totalSteps: 3, title: 'Downloading SQLite Database...', percent: 30 });
 
-    // 2. Close Active SQLite Connection Cleanly
-    console.log('🔒 [RESTORE_STEP_2] Closing active SQLite connection before replacing file...');
-    closeDatabase();
-
-    // 3. Resolve Target Database Path and Ensure Directory Exists
+    // 2. Resolve Target Database Path and Ensure Directory Exists
     let targetDbPath = await getDatabaseFilePath();
     if (!targetDbPath) {
       targetDbPath = `${FileSystem.documentDirectory || ''}SQLite/expenses_khata.db`;
     }
-    console.log('📁 [RESTORE_STEP_3] Target DB restore path:', targetDbPath);
+    console.log('📁 [RESTORE_STEP_2] Target DB restore path:', targetDbPath);
 
     const lastSlash = targetDbPath.lastIndexOf('/');
     if (lastSlash > 0) {
@@ -549,34 +592,22 @@ export const importCloudDataAndRestore = async (onProgress) => {
       try {
         const parentInfo = await FileSystem.getInfoAsync(parentDir);
         if (!parentInfo.exists) {
-          console.log('📁 [RESTORE_STEP_3] Creating database parent directory:', parentDir);
+          console.log('📁 [RESTORE_STEP_2] Creating database parent directory:', parentDir);
           await FileSystem.makeDirectoryAsync(parentDir, { intermediates: true });
         }
       } catch (dirErr) {
-        console.warn('⚠️ [RESTORE_STEP_3] Error creating DB parent directory:', dirErr);
+        console.warn('⚠️ [RESTORE_STEP_2] Error creating DB parent directory:', dirErr);
       }
     }
 
-    const targetDbWal = `${targetDbPath}-wal`;
-    const targetDbShm = `${targetDbPath}-shm`;
-
-    // Remove any leftover WAL / SHM files
-    try {
-      const walInfo = await FileSystem.getInfoAsync(targetDbWal);
-      if (walInfo.exists) await FileSystem.deleteAsync(targetDbWal, { idempotent: true });
-      const shmInfo = await FileSystem.getInfoAsync(targetDbShm);
-      if (shmInfo.exists) await FileSystem.deleteAsync(targetDbShm, { idempotent: true });
-    } catch (cleanErr) {
-      console.warn('⚠️ [RESTORE_STEP_3] Error cleaning old WAL/SHM:', cleanErr);
-    }
-
-    // Download the database file directly
+    // 3. Download the database to a temporary staging file first to prevent corruption
+    const tempStagingDb = `${FileSystem.cacheDirectory}staging_cloud_db_${Date.now()}.db`;
     const downloadUrl = info.db_download_url || `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}`;
-    console.log('🚀 [RESTORE_STEP_3] Downloading database file from:', downloadUrl, 'to:', targetDbPath);
+    console.log('🚀 [RESTORE_STEP_3] Downloading database file from:', downloadUrl, 'to staging:', tempStagingDb);
 
     const downloadRes = await FileSystem.downloadAsync(
       downloadUrl,
-      targetDbPath,
+      tempStagingDb,
       {
         headers: {
           'ngrok-skip-browser-warning': 'true',
@@ -588,10 +619,50 @@ export const importCloudDataAndRestore = async (onProgress) => {
 
     if (downloadRes.status !== 200) {
       console.error('❌ [RESTORE_FAILED] Database Download Failed (HTTP Status non-200):', downloadRes);
+      try { await FileSystem.deleteAsync(tempStagingDb, { idempotent: true }); } catch (e) {}
       initDatabase();
       addBackupActivityLog('cloud_restore', 'failed', `Database download failed (HTTP ${downloadRes.status})`);
       return { success: false, message: `Failed to download database file (HTTP ${downloadRes.status}).` };
     }
+
+    // Validate the downloaded SQLite file before touching the live database
+    const validation = await validateSQLiteFile(tempStagingDb);
+    console.log('🔬 [RESTORE_STEP_3] Downloaded SQLite file validation:', validation);
+    if (!validation.isValid) {
+      console.error('❌ [RESTORE_FAILED] Downloaded file is not a valid SQLite database:', validation.reason);
+      try { await FileSystem.deleteAsync(tempStagingDb, { idempotent: true }); } catch (e) {}
+      initDatabase();
+      const failMsg = `Corrupted or invalid database backup received: ${validation.reason}`;
+      addBackupActivityLog('cloud_restore', 'failed', failMsg);
+      return { success: false, message: failMsg };
+    }
+
+    // 4. Safely replace the local active SQLite database with the verified downloaded file
+    console.log('🔒 [RESTORE_STEP_4] Closing active SQLite connection before replacing file...');
+    closeDatabase();
+
+    const targetDbWal = `${targetDbPath}-wal`;
+    const targetDbShm = `${targetDbPath}-shm`;
+
+    // Remove old WAL / SHM and existing DB file
+    try {
+      const walInfo = await FileSystem.getInfoAsync(targetDbWal);
+      if (walInfo.exists) await FileSystem.deleteAsync(targetDbWal, { idempotent: true });
+      const shmInfo = await FileSystem.getInfoAsync(targetDbShm);
+      if (shmInfo.exists) await FileSystem.deleteAsync(targetDbShm, { idempotent: true });
+      const currentDbInfo = await FileSystem.getInfoAsync(targetDbPath);
+      if (currentDbInfo.exists) await FileSystem.deleteAsync(targetDbPath, { idempotent: true });
+    } catch (cleanErr) {
+      console.warn('⚠️ [RESTORE_STEP_4] Error cleaning old DB/WAL/SHM:', cleanErr);
+    }
+
+    // Move staging DB to target path
+    await FileSystem.copyAsync({
+      from: tempStagingDb,
+      to: targetDbPath,
+    });
+    try { await FileSystem.deleteAsync(tempStagingDb, { idempotent: true }); } catch (e) {}
+    console.log('✅ [RESTORE_STEP_4] Verified database moved to target destination:', targetDbPath);
 
     onProgress?.({ step: 2, totalSteps: 3, title: 'Downloading Associated Photos...', percent: 60 });
 
