@@ -58,6 +58,8 @@ export const testAllApiEndpoints = async () => {
     { name: 'Transaction Sync (transactions_sync.php)', key: 'TRANSACTION_SYNC_URL', url: API_CONFIG.TRANSACTION_SYNC_URL, method: 'GET' },
     { name: 'Image Upload (image_upload.php)', key: 'IMAGE_UPLOAD_URL', url: API_CONFIG.IMAGE_UPLOAD_URL, method: 'GET' },
     { name: 'Backup Status (backup_status.php)', key: 'BACKUP_STATUS_URL', url: API_CONFIG.BACKUP_STATUS_URL, method: 'GET' },
+    { name: 'Backup Manifest (backup_manifest.php)', key: 'DATABASE_BACKUP_INFO_URL', url: API_CONFIG.DATABASE_BACKUP_INFO_URL, method: 'GET' },
+    { name: 'Database Download (download_database.php)', key: 'DATABASE_BACKUP_DOWNLOAD_URL', url: API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL, method: 'GET' },
   ];
 
   const results = [];

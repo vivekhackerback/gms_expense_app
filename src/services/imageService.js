@@ -1,16 +1,28 @@
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import { File, Directory, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
 
-const IMAGES_DIR = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}transaction_photos/` : null;
+export const getImagesDirectory = () => {
+  if (Platform.OS === 'web') return null;
+  try {
+    return new Directory(Paths.document, 'transaction_photos');
+  } catch (e) {
+    return null;
+  }
+};
+
+export const getImagesDirectoryUri = () => {
+  const dir = getImagesDirectory();
+  return dir ? `${dir.uri.replace(/\/*$/, '')}/` : null;
+};
 
 // Ensure persistent images directory exists
 export const ensureImageDirectoryExists = async () => {
-  if (!IMAGES_DIR || Platform.OS === 'web') return;
+  if (Platform.OS === 'web') return;
   try {
-    const dirInfo = await FileSystem.getInfoAsync(IMAGES_DIR);
-    if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(IMAGES_DIR, { intermediates: true });
+    const dir = getImagesDirectory();
+    if (dir && !dir.exists) {
+      dir.create();
     }
   } catch (error) {
     console.warn('Error ensuring image directory:', error);
@@ -19,16 +31,24 @@ export const ensureImageDirectoryExists = async () => {
 
 // Copy an image to the app's persistent storage so it is never lost
 export const persistImageLocally = async (tempUri) => {
-  if (Platform.OS === 'web' || !IMAGES_DIR) {
+  if (Platform.OS === 'web' || !tempUri) {
     return tempUri;
   }
 
   try {
     await ensureImageDirectoryExists();
+    const imagesDir = getImagesDirectory();
+    if (!imagesDir) return tempUri;
+
     const fileName = `img_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.jpg`;
-    const destination = `${IMAGES_DIR}${fileName}`;
-    await FileSystem.copyAsync({ from: tempUri, to: destination });
-    return destination;
+    const targetFile = new File(imagesDir, fileName);
+    const sourceFile = new File(tempUri);
+
+    if (sourceFile.exists) {
+      sourceFile.copy(targetFile);
+      return targetFile.uri;
+    }
+    return tempUri;
   } catch (error) {
     console.warn('Failed to copy image to app directory, using temp URI:', error);
     return tempUri;
@@ -106,9 +126,9 @@ export const takePhotoWithCamera = async () => {
 export const deleteLocalImageFile = async (uri) => {
   if (Platform.OS === 'web' || !uri) return;
   try {
-    const fileInfo = await FileSystem.getInfoAsync(uri);
-    if (fileInfo.exists) {
-      await FileSystem.deleteAsync(uri, { idempotent: true });
+    const file = new File(uri);
+    if (file.exists) {
+      file.delete();
     }
   } catch (error) {
     console.warn('Error deleting local image file:', error);

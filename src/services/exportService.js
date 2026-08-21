@@ -1,5 +1,5 @@
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import * as Print from 'expo-print';
 import { Platform, Alert } from 'react-native';
 import { exportAllData, getTransactions, getReportsSummary } from '../database/queries';
@@ -629,11 +629,11 @@ export const exportTransactionsToCSV = async () => {
     return;
   }
 
-  const fileUri = `${FileSystem.cacheDirectory}Expense_Report_${Date.now()}.csv`;
-  await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: FileSystem.EncodingType.UTF8 });
+  const file = new File(Paths.cache, `Expense_Report_${Date.now()}.csv`);
+  file.write(csvContent);
 
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(fileUri, {
+    await Sharing.shareAsync(file.uri, {
       mimeType: 'text/csv',
       dialogTitle: 'Export Transactions CSV',
       UTI: 'public.comma-separated-values-text',
@@ -659,11 +659,11 @@ export const exportFullJSONBackup = async () => {
     return;
   }
 
-  const fileUri = `${FileSystem.cacheDirectory}Expense_Khata_Backup_${Date.now()}.json`;
-  await FileSystem.writeAsStringAsync(fileUri, jsonContent, { encoding: FileSystem.EncodingType.UTF8 });
+  const file = new File(Paths.cache, `Expense_Khata_Backup_${Date.now()}.json`);
+  file.write(jsonContent);
 
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(fileUri, {
+    await Sharing.shareAsync(file.uri, {
       mimeType: 'application/json',
       dialogTitle: 'Export Complete Data Backup',
       UTI: 'public.json',

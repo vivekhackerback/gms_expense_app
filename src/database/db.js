@@ -1,13 +1,110 @@
 import * as SQLite from 'expo-sqlite';
-import * as FileSystem from 'expo-file-system';
+import { File, Directory, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
 import { DEFAULT_CATEGORIES } from '../constants/categories';
 import { getCurrentTimestamp, toUnixTimestamp } from '../utils/formatters';
 
 let dbInstance = null;
 
-export const getDatabaseFilePath = () => {
-  return FileSystem.documentDirectory ? `${FileSystem.documentDirectory}SQLite/expenses_khata.db` : null;
+const checkFileExists = (pathOrUri) => {
+  if (!pathOrUri) return false;
+  try {
+    const file = new File(pathOrUri);
+    return file.exists === true;
+  } catch (e) {
+    return false;
+  }
+};
+
+export const getDatabaseFilePath = async () => {
+  // 1. Direct databasePath property on active SQLiteDatabase instance
+  try {
+    const db = getDatabase();
+    if (db && db.databasePath) {
+      let p = db.databasePath;
+      if (!p.startsWith('file://') && !p.startsWith('http')) {
+        p = `file://${p}`;
+      }
+      if (checkFileExists(p)) {
+        return p;
+      }
+      // If check failed with file:// prefix, try raw path
+      const rawP = db.databasePath;
+      if (checkFileExists(rawP)) {
+        return p;
+      }
+    }
+  } catch (e) {
+    console.warn('Error checking db.databasePath:', e);
+  }
+
+  // 2. Default SQLite directory from expo-sqlite
+  try {
+    if (SQLite.defaultDatabaseDirectory) {
+      const base = SQLite.defaultDatabaseDirectory.replace(/\/+$/, '');
+      let p = `${base}/expenses_khata.db`;
+      if (!p.startsWith('file://')) p = `file://${p}`;
+      if (checkFileExists(p)) {
+        return p;
+      }
+    }
+  } catch (e) {}
+
+  // 3. Document directory candidate paths via Paths.document
+  try {
+    const docUri = Paths.document?.uri;
+    if (docUri) {
+      const baseDoc = docUri.replace(/\/+$/, '');
+      const candidates = [
+        `${baseDoc}/SQLite/expenses_khata.db`,
+        `${baseDoc}/expenses_khata.db`,
+        `${baseDoc}/../databases/expenses_khata.db`,
+        `${baseDoc}/databases/expenses_khata.db`,
+      ];
+
+      for (const c of candidates) {
+        if (checkFileExists(c)) {
+          return c;
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 4. Cache directory candidate paths via Paths.cache
+  try {
+    const cacheUri = Paths.cache?.uri;
+    if (cacheUri) {
+      const baseCache = cacheUri.replace(/\/+$/, '');
+      const candidates = [
+        `${baseCache}/SQLite/expenses_khata.db`,
+        `${baseCache}/expenses_khata.db`,
+      ];
+      for (const c of candidates) {
+        if (checkFileExists(c)) {
+          return c;
+        }
+      }
+    }
+  } catch (e) {}
+
+  // 5. If dbInstance has databasePath, return it as formatted file URI
+  try {
+    const db = getDatabase();
+    if (db && db.databasePath) {
+      const p = db.databasePath;
+      return p.startsWith('file://') ? p : `file://${p}`;
+    }
+  } catch (e) {}
+
+  // 6. Default fallback via Paths.document
+  try {
+    const docUri = Paths.document?.uri;
+    if (docUri) {
+      return `${docUri.replace(/\/+$/, '')}/SQLite/expenses_khata.db`;
+    }
+  } catch (e) {}
+
+  return null;
 };
 
 export const checkpointDatabase = () => {

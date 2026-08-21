@@ -1,4 +1,5 @@
-import * as FileSystem from 'expo-file-system';
+import { File, Directory, Paths } from 'expo-file-system';
+import * as LegacyFileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import API_CONFIG from '../constants/api_config';
 import { checkNetworkConnectivity } from './syncService';
@@ -12,12 +13,21 @@ import {
 import {
   getAuthSession,
   addBackupActivityLog,
-  getTransactions,
-  getParties,
-  getCategories,
 } from '../database/queries';
 
-const IMAGES_DIR = FileSystem.documentDirectory ? `${FileSystem.documentDirectory}transaction_photos/` : null;
+const getImagesDir = () => {
+  if (Platform.OS === 'web') return null;
+  try {
+    return new Directory(Paths.document, 'transaction_photos');
+  } catch (e) {
+    return null;
+  }
+};
+
+const getImagesDirUri = () => {
+  const dir = getImagesDir();
+  return dir ? `${dir.uri.replace(/\/*$/, '')}/` : null;
+};
 
 /**
  * Upload the entire SQLite database file and all local transaction photos to the server
@@ -43,15 +53,30 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
     // 1. Commit SQLite WAL checkpoint to ensure all data is in expenses_khata.db file
     checkpointDatabase();
 
-    const dbPath = getDatabaseFilePath();
+    const dbPath = await getDatabaseFilePath();
     if (!dbPath) {
-      return { success: false, message: 'Cannot resolve SQLite database file path.' };
+      return { success: false, message: 'Cannot resolve SQLite database file path on this device.' };
     }
 
-    const dbInfo = await FileSystem.getInfoAsync(dbPath);
-    if (!dbInfo.exists) {
-      return { success: false, message: 'Local database file not found on device.' };
+    let dbFile = new File(dbPath);
+    // If not found with uri, try raw path or retry checkpoint
+    if (!dbFile.exists && dbPath.startsWith('file://')) {
+      const altFile = new File(dbPath.replace('file://', ''));
+      if (altFile.exists) {
+        dbFile = altFile;
+      }
     }
+
+    // Fallback: If still not found, ensure DB is initialized and checkpointed
+    if (!dbFile.exists) {
+      try {
+        initDatabase();
+        checkpointDatabase();
+        dbFile = new File(dbPath);
+      } catch (e) {}
+    }
+
+    const fileSize = dbFile.exists ? (dbFile.size || 0) : 0;
 
     // Gather summary counts
     let txCount = 0;
@@ -76,9 +101,9 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
     onProgress?.({ step: 1, totalSteps: 2, title: 'Uploading SQLite Database File...', percent: 45 });
 
     // 2. Upload SQLite .db file
-    const uploadResult = await FileSystem.uploadAsync(API_CONFIG.DATABASE_BACKUP_UPLOAD_URL, dbPath, {
+    const uploadResult = await LegacyFileSystem.uploadAsync(API_CONFIG.DATABASE_BACKUP_UPLOAD_URL, dbPath, {
       httpMethod: 'POST',
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      uploadType: LegacyFileSystem.FileSystemUploadType.MULTIPART,
       fieldName: 'db_file',
       parameters: {
         phone: String(userPhone),
@@ -118,56 +143,56 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
 
     // 3. Scan & upload all photos in transaction_photos directory
     let uploadedImagesCount = 0;
-    if (IMAGES_DIR && Platform.OS !== 'web') {
+    const imgDir = getImagesDir();
+    if (imgDir && Platform.OS !== 'web' && imgDir.exists) {
       try {
-        const dirInfo = await FileSystem.getInfoAsync(IMAGES_DIR);
-        if (dirInfo.exists) {
-          const files = await FileSystem.readDirectoryAsync(IMAGES_DIR);
-          const totalFiles = files.length;
+        const entries = imgDir.list();
+        const files = entries.filter((e) => e instanceof File || !e.isDirectory);
+        const totalFiles = files.length;
 
-          for (let i = 0; i < totalFiles; i++) {
-            const fileName = files[i];
-            const fileUri = `${IMAGES_DIR}${fileName}`;
-            
-            try {
-              const formData = new FormData();
-              formData.append('transaction_uuid', 'BACKUP_' + fileName.replace(/[^a-zA-Z0-9]/g, '_'));
-              formData.append('phone', String(userPhone));
-              formData.append('user_id', String(userId));
-              formData.append('file_name', fileName);
-              formData.append('file', {
-                uri: fileUri,
-                name: fileName,
-                type: 'image/jpeg',
-              });
-
-              const headers = {
-                'Accept': 'application/json',
-                'ngrok-skip-browser-warning': 'true',
-                ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
-              };
-
-              const imgRes = await fetch(API_CONFIG.IMAGE_UPLOAD_URL, {
-                method: 'POST',
-                headers,
-                body: formData,
-              });
-
-              if (imgRes.ok) {
-                uploadedImagesCount++;
-              }
-            } catch (err) {
-              console.warn('Failed to upload photo:', fileName, err);
-            }
-
-            const currentPercent = 70 + Math.round(((i + 1) / (totalFiles || 1)) * 28);
-            onProgress?.({
-              step: 2,
-              totalSteps: 2,
-              title: `Uploading Associated Photos (${i + 1}/${totalFiles})...`,
-              percent: Math.min(currentPercent, 98),
+        for (let i = 0; i < totalFiles; i++) {
+          const item = files[i];
+          const fileName = item.name;
+          const fileUri = item.uri;
+          
+          try {
+            const formData = new FormData();
+            formData.append('transaction_uuid', 'BACKUP_' + fileName.replace(/[^a-zA-Z0-9]/g, '_'));
+            formData.append('phone', String(userPhone));
+            formData.append('user_id', String(userId));
+            formData.append('file_name', fileName);
+            formData.append('file', {
+              uri: fileUri,
+              name: fileName,
+              type: 'image/jpeg',
             });
+
+            const headers = {
+              'Accept': 'application/json',
+              'ngrok-skip-browser-warning': 'true',
+              ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
+            };
+
+            const imgRes = await fetch(API_CONFIG.IMAGE_UPLOAD_URL, {
+              method: 'POST',
+              headers,
+              body: formData,
+            });
+
+            if (imgRes.ok) {
+              uploadedImagesCount++;
+            }
+          } catch (err) {
+            console.warn('Failed to upload photo:', fileName, err);
           }
+
+          const currentPercent = 70 + Math.round(((i + 1) / (totalFiles || 1)) * 28);
+          onProgress?.({
+            step: 2,
+            totalSteps: 2,
+            title: `Uploading Associated Photos (${i + 1}/${totalFiles})...`,
+            percent: Math.min(currentPercent, 98),
+          });
         }
       } catch (err) {
         console.warn('Error reading images directory for backup:', err);
@@ -176,7 +201,8 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
 
     onProgress?.({ step: 2, totalSteps: 2, title: 'Backup Completed!', percent: 100 });
 
-    const successMsg = `Full database (${(dbInfo.size / 1024).toFixed(1)} KB, ${txCount} txs) and ${uploadedImagesCount} photos backed up to server ✓`;
+    const sizeKb = fileSize > 0 ? (fileSize / 1024).toFixed(1) : '0';
+    const successMsg = `Full database (${sizeKb} KB, ${txCount} txs) and ${uploadedImagesCount} photos backed up to server ✓`;
     addBackupActivityLog('db_backup_upload', 'success', successMsg);
 
     return {
@@ -187,7 +213,7 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
         parties: partyCount,
         categories: categoryCount,
         images: uploadedImagesCount,
-        dbSize: dbInfo.size,
+        dbSize: fileSize,
       },
     };
   } catch (error) {
@@ -276,27 +302,31 @@ export const importCloudDataAndRestore = async (onProgress) => {
     // 2. Close active SQLite connection cleanly so the database file can be replaced
     closeDatabase();
 
-    // 3. Ensure SQLite directory exists
-    const sqliteDir = `${FileSystem.documentDirectory}SQLite/`;
-    const sqliteDirInfo = await FileSystem.getInfoAsync(sqliteDir);
-    if (!sqliteDirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(sqliteDir, { intermediates: true });
+    // 3. Resolve target database path and ensure directory exists
+    let targetDbPath = await getDatabaseFilePath();
+    if (!targetDbPath) {
+      const docUri = Paths.document?.uri || '';
+      targetDbPath = `${docUri.replace(/\/*$/, '')}/SQLite/expenses_khata.db`;
     }
 
-    const targetDbPath = `${sqliteDir}expenses_khata.db`;
-    const targetDbWal = `${sqliteDir}expenses_khata.db-wal`;
-    const targetDbShm = `${sqliteDir}expenses_khata.db-shm`;
+    const targetDbFile = new File(targetDbPath);
+    if (!targetDbFile.parentDirectory.exists) {
+      try {
+        targetDbFile.parentDirectory.create();
+      } catch (e) {}
+    }
+
+    const targetDbWal = new File(`${targetDbPath}-wal`);
+    const targetDbShm = new File(`${targetDbPath}-shm`);
 
     // Remove any leftover WAL / SHM files
     try {
-      const walInfo = await FileSystem.getInfoAsync(targetDbWal);
-      if (walInfo.exists) await FileSystem.deleteAsync(targetDbWal, { idempotent: true });
-      const shmInfo = await FileSystem.getInfoAsync(targetDbShm);
-      if (shmInfo.exists) await FileSystem.deleteAsync(targetDbShm, { idempotent: true });
+      if (targetDbWal.exists) targetDbWal.delete();
+      if (targetDbShm.exists) targetDbShm.delete();
     } catch (e) {}
 
     // Download the database file directly
-    const downloadRes = await FileSystem.downloadAsync(
+    const downloadRes = await LegacyFileSystem.downloadAsync(
       info.db_download_url || `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}`,
       targetDbPath,
       {
@@ -318,10 +348,14 @@ export const importCloudDataAndRestore = async (onProgress) => {
 
     // 4. Ensure transaction photos directory exists
     let downloadedPhotosCount = 0;
-    if (IMAGES_DIR && Platform.OS !== 'web') {
-      const imgDirInfo = await FileSystem.getInfoAsync(IMAGES_DIR);
-      if (!imgDirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(IMAGES_DIR, { intermediates: true });
+    const imagesDir = getImagesDir();
+    const imagesDirUri = getImagesDirUri();
+
+    if (imagesDir && Platform.OS !== 'web') {
+      if (!imagesDir.exists) {
+        try {
+          imagesDir.create();
+        } catch (e) {}
       }
 
       const imagesToDownload = info.images || [];
@@ -331,12 +365,12 @@ export const importCloudDataAndRestore = async (onProgress) => {
         const item = imagesToDownload[i];
         if (!item.file_name || !item.download_url) continue;
 
-        const targetImgPath = `${IMAGES_DIR}${item.file_name}`;
+        const targetImgFile = new File(imagesDir, item.file_name);
 
         try {
-          const imgDownloadRes = await FileSystem.downloadAsync(
+          const imgDownloadRes = await LegacyFileSystem.downloadAsync(
             item.download_url,
-            targetImgPath,
+            targetImgFile.uri,
             {
               headers: {
                 'ngrok-skip-browser-warning': 'true',
@@ -367,12 +401,12 @@ export const importCloudDataAndRestore = async (onProgress) => {
     const db = initDatabase();
 
     // 6. Normalize local_uri paths in transaction_images to match the current device's IMAGES_DIR
-    if (IMAGES_DIR) {
+    if (imagesDirUri) {
       try {
         const allImgs = db.getAllSync('SELECT id, file_name FROM transaction_images WHERE file_name IS NOT NULL;');
         if (allImgs && allImgs.length > 0) {
           for (const row of allImgs) {
-            const correctUri = `${IMAGES_DIR}${row.file_name}`;
+            const correctUri = `${imagesDirUri}${row.file_name}`;
             db.runSync('UPDATE transaction_images SET local_uri = ?, upload_status = ? WHERE id = ?;', [
               correctUri,
               'uploaded',
