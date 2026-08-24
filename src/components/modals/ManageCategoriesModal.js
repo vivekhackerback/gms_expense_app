@@ -392,50 +392,73 @@ export const ManageCategoriesModal = () => {
             </View>
           </ScrollView>
         ) : (
-          <FlatList
-            data={categories}
-            keyExtractor={(item) => String(item.id)}
-            contentContainerStyle={styles.list}
-            renderItem={({ item }) => (
-              <View style={styles.categoryRow}>
-                <View
-                  style={[
-                    styles.catIconContainer,
-                    { backgroundColor: (item.color || Colors.primary) + '20' },
-                  ]}
-                >
-                  <Ionicons
-                    name={item.icon || 'grid-outline'}
-                    size={20}
-                    color={item.color || Colors.primary}
-                  />
-                </View>
-                <View style={styles.catInfo}>
-                  <Text style={styles.catName}>{item.name}</Text>
-                  <Text style={styles.catUsage}>
-                    {item.isCustom ? 'Custom Category' : 'Default Category'}
-                  </Text>
-                </View>
-                
-                {/* Actions: Edit & Delete */}
-                <View style={styles.rowActions}>
-                  <TouchableOpacity
-                    style={styles.actionIconButton}
-                    onPress={() => openEditForm(item)}
-                  >
-                    <Ionicons name="create-outline" size={19} color={Colors.primary} />
-                  </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            {/* Top Category Management Toolbar */}
+            <View style={styles.listHeaderToolbar}>
+              <TouchableOpacity
+                style={styles.toolbarAddBtn}
+                onPress={openCreateForm}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add-circle" size={17} color="#FFFFFF" style={{ marginRight: 5 }} />
+                <Text style={styles.toolbarAddBtnText}>Add Category</Text>
+              </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={styles.actionIconButton}
-                    onPress={() => handleDelete(item.id, item.name)}
+              <TouchableOpacity
+                style={styles.toolbarResetBtn}
+                onPress={handleResetCategoriesPrompt}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="refresh-outline" size={16} color={Colors.primary} style={{ marginRight: 5 }} />
+                <Text style={styles.toolbarResetBtnText}>Reset Categories</Text>
+              </TouchableOpacity>
+            </View>
+
+            <FlatList
+              data={categories}
+              keyExtractor={(item) => String(item.id)}
+              contentContainerStyle={styles.list}
+              renderItem={({ item }) => (
+                <View style={styles.categoryRow}>
+                  <View
+                    style={[
+                      styles.catIconContainer,
+                      { backgroundColor: (item.color || Colors.primary) + '20' },
+                    ]}
                   >
-                    <Ionicons name="trash-outline" size={19} color={Colors.danger} />
-                  </TouchableOpacity>
+                    <Ionicons
+                      name={item.icon || 'grid-outline'}
+                      size={20}
+                      color={item.color || Colors.primary}
+                    />
+                  </View>
+                  <View style={styles.catInfo}>
+                    <Text style={styles.catName}>{item.name}</Text>
+                    <Text style={styles.catUsage}>
+                      {item.isCustom ? 'Custom Category' : 'Default Category'}
+                    </Text>
+                  </View>
+                  
+                  {/* Actions: Edit & Delete */}
+                  <View style={styles.rowActions}>
+                    <TouchableOpacity
+                      style={styles.actionIconButton}
+                      onPress={() => openEditForm(item)}
+                    >
+                      <Ionicons name="create-outline" size={19} color={Colors.primary} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.actionIconButton}
+                      onPress={() => handleDelete(item.id, item.name)}
+                    >
+                      <Ionicons name="trash-outline" size={19} color={Colors.danger} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            )}
-          />
+              )}
+            />
+          </View>
         )}
       </SafeAreaView>
     </Modal>
@@ -468,8 +491,49 @@ const styles = StyleSheet.create({
   addBtn: {
     padding: Spacing.xs,
   },
+  listHeaderToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xs,
+  },
+  toolbarAddBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.primary,
+    paddingVertical: 10,
+    borderRadius: BorderRadius.md,
+    ...Shadows.sm,
+  },
+  toolbarAddBtnText: {
+    fontSize: Typography.fontSizes.sm,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#FFFFFF',
+  },
+  toolbarResetBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingVertical: 10,
+    borderRadius: BorderRadius.md,
+    ...Shadows.sm,
+  },
+  toolbarResetBtnText: {
+    fontSize: Typography.fontSizes.sm,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+  },
   list: {
     padding: Spacing.lg,
+    paddingTop: Spacing.sm,
     paddingBottom: 90,
   },
   categoryRow: {

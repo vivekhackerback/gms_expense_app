@@ -106,7 +106,7 @@ export const HomeScreen = () => {
     bannerBgStyle = styles.backupBannerPending;
   }
 
-  // Filter and group strictly for TODAY, YESTERDAY, and recent transactions
+  // Filter and group strictly for TODAY and YESTERDAY transactions only
   const sections = useMemo(() => {
     const today = new Date();
     const todayDateStr = today.toDateString();
@@ -117,7 +117,6 @@ export const HomeScreen = () => {
 
     const todayItems = [];
     const yesterdayItems = [];
-    const earlierItems = [];
 
     for (const tx of recentTransactions) {
       const txDateObj = parseToDate(tx.transactionDate || tx.createdAt);
@@ -127,8 +126,6 @@ export const HomeScreen = () => {
         todayItems.push(tx);
       } else if (txDateStr === yesterdayDateStr) {
         yesterdayItems.push(tx);
-      } else {
-        earlierItems.push(tx);
       }
     }
 
@@ -148,15 +145,6 @@ export const HomeScreen = () => {
         title: 'YESTERDAY',
         fullDate: formatDayNameFullDate(yesterday),
         data: yesterdayItems,
-      });
-    }
-
-    if (earlierItems.length > 0) {
-      result.push({
-        type: 'earlier',
-        title: 'RECENT TRANSACTIONS',
-        fullDate: 'Earlier Activity',
-        data: earlierItems,
       });
     }
 
@@ -372,6 +360,18 @@ export const HomeScreen = () => {
         renderSectionHeader={renderSectionHeader}
         stickySectionHeadersEnabled={false}
         ListHeaderComponent={renderDashboardHeader()}
+        ListFooterComponent={
+          hasRecentActivity ? (
+            <TouchableOpacity
+              style={styles.viewMoreHistoryBtn}
+              onPress={() => setActiveTab('Transactions')}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.viewMoreHistoryText}>View Older Transactions in History</Text>
+              <Ionicons name="arrow-forward" size={15} color={Colors.primary} style={{ marginLeft: 6 }} />
+            </TouchableOpacity>
+          ) : null
+        }
         ListEmptyComponent={
           !hasRecentActivity ? (
             <View style={styles.emptyState}>
@@ -696,5 +696,24 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     lineHeight: 18,
+  },
+  viewMoreHistoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xl,
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+    ...Shadows.sm,
+  },
+  viewMoreHistoryText: {
+    fontSize: Typography.fontSizes.sm,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.primary,
   },
 });
