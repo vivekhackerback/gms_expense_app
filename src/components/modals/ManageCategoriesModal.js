@@ -183,6 +183,7 @@ export const ManageCategoriesModal = () => {
     categories,
     saveCategory,
     deleteCategoryItem,
+    resetCategories,
   } = useApp();
 
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -246,6 +247,28 @@ export const ManageCategoriesModal = () => {
             deleteCategoryItem(id);
             if (editingCategoryId === id) {
               closeForm();
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleResetCategoriesPrompt = () => {
+    Alert.alert(
+      'Reset Categories',
+      'Are you sure you want to reset categories to the default categories?\n\nThis will restore all default application categories with their original icons, colors, and structure without modifying your existing transaction records.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset Categories',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              resetCategories();
+              Alert.alert('Categories Restored ✓', 'Categories restored successfully');
+            } catch (err) {
+              Alert.alert('Error', 'Failed to reset categories: ' + err.message);
             }
           },
         },

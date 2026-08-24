@@ -23,6 +23,7 @@ import {
   addCategory as dbAddCategory,
   updateCategory as dbUpdateCategory,
   deleteCategory as dbDeleteCategory,
+  resetCategoriesToDefault as dbResetCategories,
   getBackupSettings,
   updateBackupSettings,
   DEFAULT_BACKUP_SETTINGS,
@@ -355,6 +356,12 @@ export const AppProvider = ({ children }) => {
     const success = dbDeleteCategory(id);
     refreshAll();
     return success;
+  };
+
+  const resetCategories = () => {
+    const res = dbResetCategories();
+    refreshAll();
+    return res;
   };
 
   // Sync Actions
@@ -690,6 +697,7 @@ export const AppProvider = ({ children }) => {
         deletePartyItem,
         saveCategory,
         deleteCategoryItem,
+        resetCategories,
       }}
     >
       {children}

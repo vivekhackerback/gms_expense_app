@@ -682,6 +682,49 @@ export const deleteCategory = (id) => {
   return true;
 };
 
+/**
+ * Resets/Restores default categories to their original structure & names
+ * without disrupting existing transactions or deleting user custom categories.
+ */
+export const resetCategoriesToDefault = () => {
+  const db = getDatabase();
+  const now = getCurrentTimestamp();
+
+  db.withTransactionSync(() => {
+    // 1. For each default category from DEFAULT_CATEGORIES
+    for (const def of DEFAULT_CATEGORIES) {
+      const existing = db.getFirstSync(
+        'SELECT id FROM categories WHERE id = ? OR LOWER(name) = LOWER(?);',
+        [def.id, def.name]
+      );
+
+      if (existing) {
+        db.runSync(
+          `UPDATE categories SET 
+            name = ?, 
+            icon = ?, 
+            color = ?, 
+            is_custom = 0, 
+            is_deleted = 0, 
+            is_default = 1, 
+            is_active = 1, 
+            updated_at = ? 
+           WHERE id = ?;`,
+          [def.name, def.icon, def.color, now, existing.id]
+        );
+      } else {
+        db.runSync(
+          `INSERT INTO categories (id, name, icon, color, is_custom, is_deleted, is_default, is_active, created_at, updated_at, sync_status)
+           VALUES (?, ?, ?, ?, 0, 0, 1, 1, ?, ?, 'synced');`,
+          [def.id, def.name, def.icon, def.color, now, now]
+        );
+      }
+    }
+  });
+
+  return getCategories();
+};
+
 // -------------------------------------------------------------
 // Reports Queries
 // -------------------------------------------------------------
