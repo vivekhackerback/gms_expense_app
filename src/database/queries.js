@@ -1,5 +1,6 @@
 import { getDatabase } from './db';
 import { getCurrentTimestamp, toUnixTimestamp } from '../utils/formatters';
+import { DEFAULT_CATEGORIES } from '../constants/categories';
 
 // Helper for generating UUID fallback
 export const generateUUID = () => {

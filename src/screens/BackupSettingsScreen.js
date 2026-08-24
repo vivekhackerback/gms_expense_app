@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -34,6 +35,8 @@ const INTERVAL_PRESETS = [
 ];
 
 const HIDE_INFO_PRESETS = [
+  { label: '2 mins', minutes: 2 },
+  { label: '5 mins', minutes: 5 },
   { label: '15 mins', minutes: 15 },
   { label: '30 mins', minutes: 30 },
   { label: '60 mins (Default)', minutes: 60 },
@@ -125,10 +128,25 @@ export const BackupSettingsScreen = () => {
   const lastFailedTs = backupSettings.lastFailedBackup;
   const nextScheduledTs = backupSettings.nextScheduledBackup;
 
+  const handleToggleAutoBackup = (enabled) => {
+    setAutoBackupEnabled(enabled);
+    saveBackupSettings({ autoBackupEnabled: enabled });
+  };
+
   const handleSelectIntervalPreset = (presetMinutes) => {
     setSelectedIntervalPreset(presetMinutes);
     if (presetMinutes > 0) {
       setIntervalMinutes(String(presetMinutes));
+      saveBackupSettings({ backupIntervalMinutes: presetMinutes });
+    }
+  };
+
+  const handleCustomIntervalChange = (val) => {
+    const clean = val.replace(/[^0-9]/g, '');
+    setIntervalMinutes(clean);
+    const num = parseInt(clean, 10);
+    if (!isNaN(num) && num >= 5) {
+      saveBackupSettings({ backupIntervalMinutes: num });
     }
   };
 
@@ -136,6 +154,16 @@ export const BackupSettingsScreen = () => {
     setSelectedHidePreset(presetMinutes);
     if (presetMinutes > 0) {
       setHideDetailedMinutes(String(presetMinutes));
+      saveBackupSettings({ hideDetailedInfoMinutes: presetMinutes });
+    }
+  };
+
+  const handleCustomHideChange = (val) => {
+    const clean = val.replace(/[^0-9]/g, '');
+    setHideDetailedMinutes(clean);
+    const num = parseInt(clean, 10);
+    if (!isNaN(num) && num >= 1) {
+      saveBackupSettings({ hideDetailedInfoMinutes: num });
     }
   };
 
@@ -143,25 +171,35 @@ export const BackupSettingsScreen = () => {
     setSelectedRetentionPreset(count);
     if (count > 0) {
       setKeepBackups(String(count));
+      saveBackupSettings({ keepBackupsCount: count });
     }
   };
 
-  const validateAndSave = () => {
+  const handleCustomRetentionChange = (val) => {
+    const clean = val.replace(/[^0-9]/g, '');
+    setKeepBackups(clean);
+    const num = parseInt(clean, 10);
+    if (!isNaN(num) && num >= 1) {
+      saveBackupSettings({ keepBackupsCount: num });
+    }
+  };
+
+  const validateAndSave = (showToast = true) => {
     const intMins = parseInt(intervalMinutes, 10);
     if (isNaN(intMins) || intMins < 5) {
-      Alert.alert('Invalid Interval', 'Backup interval must be at least 5 minutes.');
+      if (showToast) Alert.alert('Invalid Interval', 'Backup interval must be at least 5 minutes.');
       return false;
     }
 
     const hideMins = parseInt(hideDetailedMinutes, 10);
     if (isNaN(hideMins) || hideMins < 1) {
-      Alert.alert('Invalid Duration', 'Hide detailed info duration must be at least 1 minute.');
+      if (showToast) Alert.alert('Invalid Duration', 'Hide detailed info duration must be at least 1 minute.');
       return false;
     }
 
     const retentionCnt = parseInt(keepBackups, 10);
     if (isNaN(retentionCnt) || retentionCnt < 1) {
-      Alert.alert('Invalid Retention', 'Keep backups count must be at least 1.');
+      if (showToast) Alert.alert('Invalid Retention', 'Keep backups count must be at least 1.');
       return false;
     }
 
@@ -174,13 +212,20 @@ export const BackupSettingsScreen = () => {
         backupLocation: backupLocation.trim(),
       });
 
-      setIsSavedToast(true);
-      setTimeout(() => setIsSavedToast(false), 2500);
+      if (showToast) {
+        setIsSavedToast(true);
+        setTimeout(() => setIsSavedToast(false), 2500);
+      }
       return true;
     } catch (err) {
-      Alert.alert('Error', 'Failed to save settings: ' + err.message);
+      if (showToast) Alert.alert('Error', 'Failed to save settings: ' + err.message);
       return false;
     }
+  };
+
+  const handleClose = () => {
+    validateAndSave(false);
+    closeBackupSettings();
   };
 
   const handleManualBackup = async () => {
@@ -293,19 +338,19 @@ export const BackupSettingsScreen = () => {
       visible={isBackupSettingsOpen}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={closeBackupSettings}
+      onRequestClose={handleClose}
     >
       <SafeAreaView style={styles.container}>
         {/* Header */}
         <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
-          <TouchableOpacity onPress={closeBackupSettings} style={styles.headerBtn} activeOpacity={0.7}>
+          <TouchableOpacity onPress={handleClose} style={styles.headerBtn} activeOpacity={0.7}>
             <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
             <Text style={styles.headerTitle}>Backup Settings</Text>
             <Text style={styles.headerSubtitle}>Timing, Automation & Storage Controls</Text>
           </View>
-          <TouchableOpacity onPress={validateAndSave} style={styles.saveBtn} activeOpacity={0.8}>
+          <TouchableOpacity onPress={() => validateAndSave(true)} style={styles.saveBtn} activeOpacity={0.8}>
             <Ionicons name="checkmark" size={17} color="#FFFFFF" style={{ marginRight: 3 }} />
             <Text style={styles.saveBtnText}>Save</Text>
           </TouchableOpacity>
@@ -429,7 +474,7 @@ export const BackupSettingsScreen = () => {
               </View>
               <Switch
                 value={autoBackupEnabled}
-                onValueChange={setAutoBackupEnabled}
+                onValueChange={handleToggleAutoBackup}
                 trackColor={{ false: '#E2E8F0', true: '#93C5FD' }}
                 thumbColor={autoBackupEnabled ? Colors.primary : '#94A3B8'}
               />
@@ -471,10 +516,7 @@ export const BackupSettingsScreen = () => {
                     <TextInput
                       style={styles.numericInput}
                       value={intervalMinutes}
-                      onChangeText={(val) => {
-                        const clean = val.replace(/[^0-9]/g, '');
-                        setIntervalMinutes(clean);
-                      }}
+                      onChangeText={handleCustomIntervalChange}
                       keyboardType="number-pad"
                       placeholder="e.g. 1440"
                     />
@@ -519,10 +561,7 @@ export const BackupSettingsScreen = () => {
                   <TextInput
                     style={styles.numericInput}
                     value={hideDetailedMinutes}
-                    onChangeText={(val) => {
-                      const clean = val.replace(/[^0-9]/g, '');
-                      setHideDetailedMinutes(clean);
-                    }}
+                    onChangeText={handleCustomHideChange}
                     keyboardType="number-pad"
                     placeholder="e.g. 60"
                   />
@@ -575,10 +614,7 @@ export const BackupSettingsScreen = () => {
                   <TextInput
                     style={styles.numericInput}
                     value={keepBackups}
-                    onChangeText={(val) => {
-                      const clean = val.replace(/[^0-9]/g, '');
-                      setKeepBackups(clean);
-                    }}
+                    onChangeText={handleCustomRetentionChange}
                     keyboardType="number-pad"
                     placeholder="e.g. 7"
                   />
@@ -912,24 +948,24 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xs,
   },
   chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: BorderRadius.full,
-    backgroundColor: Colors.surfaceSubtle,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: Colors.borderLight,
+    borderColor: '#E2E8F0',
   },
   chipActive: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: Colors.primary,
+    backgroundColor: '#1E293B',
+    borderColor: '#0F172A',
   },
   chipText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: Typography.fontWeights.medium,
-    color: Colors.textSecondary,
+    color: '#475569',
   },
   chipTextActive: {
-    color: Colors.primaryDark,
+    color: '#FFFFFF',
     fontWeight: Typography.fontWeights.bold,
   },
   customInputRow: {

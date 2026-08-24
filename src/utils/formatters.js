@@ -34,8 +34,8 @@ export const getCurrentTimestamp = () => {
  * to a standardized integer Unix timestamp in SECONDS.
  */
 export const toUnixTimestamp = (input) => {
-  if (input === null || input === undefined || input === '') {
-    return getCurrentTimestamp();
+  if (input === null || input === undefined || input === '' || input === '0' || input === 0) {
+    return 0;
   }
   if (typeof input === 'number') {
     // If milliseconds (> 100 billion), convert to seconds
@@ -44,17 +44,18 @@ export const toUnixTimestamp = (input) => {
   if (typeof input === 'string') {
     // If numeric string
     const num = Number(input);
-    if (!isNaN(num) && num > 0) {
+    if (!isNaN(num)) {
+      if (num === 0) return 0;
       return num > 100000000000 ? Math.floor(num / 1000) : Math.floor(num);
     }
     // Parse ISO / date string
     const parsed = new Date(input).getTime();
-    return isNaN(parsed) ? getCurrentTimestamp() : Math.floor(parsed / 1000);
+    return isNaN(parsed) ? 0 : Math.floor(parsed / 1000);
   }
   if (input instanceof Date) {
     return Math.floor(input.getTime() / 1000);
   }
-  return getCurrentTimestamp();
+  return 0;
 };
 
 /**

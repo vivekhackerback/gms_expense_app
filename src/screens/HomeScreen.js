@@ -17,6 +17,8 @@ import {
   parseToDate,
   formatDateGroup,
   formatTimeAgo,
+  getCurrentTimestamp,
+  toUnixTimestamp,
 } from '../utils/formatters';
 import { Header } from '../components/common/Header';
 import { TransactionRow } from '../components/transaction/TransactionRow';
@@ -43,7 +45,7 @@ export const HomeScreen = () => {
   useEffect(() => {
     const timer = setInterval(() => {
       setTick((t) => t + 1);
-    }, 20000);
+    }, 3000);
     return () => clearInterval(timer);
   }, []);
 
@@ -60,19 +62,19 @@ export const HomeScreen = () => {
     syncStats?.lastSync ||
     null;
 
-  const nowSecs = Math.floor(Date.now() / 1000);
-  const diffSinceBackup = lastSuccessfulTs ? Math.max(0, nowSecs - Number(lastSuccessfulTs)) : null;
-  const hideDetailedSeconds = (backupSettings?.hideDetailedInfoMinutes || 60) * 60;
+  const lastBackupUnix = lastSuccessfulTs ? toUnixTimestamp(lastSuccessfulTs) : 0;
+  const nowSecs = getCurrentTimestamp();
+  const diffSinceBackup = lastBackupUnix > 0 ? Math.max(0, nowSecs - lastBackupUnix) : null;
+  const hideDetailedSeconds = (Math.max(1, Number(backupSettings?.hideDetailedInfoMinutes) || 60)) * 60;
 
   const isFailed = backupSettings?.lastBackupStatus === 'failed';
   const isRecentlyCompleted =
     !isFailed &&
-    lastSuccessfulTs &&
+    lastBackupUnix > 0 &&
     diffSinceBackup !== null &&
-    diffSinceBackup <= hideDetailedSeconds &&
-    (backupSettings?.lastBackupStatus === 'success' || backupSettings?.backupCompletedAt);
+    diffSinceBackup < hideDetailedSeconds;
 
-  const backupTimeAgoText = formatTimeAgo(lastSuccessfulTs);
+  const backupTimeAgoText = formatTimeAgo(lastBackupUnix || lastSuccessfulTs);
 
   let bannerText = `Last backup: ${backupTimeAgoText}`;
   let bannerDotColor = '#10B981';
@@ -95,7 +97,7 @@ export const HomeScreen = () => {
     bannerIconColor = '#059669';
     bannerTextColor = '#065F46';
     bannerBgStyle = styles.backupBannerFresh;
-  } else if (!lastSuccessfulTs) {
+  } else if (!lastBackupUnix) {
     bannerText = 'No backup yet · Tap to backup';
     bannerDotColor = '#F59E0B';
     bannerIcon = 'cloud-upload-outline';
@@ -162,53 +164,49 @@ export const HomeScreen = () => {
   }, [recentTransactions]);
 
   const hasRecentActivity = sections.length > 0;
+  const shouldShowBackupBanner = isFailed || isRecentlyCompleted;
 
   const renderDashboardHeader = () => (
     <View style={styles.dashboardContainer}>
       {/* 0. Compact Configurable Last Backup Status Bar */}
-      <TouchableOpacity
-        style={[
-          styles.backupBanner,
-          bannerBgStyle,
-        ]}
-        onPress={() => navigateToBackup('Home')}
-        activeOpacity={0.75}
-      >
-        <View style={styles.backupBannerLeft}>
-          <View
-            style={[
-              styles.backupStatusDot,
-              { backgroundColor: bannerDotColor },
-            ]}
-          />
-          <Ionicons
-            name={bannerIcon}
-            size={13}
-            color={bannerIconColor}
-          />
-          <Text
-            style={[
-              styles.backupBannerText,
-              { color: bannerTextColor },
-            ]}
-            numberOfLines={1}
-          >
-            {bannerText}
-          </Text>
-        </View>
+      {shouldShowBackupBanner && (
+        <TouchableOpacity
+          style={[
+            styles.backupBanner,
+            bannerBgStyle,
+          ]}
+          onPress={openBackupSettings}
+          activeOpacity={0.75}
+        >
+          <View style={styles.backupBannerLeft}>
+            <View
+              style={[
+                styles.backupStatusDot,
+                { backgroundColor: bannerDotColor },
+              ]}
+            />
+            <Ionicons
+              name={bannerIcon}
+              size={13}
+              color={bannerIconColor}
+            />
+            <Text
+              style={[
+                styles.backupBannerText,
+                { color: bannerTextColor },
+              ]}
+              numberOfLines={1}
+            >
+              {bannerText}
+            </Text>
+          </View>
 
-        <View style={styles.backupBannerRight}>
-          <TouchableOpacity
-            onPress={openBackupSettings}
-            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-            style={{ marginRight: 4 }}
-          >
-            <Ionicons name="options-outline" size={13} color={Colors.primary} />
-          </TouchableOpacity>
-          <Text style={styles.backupBannerAction}>Backup</Text>
-          <Ionicons name="chevron-forward" size={11} color={Colors.primary} />
-        </View>
-      </TouchableOpacity>
+          <View style={styles.backupBannerRight}>
+            <Text style={styles.backupBannerAction}>Settings</Text>
+            <Ionicons name="chevron-forward" size={11} color={Colors.primary} />
+          </View>
+        </TouchableOpacity>
+      )}
 
       {/* 1. Total Balance Card */}
       <View style={[styles.totalBalanceCard, Shadows.sm]}>
