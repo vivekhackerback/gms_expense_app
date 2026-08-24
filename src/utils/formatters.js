@@ -213,6 +213,56 @@ export const formatTimeAgo = (dateInput) => {
   return diffYears <= 1 ? '1 year ago' : `${diffYears} years ago`;
 };
 
+/**
+ * Formats a future Unix timestamp into friendly relative string.
+ * Examples: "Due now", "in 15 mins", "in 1 hour", "in 12 hours", "Tomorrow", "in 2 days"
+ */
+export const formatTimeFuture = (futureInput) => {
+  if (!futureInput && futureInput !== 0 && futureInput !== '0') return 'Not scheduled';
+  const targetTs = toUnixTimestamp(futureInput);
+  if (!targetTs || targetTs <= 0) return 'Not scheduled';
+
+  const nowTs = getCurrentTimestamp();
+  const diffSeconds = targetTs - nowTs;
+
+  if (diffSeconds <= 0) {
+    return 'Due now';
+  }
+  if (diffSeconds < 60) {
+    return 'in a few seconds';
+  }
+  if (diffSeconds < 120) {
+    return 'in 1 min';
+  }
+  const diffMins = Math.floor(diffSeconds / 60);
+  if (diffMins < 60) {
+    return `in ${diffMins} mins`;
+  }
+  const diffHours = Math.floor(diffSeconds / 3600);
+  if (diffHours < 2) {
+    return 'in 1 hour';
+  }
+  if (diffHours < 24) {
+    return `in ${diffHours} hours`;
+  }
+  const diffDays = Math.floor(diffSeconds / 86400);
+  if (diffDays === 1) {
+    return 'Tomorrow';
+  }
+  return `in ${diffDays} days`;
+};
+
+/**
+ * Formats byte count into human-readable size (KB, MB)
+ */
+export const formatFileSize = (bytes) => {
+  const num = Number(bytes) || 0;
+  if (num <= 0) return '0 KB';
+  if (num < 1024) return `${num} B`;
+  if (num < 1024 * 1024) return `${(num / 1024).toFixed(1)} KB`;
+  return `${(num / (1024 * 1024)).toFixed(2)} MB`;
+};
+
 // Formats Unix timestamp to standard YYYY-MM-DD string
 export const formatToDateString = (dateInput) => {
   const d = parseToDate(dateInput);

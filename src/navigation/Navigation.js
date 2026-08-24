@@ -19,6 +19,7 @@ import { KhataScreen } from '../screens/KhataScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { BackupScreen } from '../screens/BackupScreen';
+import { BackupSettingsScreen } from '../screens/BackupSettingsScreen';
 
 // Modals & Overlays
 import { AddTransactionModal } from '../screens/AddTransactionModal';
@@ -117,6 +118,7 @@ export const Navigation = () => {
       <ManagePartiesModal />
       <LoginModal />
       <LogoutModal />
+      <BackupSettingsScreen />
     </View>
   );
 };

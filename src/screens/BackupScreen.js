@@ -49,6 +49,7 @@ export const BackupScreen = () => {
     backupActivityLogs,
     refreshAll,
     setActiveTab,
+    openBackupSettings,
     isLoggedIn,
     currentUser,
     openLoginModal,
@@ -448,13 +449,23 @@ export const BackupScreen = () => {
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.headerActionBtn}
-          onPress={refreshAll}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="refresh" size={20} color={Colors.primary} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={openBackupSettings}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="settings-outline" size={20} color={Colors.primary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={refreshAll}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="refresh" size={20} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView

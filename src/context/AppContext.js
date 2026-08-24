@@ -23,6 +23,9 @@ import {
   addCategory as dbAddCategory,
   updateCategory as dbUpdateCategory,
   deleteCategory as dbDeleteCategory,
+  getBackupSettings,
+  updateBackupSettings,
+  DEFAULT_BACKUP_SETTINGS,
 } from '../database/queries';
 import {
   checkNetworkConnectivity,
@@ -35,6 +38,8 @@ import {
   uploadEntireDatabaseAndImages,
   fetchCloudBackupInfo,
   importCloudDataAndRestore,
+  testBackupLocation,
+  checkScheduledAutoBackup,
 } from '../services/backupRestoreService';
 import API_CONFIG from '../constants/api_config';
 
@@ -75,6 +80,7 @@ export const AppProvider = ({ children }) => {
     images: { total: 0, uploaded: 0, pending: 0, uploading: 0, failed: 0, lastSync: null, scheduleTime: '02:00', scheduleEnabled: true },
     system: { autoSyncEnabled: true, queuePending: 0 },
   });
+  const [backupSettings, setBackupSettings] = useState(DEFAULT_BACKUP_SETTINGS);
   const [backupActivityLogs, setBackupActivityLogs] = useState([]);
   const [networkStatus, setNetworkStatus] = useState({ isConnected: true, type: 'UNKNOWN', isWifi: false });
   const [isSyncing, setIsSyncing] = useState(false);
@@ -94,6 +100,7 @@ export const AppProvider = ({ children }) => {
   const [isManageCategoriesOpen, setIsManageCategoriesOpen] = useState(false);
   const [isManagePartiesOpen, setIsManagePartiesOpen] = useState(false);
   const [isBackupReportOpen, setIsBackupReportOpen] = useState(false);
+  const [isBackupSettingsOpen, setIsBackupSettingsOpen] = useState(false);
 
   const autoSyncRunningRef = useRef(false);
 
@@ -117,6 +124,9 @@ export const AppProvider = ({ children }) => {
 
       const detailed = getDetailedBackupReportStats();
       setDetailedBackupStats(detailed);
+
+      const bSettings = getBackupSettings();
+      setBackupSettings(bSettings);
 
       const logs = getBackupActivityLogs(20);
       setBackupActivityLogs(logs);
@@ -151,6 +161,12 @@ export const AppProvider = ({ children }) => {
         // 1. Auto-sync pending text data
         const textRes = await autoSyncTextIfConnected();
         if (textRes && textRes.success && textRes.count > 0) {
+          refreshAll();
+        }
+
+        // 2. Auto scheduled full database backup if due
+        const autoBkRes = await checkScheduledAutoBackup();
+        if (autoBkRes && autoBkRes.executed) {
           refreshAll();
         }
       }
@@ -256,6 +272,24 @@ export const AppProvider = ({ children }) => {
 
   const closeBackupReport = () => {
     setActiveTab('More');
+  };
+
+  const openBackupSettings = () => {
+    setIsBackupSettingsOpen(true);
+  };
+
+  const closeBackupSettings = () => {
+    setIsBackupSettingsOpen(false);
+  };
+
+  const saveBackupSettings = (newSettings) => {
+    const updated = updateBackupSettings(newSettings);
+    refreshAll();
+    return updated;
+  };
+
+  const testBackupEndpoint = async (url = null) => {
+    return await testBackupLocation(url);
   };
 
   // Transaction Operations
@@ -642,6 +676,12 @@ export const AppProvider = ({ children }) => {
         openBackupReport,
         closeBackupReport,
         navigateToBackup,
+        backupSettings,
+        isBackupSettingsOpen,
+        openBackupSettings,
+        closeBackupSettings,
+        saveBackupSettings,
+        testBackupEndpoint,
 
         // Data Mutations
         saveTransaction,

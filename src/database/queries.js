@@ -985,6 +985,112 @@ export const updateSetting = (key, value) => {
   );
 };
 
+export const DEFAULT_BACKUP_SETTINGS = {
+  autoBackupEnabled: true,
+  backupIntervalMinutes: 1440, // 24 hours
+  hideDetailedInfoMinutes: 60, // 60 minutes
+  keepBackupsCount: 7, // keep 7 backups
+  backupLocation: '',
+  lastBackupStatus: 'idle', // 'success' | 'failed' | 'in_progress' | 'idle'
+  lastSuccessfulBackup: null,
+  lastFailedBackup: null,
+  lastBackupError: null,
+  lastBackupSize: 0,
+  backupStartedAt: null,
+  backupCompletedAt: null,
+  nextScheduledBackup: null,
+};
+
+export const getBackupSettings = () => {
+  try {
+    const db = getDatabase();
+    const rows = db.getAllSync("SELECT key, value FROM settings;");
+    const map = {};
+    for (const r of rows) {
+      map[r.key] = r.value;
+    }
+
+    const autoBackupEnabled = map['auto_backup_enabled'] !== '0';
+    const backupIntervalMinutes = Math.max(5, parseInt(map['backup_interval_minutes'], 10) || 1440);
+    const hideDetailedInfoMinutes = Math.max(1, parseInt(map['hide_detailed_info_minutes'], 10) || 60);
+    const keepBackupsCount = Math.max(1, parseInt(map['keep_backups_count'], 10) || 7);
+    const backupLocation = map['backup_location'] || '';
+    const lastBackupStatus = map['last_backup_status'] || (map['last_full_backup'] || map['last_sync'] ? 'success' : 'idle');
+    const lastSuccessfulBackup = map['last_successful_backup'] || map['last_full_backup'] || map['last_sync'] || null;
+    const lastFailedBackup = map['last_failed_backup'] || map['last_failed_sync'] || null;
+    const lastBackupError = map['last_backup_error'] || null;
+    const lastBackupSize = parseInt(map['last_backup_size'], 10) || 0;
+    const backupStartedAt = map['backup_started_at'] || null;
+    const backupCompletedAt = map['backup_completed_at'] || null;
+
+    let nextScheduledBackup = null;
+    if (autoBackupEnabled && lastSuccessfulBackup) {
+      nextScheduledBackup = Number(lastSuccessfulBackup) + (backupIntervalMinutes * 60);
+    }
+
+    return {
+      autoBackupEnabled,
+      backupIntervalMinutes,
+      hideDetailedInfoMinutes,
+      keepBackupsCount,
+      backupLocation,
+      lastBackupStatus,
+      lastSuccessfulBackup: lastSuccessfulBackup ? Number(lastSuccessfulBackup) : null,
+      lastFailedBackup: lastFailedBackup ? Number(lastFailedBackup) : null,
+      lastBackupError,
+      lastBackupSize,
+      backupStartedAt: backupStartedAt ? Number(backupStartedAt) : null,
+      backupCompletedAt: backupCompletedAt ? Number(backupCompletedAt) : null,
+      nextScheduledBackup,
+    };
+  } catch (err) {
+    console.warn('Error reading backup settings:', err);
+    return { ...DEFAULT_BACKUP_SETTINGS };
+  }
+};
+
+export const updateBackupSettings = (newSettings = {}) => {
+  const db = getDatabase();
+  db.withTransactionSync(() => {
+    if (newSettings.autoBackupEnabled !== undefined) {
+      updateSetting('auto_backup_enabled', newSettings.autoBackupEnabled ? '1' : '0');
+    }
+    if (newSettings.backupIntervalMinutes !== undefined) {
+      const mins = Math.max(5, parseInt(newSettings.backupIntervalMinutes, 10) || 1440);
+      updateSetting('backup_interval_minutes', String(mins));
+    }
+    if (newSettings.hideDetailedInfoMinutes !== undefined) {
+      const mins = Math.max(1, parseInt(newSettings.hideDetailedInfoMinutes, 10) || 60);
+      updateSetting('hide_detailed_info_minutes', String(mins));
+    }
+    if (newSettings.keepBackupsCount !== undefined) {
+      const cnt = Math.max(1, parseInt(newSettings.keepBackupsCount, 10) || 7);
+      updateSetting('keep_backups_count', String(cnt));
+    }
+    if (newSettings.backupLocation !== undefined) {
+      updateSetting('backup_location', String(newSettings.backupLocation).trim());
+    }
+    if (newSettings.lastBackupStatus !== undefined) {
+      updateSetting('last_backup_status', String(newSettings.lastBackupStatus));
+    }
+    if (newSettings.lastSuccessfulBackup !== undefined) {
+      updateSetting('last_successful_backup', String(newSettings.lastSuccessfulBackup || ''));
+      updateSetting('last_full_backup', String(newSettings.lastSuccessfulBackup || ''));
+    }
+    if (newSettings.lastFailedBackup !== undefined) {
+      updateSetting('last_failed_backup', String(newSettings.lastFailedBackup || ''));
+    }
+    if (newSettings.lastBackupError !== undefined) {
+      updateSetting('last_backup_error', String(newSettings.lastBackupError || ''));
+    }
+    if (newSettings.lastBackupSize !== undefined) {
+      updateSetting('last_backup_size', String(newSettings.lastBackupSize || '0'));
+    }
+  });
+
+  return getBackupSettings();
+};
+
 export const markTransactionsUploading = (uuids = []) => {
   const db = getDatabase();
   if (!uuids || uuids.length === 0) {

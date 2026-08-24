@@ -13,6 +13,8 @@ import {
   getAuthSession,
   addBackupActivityLog,
   updateSetting,
+  getBackupSettings,
+  updateBackupSettings,
 } from '../database/queries';
 
 const getImagesDir = () => {
@@ -28,6 +30,14 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
   console.log('🔄 [BACKUP_START] Starting full SQLite database and photos backup...');
   console.log('========================================');
 
+  const nowStart = Math.floor(Date.now() / 1000);
+  try {
+    updateBackupSettings({
+      lastBackupStatus: 'in_progress',
+      backupStartedAt: nowStart,
+    });
+  } catch (e) {}
+
   try {
     // 1. Network Connectivity Check
     const net = await checkNetworkConnectivity();
@@ -41,6 +51,11 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
       const offlineMsg = 'Device is offline. Internet connection required to upload database.';
       console.error('❌ [BACKUP_FAILED] Network error: Device is not connected to internet.');
       addBackupActivityLog('db_backup_upload', 'failed', `Full backup failed: ${offlineMsg}`);
+      updateBackupSettings({
+        lastBackupStatus: 'failed',
+        lastFailedBackup: Math.floor(Date.now() / 1000),
+        lastBackupError: offlineMsg,
+      });
       return { success: false, message: offlineMsg, stage: 'network_check' };
     }
 
@@ -57,6 +72,11 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
       const authMsg = 'Please log in to backup your database to the server.';
       console.error('❌ [BACKUP_FAILED] Auth error: User session is not logged in.');
       addBackupActivityLog('db_backup_upload', 'failed', `Full backup failed: ${authMsg}`);
+      updateBackupSettings({
+        lastBackupStatus: 'failed',
+        lastFailedBackup: Math.floor(Date.now() / 1000),
+        lastBackupError: authMsg,
+      });
       return { success: false, message: authMsg, stage: 'auth_check' };
     }
 
@@ -294,6 +314,11 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
       });
       const rejectMsg = uploadJson.message || 'Database upload rejected by server.';
       addBackupActivityLog('db_backup_upload', 'failed', rejectMsg);
+      updateBackupSettings({
+        lastBackupStatus: 'failed',
+        lastFailedBackup: Math.floor(Date.now() / 1000),
+        lastBackupError: rejectMsg,
+      });
       return {
         success: false,
         message: rejectMsg,
@@ -313,10 +338,17 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
 
     const now = Math.floor(Date.now() / 1000);
     try {
+      updateBackupSettings({
+        lastBackupStatus: 'success',
+        lastSuccessfulBackup: now,
+        lastBackupError: '',
+        lastBackupSize: fileSize,
+        backupCompletedAt: now,
+      });
       updateSetting('last_full_backup', String(now));
       updateSetting('last_sync', String(now));
     } catch (setErr) {
-      console.warn('Could not save last_full_backup setting:', setErr);
+      console.warn('Could not save backup settings:', setErr);
     }
 
     addBackupActivityLog('db_backup_upload', 'success', successMsg);
@@ -346,6 +378,14 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
     console.error('========================================\n');
 
     const errText = fatalError?.message || 'Unknown backup error';
+    try {
+      updateBackupSettings({
+        lastBackupStatus: 'failed',
+        lastFailedBackup: Math.floor(Date.now() / 1000),
+        lastBackupError: errText,
+      });
+    } catch (e) {}
+
     addBackupActivityLog('db_backup_upload', 'failed', `Backup error: ${errText}`);
     return {
       success: false,
@@ -357,6 +397,105 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
         stack: fatalError?.stack,
       },
     };
+  }
+};
+
+/**
+ * Tests connectivity to the configured backup location / server
+ */
+export const testBackupLocation = async (customUrl = null) => {
+  const settings = getBackupSettings();
+  const targetUrl = customUrl || settings.backupLocation || API_CONFIG.DATABASE_BACKUP_UPLOAD_URL;
+  const start = Date.now();
+
+  try {
+    const net = await checkNetworkConnectivity();
+    if (!net.isConnected) {
+      return {
+        success: false,
+        message: 'Device is offline. Internet connection required.',
+        latencyMs: 0,
+        url: targetUrl,
+      };
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(API_CONFIG.SERVER_HEALTH_URL, {
+      method: 'GET',
+      headers: API_CONFIG.HEADERS,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    const latencyMs = Date.now() - start;
+    if (res.ok) {
+      return {
+        success: true,
+        message: `Backup location reachable (${latencyMs}ms response)`,
+        latencyMs,
+        url: targetUrl,
+      };
+    } else {
+      return {
+        success: false,
+        message: `Server returned HTTP ${res.status}`,
+        latencyMs,
+        url: targetUrl,
+      };
+    }
+  } catch (e) {
+    const latencyMs = Date.now() - start;
+    const isTimeout = e.name === 'AbortError';
+    return {
+      success: false,
+      message: isTimeout ? 'Request timed out (8s limit)' : (e.message || 'Connection failed'),
+      latencyMs,
+      url: targetUrl,
+    };
+  }
+};
+
+/**
+ * Periodically invoked by background daemon to perform automatic backups based on configured interval
+ */
+export const checkScheduledAutoBackup = async () => {
+  try {
+    const settings = getBackupSettings();
+    if (!settings.autoBackupEnabled) {
+      return { skipped: true, reason: 'auto_backup_disabled' };
+    }
+
+    const auth = getAuthSession();
+    if (!auth.isLoggedIn) {
+      return { skipped: true, reason: 'user_not_logged_in' };
+    }
+
+    const net = await checkNetworkConnectivity();
+    if (!net.isConnected) {
+      return { skipped: true, reason: 'device_offline' };
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const intervalSeconds = (settings.backupIntervalMinutes || 1440) * 60;
+    const lastBackup = settings.lastSuccessfulBackup || 0;
+
+    const isDue = (now - lastBackup) >= intervalSeconds;
+    if (!isDue) {
+      return {
+        skipped: true,
+        reason: 'not_due_yet',
+        nextScheduledBackup: lastBackup + intervalSeconds,
+      };
+    }
+
+    console.log(`⏰ [AUTO_BACKUP] Scheduled auto-backup triggered (Interval: ${settings.backupIntervalMinutes} mins)`);
+    const res = await uploadEntireDatabaseAndImages();
+    return { executed: true, result: res };
+  } catch (err) {
+    console.warn('Scheduled auto backup check error:', err);
+    return { skipped: true, error: err };
   }
 };
 

@@ -32,6 +32,8 @@ export const HomeScreen = () => {
     syncStats,
     detailedBackupStats,
     navigateToBackup,
+    backupSettings,
+    openBackupSettings,
   } = useApp();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -51,17 +53,56 @@ export const HomeScreen = () => {
     setTimeout(() => setRefreshing(false), 300);
   };
 
-  // Determine last full backup timestamp
-  const lastFullBackupTimestamp =
+  // Determine last successful backup timestamp & configured hide period
+  const lastSuccessfulTs =
+    backupSettings?.lastSuccessfulBackup ||
     syncStats?.lastFullBackup ||
-    detailedBackupStats?.system?.lastFullBackup ||
-    detailedBackupStats?.transactions?.lastFullBackup ||
-    detailedBackupStats?.transactions?.lastSync ||
     syncStats?.lastSync ||
     null;
 
-  const hasBackup = Boolean(lastFullBackupTimestamp && lastFullBackupTimestamp !== '0');
-  const backupTimeAgoText = formatTimeAgo(lastFullBackupTimestamp);
+  const nowSecs = Math.floor(Date.now() / 1000);
+  const diffSinceBackup = lastSuccessfulTs ? Math.max(0, nowSecs - Number(lastSuccessfulTs)) : null;
+  const hideDetailedSeconds = (backupSettings?.hideDetailedInfoMinutes || 60) * 60;
+
+  const isFailed = backupSettings?.lastBackupStatus === 'failed';
+  const isRecentlyCompleted =
+    !isFailed &&
+    lastSuccessfulTs &&
+    diffSinceBackup !== null &&
+    diffSinceBackup <= hideDetailedSeconds &&
+    (backupSettings?.lastBackupStatus === 'success' || backupSettings?.backupCompletedAt);
+
+  const backupTimeAgoText = formatTimeAgo(lastSuccessfulTs);
+
+  let bannerText = `Last backup: ${backupTimeAgoText}`;
+  let bannerDotColor = '#10B981';
+  let bannerIcon = 'cloud-done-outline';
+  let bannerIconColor = '#059669';
+  let bannerTextColor = '#065F46';
+  let bannerBgStyle = styles.backupBannerFresh;
+
+  if (isFailed) {
+    bannerText = 'Backup failed · Tap to retry';
+    bannerDotColor = '#EF4444';
+    bannerIcon = 'alert-circle-outline';
+    bannerIconColor = '#DC2626';
+    bannerTextColor = '#991B1B';
+    bannerBgStyle = styles.backupBannerFailed;
+  } else if (isRecentlyCompleted) {
+    bannerText = `✓ Full backup completed (${backupTimeAgoText})`;
+    bannerDotColor = '#10B981';
+    bannerIcon = 'checkmark-circle-outline';
+    bannerIconColor = '#059669';
+    bannerTextColor = '#065F46';
+    bannerBgStyle = styles.backupBannerFresh;
+  } else if (!lastSuccessfulTs) {
+    bannerText = 'No backup yet · Tap to backup';
+    bannerDotColor = '#F59E0B';
+    bannerIcon = 'cloud-upload-outline';
+    bannerIconColor = '#D97706';
+    bannerTextColor = '#92400E';
+    bannerBgStyle = styles.backupBannerPending;
+  }
 
   // Filter and group strictly for TODAY, YESTERDAY, and recent transactions
   const sections = useMemo(() => {
@@ -124,11 +165,11 @@ export const HomeScreen = () => {
 
   const renderDashboardHeader = () => (
     <View style={styles.dashboardContainer}>
-      {/* 0. Compact Last Full Backup Bar */}
+      {/* 0. Compact Configurable Last Backup Status Bar */}
       <TouchableOpacity
         style={[
           styles.backupBanner,
-          hasBackup ? styles.backupBannerFresh : styles.backupBannerPending,
+          bannerBgStyle,
         ]}
         onPress={() => navigateToBackup('Home')}
         activeOpacity={0.75}
@@ -137,27 +178,33 @@ export const HomeScreen = () => {
           <View
             style={[
               styles.backupStatusDot,
-              { backgroundColor: hasBackup ? '#10B981' : '#F59E0B' },
+              { backgroundColor: bannerDotColor },
             ]}
           />
           <Ionicons
-            name={hasBackup ? 'cloud-done-outline' : 'cloud-upload-outline'}
+            name={bannerIcon}
             size={13}
-            color={hasBackup ? '#059669' : '#D97706'}
+            color={bannerIconColor}
           />
-          <Text style={styles.backupBannerLabel}>Last Backup:</Text>
           <Text
             style={[
-              styles.backupBannerTime,
-              { color: hasBackup ? '#065F46' : '#92400E' },
+              styles.backupBannerText,
+              { color: bannerTextColor },
             ]}
             numberOfLines={1}
           >
-            {backupTimeAgoText}
+            {bannerText}
           </Text>
         </View>
 
         <View style={styles.backupBannerRight}>
+          <TouchableOpacity
+            onPress={openBackupSettings}
+            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+            style={{ marginRight: 4 }}
+          >
+            <Ionicons name="options-outline" size={13} color={Colors.primary} />
+          </TouchableOpacity>
           <Text style={styles.backupBannerAction}>Backup</Text>
           <Ionicons name="chevron-forward" size={11} color={Colors.primary} />
         </View>
@@ -383,6 +430,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFBEB',
     borderColor: '#FEF3C7',
   },
+  backupBannerFailed: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
   backupBannerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -394,16 +445,11 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     marginRight: 6,
   },
-  backupBannerLabel: {
+  backupBannerText: {
     fontSize: 11,
-    fontWeight: Typography.fontWeights.medium,
-    color: Colors.textSecondary,
+    fontWeight: Typography.fontWeights.semibold,
     marginLeft: 4,
     marginRight: 4,
-  },
-  backupBannerTime: {
-    fontSize: 11,
-    fontWeight: Typography.fontWeights.bold,
   },
   backupBannerRight: {
     flexDirection: 'row',

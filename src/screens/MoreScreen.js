@@ -25,6 +25,7 @@ export const MoreScreen = () => {
     setIsManageCategoriesOpen,
     setIsManagePartiesOpen,
     openBackupReport,
+    openBackupSettings,
     currentUser,
     isLoggedIn,
     openLoginModal,
@@ -293,6 +294,14 @@ export const MoreScreen = () => {
 
         {/* Data & Backup */}
         {renderSection('DATA & BACKUP', [
+          {
+            icon: 'settings-outline',
+            iconColor: Colors.primary,
+            iconBg: Colors.surfaceSubtle,
+            label: 'Backup Settings',
+            sublabel: 'Configure automatic backup interval, timing & retention',
+            onPress: openBackupSettings,
+          },
           {
             icon: isLoggedIn ? 'cloud-done-outline' : 'lock-closed-outline',
             iconColor: isLoggedIn ? Colors.online : '#D97706',
