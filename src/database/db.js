@@ -337,9 +337,19 @@ export const initDatabase = () => {
       console.warn('Migration error for backup_activity_logs:', migErr);
     }
 
+    try {
+      const txCols = dbInstance.getAllSync("PRAGMA table_info('transactions');");
+      if (!txCols.some((col) => col.name === 'updated_at')) {
+        dbInstance.execSync('ALTER TABLE transactions ADD COLUMN updated_at INTEGER DEFAULT (strftime(\'%s\', \'now\'));');
+      }
+    } catch (migErr) {
+      console.warn('Migration error for transactions.updated_at:', migErr);
+    }
+
     // Create Indexes for ultra-fast listing & querying
     dbInstance.execSync(`
       CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(transaction_date);
+      CREATE INDEX IF NOT EXISTS idx_tx_updated ON transactions(updated_at);
       CREATE INDEX IF NOT EXISTS idx_tx_party ON transactions(party_id);
       CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category_id);
       CREATE INDEX IF NOT EXISTS idx_tx_sync ON transactions(sync_status);

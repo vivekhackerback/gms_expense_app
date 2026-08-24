@@ -110,6 +110,11 @@ export const getTransactions = ({
         t.amount,
         t.note,
         t.transaction_date as transactionDate,
+        (CASE 
+          WHEN typeof(t.transaction_date) = 'integer' OR (typeof(t.transaction_date) = 'text' AND t.transaction_date GLOB '[0-9]*' AND length(t.transaction_date) <= 12) 
+            THEN date(t.transaction_date, 'unixepoch', 'localtime') 
+          ELSE date(t.transaction_date) 
+        END) as txDateOnly,
         t.created_at as createdAt,
         t.updated_at as updatedAt,
         t.sync_status as syncStatus,
@@ -120,7 +125,16 @@ export const getTransactions = ({
         c.color as categoryColor,
         (SELECT COUNT(*) FROM transaction_images ti WHERE ti.transaction_id = t.id) as imageCount,
         SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE -t.amount END) 
-          OVER (ORDER BY t.transaction_date ASC, t.created_at ASC, t.id ASC) as runningBalance
+          OVER (
+            ORDER BY 
+              (CASE 
+                WHEN typeof(t.transaction_date) = 'integer' OR (typeof(t.transaction_date) = 'text' AND t.transaction_date GLOB '[0-9]*' AND length(t.transaction_date) <= 12) 
+                  THEN date(t.transaction_date, 'unixepoch', 'localtime') 
+                ELSE date(t.transaction_date) 
+              END) ASC, 
+              t.updated_at ASC, 
+              t.id ASC
+          ) as runningBalance
       FROM transactions t
       LEFT JOIN parties p ON t.party_id = p.id
       LEFT JOIN categories c ON t.category_id = c.id
@@ -176,7 +190,7 @@ export const getTransactions = ({
     params.push(term, term, term, term);
   }
 
-  sql += ` ORDER BY transactionDate DESC, createdAt DESC, id DESC LIMIT ? OFFSET ?;`;
+  sql += ` ORDER BY txDateOnly DESC, updatedAt DESC, id DESC LIMIT ? OFFSET ?;`;
   params.push(limit, offset);
 
   const transactions = db.getAllSync(sql, params);
@@ -211,6 +225,11 @@ export const getTransactionById = (id) => {
         t.amount,
         t.note,
         t.transaction_date as transactionDate,
+        (CASE 
+          WHEN typeof(t.transaction_date) = 'integer' OR (typeof(t.transaction_date) = 'text' AND t.transaction_date GLOB '[0-9]*' AND length(t.transaction_date) <= 12) 
+            THEN date(t.transaction_date, 'unixepoch', 'localtime') 
+          ELSE date(t.transaction_date) 
+        END) as txDateOnly,
         t.created_at as createdAt,
         t.updated_at as updatedAt,
         t.sync_status as syncStatus,
@@ -220,7 +239,16 @@ export const getTransactionById = (id) => {
         c.icon as categoryIcon,
         c.color as categoryColor,
         SUM(CASE WHEN t.type = 'got' THEN t.amount ELSE -t.amount END) 
-          OVER (ORDER BY datetime(t.transaction_date) ASC, datetime(t.created_at) ASC, t.id ASC) as runningBalance
+          OVER (
+            ORDER BY 
+              (CASE 
+                WHEN typeof(t.transaction_date) = 'integer' OR (typeof(t.transaction_date) = 'text' AND t.transaction_date GLOB '[0-9]*' AND length(t.transaction_date) <= 12) 
+                  THEN date(t.transaction_date, 'unixepoch', 'localtime') 
+                ELSE date(t.transaction_date) 
+              END) ASC, 
+              t.updated_at ASC, 
+              t.id ASC
+          ) as runningBalance
       FROM transactions t
       LEFT JOIN parties p ON t.party_id = p.id
       LEFT JOIN categories c ON t.category_id = c.id
@@ -822,10 +850,15 @@ export const getSyncStats = () => {
     "SELECT value FROM settings WHERE key = 'last_sync';"
   )?.value || null;
 
+  const lastFullBackupSetting = db.getFirstSync(
+    "SELECT value FROM settings WHERE key = 'last_full_backup';"
+  )?.value || lastSyncSetting || null;
+
   return {
     pendingCount: Number(pendingCount),
     totalTransactions: Number(totalTransactions),
     lastSync: lastSyncSetting,
+    lastFullBackup: lastFullBackupSetting,
   };
 };
 
@@ -875,6 +908,7 @@ export const getDetailedBackupReportStats = () => {
       uploading: Number(txStats.uploading || 0),
       failed: Number(txStats.failed || 0),
       lastSync: settingsMap['last_sync'] || null,
+      lastFullBackup: settingsMap['last_full_backup'] || settingsMap['last_sync'] || null,
       lastFailedSync: settingsMap['last_failed_sync'] || null,
     },
     images: {
@@ -890,6 +924,7 @@ export const getDetailedBackupReportStats = () => {
     system: {
       autoSyncEnabled: settingsMap['auto_sync_enabled'] !== '0',
       queuePending: Number(queuePending || 0),
+      lastFullBackup: settingsMap['last_full_backup'] || settingsMap['last_sync'] || null,
     },
   };
 };
@@ -1083,7 +1118,15 @@ export const exportAllData = () => {
     SELECT t.*, p.name as party_name, c.name as category_name 
     FROM transactions t 
     LEFT JOIN parties p ON t.party_id = p.id 
-    LEFT JOIN categories c ON t.category_id = c.id;
+    LEFT JOIN categories c ON t.category_id = c.id
+    ORDER BY 
+      (CASE 
+        WHEN typeof(t.transaction_date) = 'integer' OR (typeof(t.transaction_date) = 'text' AND t.transaction_date GLOB '[0-9]*' AND length(t.transaction_date) <= 12) 
+          THEN date(t.transaction_date, 'unixepoch', 'localtime') 
+        ELSE date(t.transaction_date) 
+      END) DESC, 
+      t.updated_at DESC, 
+      t.id DESC;
   `);
   const parties = db.getAllSync('SELECT * FROM parties;');
   const categories = db.getAllSync('SELECT * FROM categories;');

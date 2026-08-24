@@ -641,6 +641,7 @@ export const AppProvider = ({ children }) => {
         isBackupReportOpen,
         openBackupReport,
         closeBackupReport,
+        navigateToBackup,
 
         // Data Mutations
         saveTransaction,

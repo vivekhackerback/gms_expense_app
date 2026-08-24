@@ -12,6 +12,7 @@ import {
 import {
   getAuthSession,
   addBackupActivityLog,
+  updateSetting,
 } from '../database/queries';
 
 const getImagesDir = () => {
@@ -309,6 +310,14 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
     console.log('🎉 [BACKUP_SUCCESS] Full database backup completed successfully!');
     console.log(`📊 Summary: ${sizeKb} KB DB file, ${txCount} transactions, ${partyCount} parties backed up.`);
     console.log('========================================\n');
+
+    const now = Math.floor(Date.now() / 1000);
+    try {
+      updateSetting('last_full_backup', String(now));
+      updateSetting('last_sync', String(now));
+    } catch (setErr) {
+      console.warn('Could not save last_full_backup setting:', setErr);
+    }
 
     addBackupActivityLog('db_backup_upload', 'success', successMsg);
 

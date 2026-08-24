@@ -9,7 +9,8 @@
  */
 
 // const BASE_DOMAIN = 'https://gmsexpense.tplpro.in';
-const BASE_DOMAIN = 'https://e931-2401-4900-b57f-81cf-f105-2804-b059-6441.ngrok-free.app';
+const RAW_BASE_DOMAIN = 'https://expense.tplpro.in/';
+const BASE_DOMAIN = RAW_BASE_DOMAIN.trim().replace(/\/+$/, '');
 const API_VERSION = 'v1';
 
 // Automatically append project subfolder if hosting under local Apache/XAMPP or ngrok

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,7 +11,13 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
-import { formatCurrency, formatDayNameFullDate, parseToDate, formatDateGroup } from '../utils/formatters';
+import {
+  formatCurrency,
+  formatDayNameFullDate,
+  parseToDate,
+  formatDateGroup,
+  formatTimeAgo,
+} from '../utils/formatters';
 import { Header } from '../components/common/Header';
 import { TransactionRow } from '../components/transaction/TransactionRow';
 
@@ -23,15 +29,39 @@ export const HomeScreen = () => {
     openTransactionDetails,
     refreshAll,
     setActiveTab,
+    syncStats,
+    detailedBackupStats,
+    navigateToBackup,
   } = useApp();
 
   const [refreshing, setRefreshing] = useState(false);
+  const [, setTick] = useState(0);
+
+  // Live timer ticker to update relative time ago dynamically (e.g. "1 min ago", "2 mins ago")
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick((t) => t + 1);
+    }, 20000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     refreshAll();
     setTimeout(() => setRefreshing(false), 300);
   };
+
+  // Determine last full backup timestamp
+  const lastFullBackupTimestamp =
+    syncStats?.lastFullBackup ||
+    detailedBackupStats?.system?.lastFullBackup ||
+    detailedBackupStats?.transactions?.lastFullBackup ||
+    detailedBackupStats?.transactions?.lastSync ||
+    syncStats?.lastSync ||
+    null;
+
+  const hasBackup = Boolean(lastFullBackupTimestamp && lastFullBackupTimestamp !== '0');
+  const backupTimeAgoText = formatTimeAgo(lastFullBackupTimestamp);
 
   // Filter and group strictly for TODAY, YESTERDAY, and recent transactions
   const sections = useMemo(() => {
@@ -94,6 +124,45 @@ export const HomeScreen = () => {
 
   const renderDashboardHeader = () => (
     <View style={styles.dashboardContainer}>
+      {/* 0. Compact Last Full Backup Bar */}
+      <TouchableOpacity
+        style={[
+          styles.backupBanner,
+          hasBackup ? styles.backupBannerFresh : styles.backupBannerPending,
+        ]}
+        onPress={() => navigateToBackup('Home')}
+        activeOpacity={0.75}
+      >
+        <View style={styles.backupBannerLeft}>
+          <View
+            style={[
+              styles.backupStatusDot,
+              { backgroundColor: hasBackup ? '#10B981' : '#F59E0B' },
+            ]}
+          />
+          <Ionicons
+            name={hasBackup ? 'cloud-done-outline' : 'cloud-upload-outline'}
+            size={13}
+            color={hasBackup ? '#059669' : '#D97706'}
+          />
+          <Text style={styles.backupBannerLabel}>Last Backup:</Text>
+          <Text
+            style={[
+              styles.backupBannerTime,
+              { color: hasBackup ? '#065F46' : '#92400E' },
+            ]}
+            numberOfLines={1}
+          >
+            {backupTimeAgoText}
+          </Text>
+        </View>
+
+        <View style={styles.backupBannerRight}>
+          <Text style={styles.backupBannerAction}>Backup</Text>
+          <Ionicons name="chevron-forward" size={11} color={Colors.primary} />
+        </View>
+      </TouchableOpacity>
+
       {/* 1. Total Balance Card */}
       <View style={[styles.totalBalanceCard, Shadows.sm]}>
         <Text style={styles.totalBalanceLabel}>Total Balance</Text>
@@ -295,6 +364,57 @@ const styles = StyleSheet.create({
   dashboardContainer: {
     padding: Spacing.lg,
     paddingBottom: Spacing.xs,
+  },
+  backupBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.sm + 4,
+    paddingVertical: 5,
+    borderWidth: 1,
+    marginBottom: Spacing.sm + 2,
+  },
+  backupBannerFresh: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#DCFCE7',
+  },
+  backupBannerPending: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FEF3C7',
+  },
+  backupBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  backupStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  backupBannerLabel: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.medium,
+    color: Colors.textSecondary,
+    marginLeft: 4,
+    marginRight: 4,
+  },
+  backupBannerTime: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  backupBannerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: Spacing.xs,
+  },
+  backupBannerAction: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.primary,
+    marginRight: 1,
   },
   totalBalanceCard: {
     backgroundColor: Colors.surface,

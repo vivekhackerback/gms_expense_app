@@ -145,16 +145,72 @@ export const formatDayNameFullDate = (dateInput) => {
   return `${days[date.getDay()]}, ${date.getDate()} ${fullMonths[date.getMonth()]} ${date.getFullYear()}`;
 };
 
-export const formatTimeOnly = (dateInput) => {
-  if (!dateInput && dateInput !== 0) return '';
-  const date = parseToDate(dateInput);
-  let hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  hours = hours ? hours : 12;
-  const minutesFormatted = minutes < 10 ? '0' + minutes : minutes;
-  return `${hours}:${minutesFormatted} ${ampm}`;
+// -------------------------------------------------------------
+// Relative Time Ago Formatter
+// -------------------------------------------------------------
+
+/**
+ * Formats a date/timestamp into a friendly relative time ago string.
+ * Examples: "Just now", "1 min ago", "5 mins ago", "1 hour ago", "Yesterday", "10 days ago", "1 month ago"
+ */
+export const formatTimeAgo = (dateInput) => {
+  if (!dateInput && dateInput !== 0 && dateInput !== '0') return 'No backup yet';
+
+  const targetTs = toUnixTimestamp(dateInput);
+  if (!targetTs || targetTs <= 0) return 'No backup yet';
+
+  const nowTs = getCurrentTimestamp();
+  const diffSeconds = Math.max(0, nowTs - targetTs);
+
+  if (diffSeconds < 45) {
+    return 'Just now';
+  }
+  if (diffSeconds < 90) {
+    return '1 min ago';
+  }
+  const diffMins = Math.floor(diffSeconds / 60);
+  if (diffMins < 60) {
+    return `${diffMins} mins ago`;
+  }
+  const diffHours = Math.floor(diffSeconds / 3600);
+  if (diffHours < 2) {
+    return '1 hour ago';
+  }
+  if (diffHours < 24) {
+    return `${diffHours} hours ago`;
+  }
+
+  const targetDate = parseToDate(targetTs);
+  const nowDate = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(nowDate.getDate() - 1);
+
+  if (
+    targetDate.getDate() === yesterday.getDate() &&
+    targetDate.getMonth() === yesterday.getMonth() &&
+    targetDate.getFullYear() === yesterday.getFullYear()
+  ) {
+    return 'Yesterday';
+  }
+
+  const diffDays = Math.floor(diffSeconds / 86400);
+  if (diffDays === 1) {
+    return 'Yesterday';
+  }
+  if (diffDays < 30) {
+    return `${diffDays} days ago`;
+  }
+
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths <= 1) {
+    return '1 month ago';
+  }
+  if (diffMonths < 12) {
+    return `${diffMonths} months ago`;
+  }
+
+  const diffYears = Math.floor(diffDays / 365);
+  return diffYears <= 1 ? '1 year ago' : `${diffYears} years ago`;
 };
 
 // Formats Unix timestamp to standard YYYY-MM-DD string
