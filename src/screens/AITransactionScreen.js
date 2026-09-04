@@ -18,7 +18,13 @@ import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { formatCurrency, formatTimeAgo, getCurrentTimestamp } from '../utils/formatters';
 import { Header } from '../components/common/Header';
-import { parseNaturalLanguageTransaction, checkAiServerStatus } from '../services/aiParserService';
+import {
+  parseNaturalLanguageTransaction,
+  checkAiServerStatus,
+  testAiApiKey,
+  AI_MODELS,
+  DEFAULT_AI_MODEL,
+} from '../services/aiParserService';
 
 const SAMPLE_PROMPTS = [
   'Surendar ko 20 cash diya khane k liye',
@@ -49,15 +55,24 @@ export const AITransactionScreen = () => {
   const [errorMessage, setErrorMessage] = useState(null);
   const [showAiInfoModal, setShowAiInfoModal] = useState(false);
 
+  // Selected AI Model (Defaults to Gemini 2.5 Flash Lite)
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_AI_MODEL);
+
   // AI Server Online State
   const [isCheckingAi, setIsCheckingAi] = useState(true);
   const [aiStatus, setAiStatus] = useState({
     isOnline: false,
+    domain: 'expense.tplpro.in',
+    endpoint: 'https://expense.tplpro.in/api/v1/ai_parse.php',
     provider: 'Airouter',
-    model: 'openai/gpt-4o-mini',
+    model: DEFAULT_AI_MODEL,
     statusCode: 0,
     message: 'Checking AI Server...',
   });
+
+  // API Key Live Testing State
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [keyTestResult, setKeyTestResult] = useState(null);
 
   // Success Undo State
   const [lastSavedTx, setLastSavedTx] = useState(null);
@@ -74,12 +89,49 @@ export const AITransactionScreen = () => {
   const [previewNote, setPreviewNote] = useState('');
 
   // Re-check AI Server Online Status
-  const checkStatus = useCallback(async () => {
+  const checkStatus = useCallback(async (modelToUse) => {
     setIsCheckingAi(true);
-    const status = await checkAiServerStatus();
+    const m = modelToUse || selectedModel;
+    const status = await checkAiServerStatus(m);
     setAiStatus(status);
     setIsCheckingAi(false);
-  }, []);
+  }, [selectedModel]);
+
+  const handleSelectModel = (modelId) => {
+    triggerHaptic('light');
+    setSelectedModel(modelId);
+    checkStatus(modelId);
+  };
+
+  // Run live test of AI API Key directly against Airouter with chosen model
+  const handleTestApiKey = async () => {
+    triggerHaptic('light');
+    setIsTestingKey(true);
+    setKeyTestResult(null);
+
+    try {
+      const result = await testAiApiKey(selectedModel);
+      setKeyTestResult({
+        tested: true,
+        success: result.success && result.keyValid,
+        latencyMs: result.latencyMs,
+        message: result.message,
+        provider: result.provider,
+        model: result.model,
+      });
+      triggerHaptic(result.success && result.keyValid ? 'success' : 'error');
+    } catch (err) {
+      setKeyTestResult({
+        tested: true,
+        success: false,
+        latencyMs: 0,
+        message: err.message || 'Key test failed.',
+      });
+      triggerHaptic('error');
+    } finally {
+      setIsTestingKey(false);
+    }
+  };
 
   useEffect(() => {
     checkStatus();
@@ -138,7 +190,8 @@ export const AITransactionScreen = () => {
         textToProcess,
         categories,
         parties,
-        authSession
+        authSession,
+        selectedModel
       );
 
       if (!parseResult.success || !parseResult.data) {
@@ -318,7 +371,9 @@ export const AITransactionScreen = () => {
               ) : aiStatus.isOnline ? (
                 <Text style={styles.aiStatusTextOnline} numberOfLines={1}>
                   Server: <Text style={styles.aiStatusBold}>Online</Text>
-                  {aiStatus.dbKeyFound ? (
+                  {aiStatus.isDummyKey ? (
+                    <Text style={{ color: '#D97706' }}> · DB Key: <Text style={styles.aiStatusBold}>Dummy Template</Text></Text>
+                  ) : aiStatus.dbKeyFound ? (
                     <Text style={{ color: '#047857' }}> · DB Key: <Text style={styles.aiStatusBold}>Fetched ({aiStatus.maskedKey || 'MySQL'})</Text></Text>
                   ) : aiStatus.keyFetched ? (
                     <Text style={{ color: '#047857' }}> · Key: <Text style={styles.aiStatusBold}>Loaded ({aiStatus.maskedKey || 'Server'})</Text></Text>
@@ -355,18 +410,20 @@ export const AITransactionScreen = () => {
             {aiStatus.isOnline && (
               <View style={[
                 styles.dbKeyQuickCard,
-                aiStatus.dbKeyFound ? styles.dbKeyQuickCardSuccess : (aiStatus.keyFetched ? styles.dbKeyQuickCardWarning : styles.dbKeyQuickCardDanger)
+                (aiStatus.dbKeyFound && !aiStatus.isDummyKey) ? styles.dbKeyQuickCardSuccess : styles.dbKeyQuickCardWarning
               ]}>
                 <Ionicons
-                  name={aiStatus.dbKeyFound ? 'server-outline' : (aiStatus.keyFetched ? 'key-outline' : 'alert-circle-outline')}
+                  name={(aiStatus.dbKeyFound && !aiStatus.isDummyKey) ? 'server-outline' : 'alert-circle-outline'}
                   size={14}
-                  color={aiStatus.dbKeyFound ? '#047857' : (aiStatus.keyFetched ? '#B45309' : '#B91C1C')}
+                  color={(aiStatus.dbKeyFound && !aiStatus.isDummyKey) ? '#047857' : '#B45309'}
                 />
                 <Text style={[
                   styles.dbKeyQuickText,
-                  { color: aiStatus.dbKeyFound ? '#047857' : (aiStatus.keyFetched ? '#B45309' : '#B91C1C') }
+                  { color: (aiStatus.dbKeyFound && !aiStatus.isDummyKey) ? '#047857' : '#B45309' }
                 ]} numberOfLines={1}>
-                  {aiStatus.dbKeyFound
+                  {aiStatus.isDummyKey
+                    ? 'Table `ai_api_key` has dummy template key. Please update in phpMyAdmin.'
+                    : aiStatus.dbKeyFound
                     ? `API Key Fetched from MySQL DB: ${aiStatus.maskedKey}`
                     : aiStatus.keyFetched
                     ? `API Key Loaded from Server (${aiStatus.keySource})`
@@ -384,6 +441,34 @@ export const AITransactionScreen = () => {
                 <Text style={styles.badgeText}>AI Engine</Text>
               </View>
               <Text style={styles.languagePill}>Hindi · Hinglish · English</Text>
+            </View>
+
+            {/* Model Selection Chips */}
+            <View style={styles.modelSelectorContainer}>
+              <View style={styles.modelSelectorLabelRow}>
+                <Ionicons name="hardware-chip-outline" size={12} color="#6366F1" />
+                <Text style={styles.modelSelectorLabel}>Model:</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.modelChipsScroll}>
+                {AI_MODELS.map((m) => {
+                  const isSelected = selectedModel === m.id;
+                  return (
+                    <TouchableOpacity
+                      key={m.id}
+                      style={[styles.modelChip, isSelected && styles.modelChipActive]}
+                      onPress={() => handleSelectModel(m.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.modelChipText, isSelected && styles.modelChipTextActive]}>
+                        {m.rank} {m.name}
+                      </Text>
+                      <Text style={[styles.modelChipPrice, isSelected && styles.modelChipPriceActive]}>
+                        {m.inputCost.split(' ')[0]}/{m.outputCost.split(' ')[0]}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
 
             {/* Natural Language Input Box */}
@@ -818,6 +903,12 @@ export const AITransactionScreen = () => {
             </View>
 
             <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Domain Name:</Text>
+              <Text style={[styles.infoValue, { color: '#4F46E5', fontWeight: 'bold' }]}>
+                {aiStatus.domain || 'expense.tplpro.in'}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Server Connection:</Text>
               <Text style={[styles.infoValue, { color: aiStatus.isOnline ? '#059669' : '#DC2626' }]}>
                 {aiStatus.isOnline ? 'Online (HTTP 200)' : `Offline (HTTP ${aiStatus.statusCode || 'N/A'})`}
@@ -857,11 +948,58 @@ export const AITransactionScreen = () => {
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Server Endpoint:</Text>
-              <Text style={[styles.infoValue, { fontSize: 11 }]}>/api/v1/ai_parse.php</Text>
+              <Text style={[styles.infoValue, { fontSize: 11, color: Colors.textSecondary }]}>
+                {aiStatus.endpoint || 'https://expense.tplpro.in/api/v1/ai_parse.php'}
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Server Hit Log:</Text>
+              <Text style={[styles.infoValue, { fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#4F46E5' }]}>
+                api/v1/ai_parse.log
+              </Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Error Log File:</Text>
+              <Text style={[styles.infoValue, { fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#B91C1C' }]}>
+                api/v1/ai_parse_error.log
+              </Text>
             </View>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>App Categories:</Text>
               <Text style={styles.infoValue}>{categories.length} from App DB</Text>
+            </View>
+
+            {/* AI Models & Pricing Switcher Section */}
+            <View style={styles.modalModelSection}>
+              <Text style={styles.modalModelSectionTitle}>Available Models & Pricing:</Text>
+              {AI_MODELS.map((m) => {
+                const isSelected = selectedModel === m.id;
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={[styles.modalModelCard, isSelected && styles.modalModelCardActive]}
+                    onPress={() => handleSelectModel(m.id)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.modalModelCardTop}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                        <Text style={{ fontSize: 14 }}>{m.rank}</Text>
+                        <Text style={[styles.modalModelName, isSelected && styles.modalModelNameActive]} numberOfLines={1}>
+                          {m.name}
+                        </Text>
+                      </View>
+                      <View style={[styles.modalModelCostBadge, isSelected && styles.modalModelCostBadgeActive]}>
+                        <Text style={[styles.modalModelCostText, isSelected && styles.modalModelCostTextActive]}>
+                          {m.inputCost.split(' ')[0]} in · {m.outputCost.split(' ')[0]} out
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.modalModelBestUse} numberOfLines={2}>
+                      🎯 {m.bestUse}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             {!aiStatus.isOnline ? (
@@ -877,6 +1015,70 @@ export const AITransactionScreen = () => {
                 </Text>
               </View>
             ) : null}
+
+            {/* Live API Key Testing Section */}
+            <View style={styles.testKeySection}>
+              <TouchableOpacity
+                style={[
+                  styles.testKeyBtn,
+                  isTestingKey && styles.testKeyBtnDisabled,
+                  (!aiStatus.isOnline) && styles.testKeyBtnOffline,
+                ]}
+                onPress={handleTestApiKey}
+                disabled={isTestingKey}
+                activeOpacity={0.8}
+              >
+                {isTestingKey ? (
+                  <>
+                    <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.testKeyBtnText}>Testing API Key with Airouter...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="flash" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Text style={styles.testKeyBtnText}>Test AI API Key</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {keyTestResult && (
+                <View
+                  style={[
+                    styles.testResultCard,
+                    keyTestResult.success ? styles.testResultCardSuccess : styles.testResultCardError,
+                  ]}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                    <Ionicons
+                      name={keyTestResult.success ? 'checkmark-circle' : 'alert-circle'}
+                      size={16}
+                      color={keyTestResult.success ? '#059669' : '#DC2626'}
+                    />
+                    <Text
+                      style={[
+                        styles.testResultTitle,
+                        { color: keyTestResult.success ? '#065F46' : '#991B1B' },
+                      ]}
+                    >
+                      {keyTestResult.success ? 'API Key Working Perfectly!' : 'API Key Test Failed'}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.testResultBody,
+                      { color: keyTestResult.success ? '#047857' : '#B91C1C' },
+                    ]}
+                  >
+                    {keyTestResult.message}
+                  </Text>
+                  {keyTestResult.latencyMs > 0 ? (
+                    <Text style={styles.testResultMeta}>
+                      ⏱️ Latency: {keyTestResult.latencyMs}ms · {keyTestResult.provider} ({keyTestResult.model})
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+            </View>
 
             <TouchableOpacity
               style={styles.modalCloseBtn}
@@ -1520,8 +1722,172 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeights.bold,
     color: Colors.textPrimary,
   },
+  // Model Selector Styles
+  modelSelectorContainer: {
+    marginBottom: Spacing.sm,
+  },
+  modelSelectorLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  modelSelectorLabel: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.semibold,
+    color: '#6366F1',
+  },
+  modelChipsScroll: {
+    flexDirection: 'row',
+  },
+  modelChip: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginRight: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  modelChipActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#6366F1',
+  },
+  modelChipText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.textSecondary,
+  },
+  modelChipTextActive: {
+    color: '#4F46E5',
+    fontWeight: Typography.fontWeights.bold,
+  },
+  modelChipPrice: {
+    fontSize: 9,
+    color: Colors.textMuted,
+  },
+  modelChipPriceActive: {
+    color: '#6366F1',
+    fontWeight: '600',
+  },
+
+  // Modal Model Switcher Styles
+  modalModelSection: {
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  modalModelSectionTitle: {
+    fontSize: Typography.fontSizes.xs,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+    marginBottom: 6,
+  },
+  modalModelCard: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: BorderRadius.md,
+    padding: 8,
+    marginBottom: 6,
+  },
+  modalModelCardActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#6366F1',
+  },
+  modalModelCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  modalModelName: {
+    fontSize: 12,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+  },
+  modalModelNameActive: {
+    color: '#4F46E5',
+  },
+  modalModelCostBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+  },
+  modalModelCostBadgeActive: {
+    backgroundColor: '#E0E7FF',
+  },
+  modalModelCostText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  modalModelCostTextActive: {
+    color: '#4338CA',
+  },
+  modalModelBestUse: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    lineHeight: 13,
+  },
+
+  testKeySection: {
+    marginTop: Spacing.md,
+    gap: Spacing.xs,
+  },
+  testKeyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#059669',
+    paddingVertical: 10,
+    borderRadius: BorderRadius.md,
+    ...Shadows.sm,
+  },
+  testKeyBtnDisabled: {
+    opacity: 0.7,
+  },
+  testKeyBtnOffline: {
+    backgroundColor: '#6B7280',
+  },
+  testKeyBtnText: {
+    color: '#FFFFFF',
+    fontWeight: Typography.fontWeights.bold,
+    fontSize: Typography.fontSizes.sm,
+  },
+  testResultCard: {
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  testResultCardSuccess: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
+  },
+  testResultCardError: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+  testResultTitle: {
+    fontSize: Typography.fontSizes.xs,
+    fontWeight: Typography.fontWeights.bold,
+  },
+  testResultBody: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  testResultMeta: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
   modalCloseBtn: {
-    marginTop: Spacing.lg,
+    marginTop: Spacing.sm,
     backgroundColor: '#4F46E5',
     paddingVertical: 10,
     borderRadius: BorderRadius.md,

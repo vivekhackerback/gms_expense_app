@@ -2,12 +2,63 @@ import API_CONFIG from '../constants/api_config';
 import { checkNetworkConnectivity } from './syncService';
 
 /**
+ * Supported AI Models for Natural Language Transaction Parsing (Airouter)
+ * Ranked by speed, efficiency, and intelligence
+ */
+export const AI_MODELS = [
+  {
+    id: 'google/gemini-2.5-flash-lite',
+    name: 'Gemini 2.5 Flash Lite',
+    rank: '🥇',
+    badge: '🥇 Fastest & Cheapest',
+    inputCost: '$0.10 / 1M',
+    outputCost: '$0.40 / 1M',
+    bestUse: 'Cheapest text generation, extraction, classification',
+    provider: 'Airouter',
+    isDefault: true,
+  },
+  {
+    id: 'google/gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash Lite',
+    rank: '🥈',
+    badge: '🥈 Newer & Balanced',
+    inputCost: '$0.25 / 1M',
+    outputCost: '$1.50 / 1M',
+    bestUse: 'Cheap newer model',
+    provider: 'Airouter',
+  },
+  {
+    id: 'google/gemini-3.5-flash-lite',
+    name: 'Gemini 3.5 Flash Lite',
+    rank: '🥉',
+    badge: '🥉 Stronger Lightweight',
+    inputCost: '$0.30 / 1M',
+    outputCost: '$2.50 / 1M',
+    bestUse: 'Newer + stronger lightweight model',
+    provider: 'Airouter',
+  },
+  {
+    id: 'openai/gpt-4o-mini',
+    name: 'GPT-4o Mini',
+    rank: '4',
+    badge: 'OpenAI Fast',
+    inputCost: '$0.15 / 1M',
+    outputCost: '$0.60 / 1M',
+    bestUse: 'OpenAI standard fast reasoning',
+    provider: 'Airouter',
+  },
+];
+
+export const DEFAULT_AI_MODEL = 'google/gemini-2.5-flash-lite';
+
+/**
  * Checks connectivity and online status of the backend AI Parser Engine
  * GET /api/v1/ai_parse.php
  * 
- * @returns {Promise<Object>} { isOnline: boolean, status: string, model: string, provider: string, message: string }
+ * @param {string} [model] Optional model override
+ * @returns {Promise<Object>} Status object
  */
-export const checkAiServerStatus = async () => {
+export const checkAiServerStatus = async (model = '') => {
   try {
     const net = await checkNetworkConnectivity();
     if (!net.isConnected) {
@@ -15,7 +66,8 @@ export const checkAiServerStatus = async () => {
         isOnline: false,
         statusCode: 0,
         provider: 'None',
-        model: 'Offline',
+        model: model || DEFAULT_AI_MODEL,
+        availableModels: AI_MODELS,
         message: 'Device has no internet connection.',
       };
     }
@@ -23,7 +75,11 @@ export const checkAiServerStatus = async () => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-    const response = await fetch(API_CONFIG.AI_PARSE_URL, {
+    const queryUrl = model
+      ? `${API_CONFIG.AI_PARSE_URL}?model=${encodeURIComponent(model)}`
+      : API_CONFIG.AI_PARSE_URL;
+
+    const response = await fetch(queryUrl, {
       method: 'GET',
       headers: API_CONFIG.HEADERS,
       signal: controller.signal,
@@ -31,31 +87,45 @@ export const checkAiServerStatus = async () => {
 
     clearTimeout(timeoutId);
 
+    const targetUrl = API_CONFIG.AI_PARSE_URL;
+    let urlDomain = 'expense.tplpro.in';
+    try {
+      urlDomain = new URL(targetUrl).hostname;
+    } catch (e) {}
+
     if (response.ok) {
       const json = await response.json();
       const dbKeyFound = Boolean(json.db_key_found);
-      const keyFetched = Boolean(json.key_fetched || json.has_key || dbKeyFound);
+      const isDummyKey = Boolean(json.is_dummy_key);
+      const keyFetched = Boolean(json.key_fetched || json.has_key || (dbKeyFound && !isDummyKey));
       const dbConnected = Boolean(json.db_connected);
 
       return {
         isOnline: json.success === true,
         statusCode: response.status,
+        domain: json.domain || urlDomain,
+        endpoint: json.endpoint || targetUrl,
         provider: json.provider || 'Airouter',
-        model: json.model || 'openai/gpt-4o-mini',
+        model: json.model || model || DEFAULT_AI_MODEL,
+        availableModels: json.available_models || AI_MODELS,
         keyFetched,
         dbConnected,
         dbKeyFound,
+        isDummyKey,
         maskedKey: json.masked_key || (json.has_key ? 'sk-air-***' : null),
         keySource: json.key_source || (dbKeyFound ? 'MySQL Database (ai_api_key)' : (keyFetched ? 'Server Backend' : 'None')),
         dbError: json.db_error || null,
-        message: json.message || (dbKeyFound ? 'API Key fetched from Database.' : (keyFetched ? 'API Key fetched from server.' : 'No API key in database.')),
+        message: json.message || (dbKeyFound ? (isDummyKey ? 'Dummy Key in DB table.' : 'API Key fetched from Database.') : (keyFetched ? 'API Key fetched from server.' : 'No API key in database.')),
       };
     } else {
       return {
         isOnline: false,
         statusCode: response.status,
+        domain: urlDomain,
+        endpoint: targetUrl,
         provider: 'Airouter',
-        model: 'openai/gpt-4o-mini',
+        model: model || DEFAULT_AI_MODEL,
+        availableModels: AI_MODELS,
         keyFetched: false,
         dbConnected: false,
         dbKeyFound: false,
@@ -68,11 +138,19 @@ export const checkAiServerStatus = async () => {
       };
     }
   } catch (err) {
+    let urlDomain = 'expense.tplpro.in';
+    try {
+      urlDomain = new URL(API_CONFIG.AI_PARSE_URL).hostname;
+    } catch (e) {}
+
     return {
       isOnline: false,
       statusCode: 0,
+      domain: urlDomain,
+      endpoint: API_CONFIG.AI_PARSE_URL,
       provider: 'Airouter',
-      model: 'openai/gpt-4o-mini',
+      model: model || DEFAULT_AI_MODEL,
+      availableModels: AI_MODELS,
       keyFetched: false,
       dbConnected: false,
       dbKeyFound: false,
@@ -85,6 +163,63 @@ export const checkAiServerStatus = async () => {
 };
 
 /**
+ * Tests live validity of the AI API Key on the server by sending a lightweight ping to the AI provider.
+ * GET /api/v1/ai_parse.php?test_key=1
+ * 
+ * @param {string} [model] Model to test with
+ * @returns {Promise<Object>} { success: boolean, keyValid: boolean, latencyMs: number, message: string }
+ */
+export const testAiApiKey = async (model = '') => {
+  try {
+    const net = await checkNetworkConnectivity();
+    if (!net.isConnected) {
+      return {
+        success: false,
+        keyValid: false,
+        latencyMs: 0,
+        message: 'Device has no internet connection.',
+      };
+    }
+
+    const testUrl = model 
+      ? `${API_CONFIG.AI_PARSE_URL}?test_key=1&model=${encodeURIComponent(model)}`
+      : `${API_CONFIG.AI_PARSE_URL}?test_key=1`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    const response = await fetch(testUrl, {
+      method: 'GET',
+      headers: API_CONFIG.HEADERS,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    const json = await response.json();
+
+    return {
+      success: response.ok && json.success === true,
+      keyValid: Boolean(json.key_valid),
+      latencyMs: json.latency_ms || 0,
+      provider: json.provider || 'Airouter',
+      model: json.model || model || DEFAULT_AI_MODEL,
+      maskedKey: json.masked_key || null,
+      keySource: json.key_source || 'Server',
+      reply: json.reply || null,
+      message: json.message || (json.key_valid ? 'API Key is working perfectly!' : 'API Key test failed.'),
+    };
+  } catch (err) {
+    return {
+      success: false,
+      keyValid: false,
+      latencyMs: 0,
+      message: err.name === 'AbortError' ? 'AI Key test timed out (12s).' : (err.message || 'Failed to connect to server.'),
+    };
+  }
+};
+
+/**
  * Parses natural-language transaction text exclusively through the AI Engine.
  * Zero local fallback or guessing.
  * 
@@ -92,9 +227,16 @@ export const checkAiServerStatus = async () => {
  * @param {Array} categories - App categories from SQLite
  * @param {Array} parties - App parties from SQLite
  * @param {Object} authSession - Current authenticated user session (optional)
+ * @param {string} model - Selected AI Model (e.g. google/gemini-2.5-flash-lite)
  * @returns {Promise<Object>} Result from Server AI
  */
-export const parseNaturalLanguageTransaction = async (text, categories = [], parties = [], authSession = null) => {
+export const parseNaturalLanguageTransaction = async (
+  text,
+  categories = [],
+  parties = [],
+  authSession = null,
+  model = DEFAULT_AI_MODEL
+) => {
   if (!text || !text.trim()) {
     return {
       success: false,
@@ -132,6 +274,7 @@ export const parseNaturalLanguageTransaction = async (text, categories = [], par
       headers,
       body: JSON.stringify({
         text: cleanText,
+        model: model || DEFAULT_AI_MODEL,
         categories: categories.map((c) => ({ id: c.id, name: c.name })),
         parties: parties.map((p) => ({ id: p.id, name: p.name })),
         user_id: authSession?.user?.id || null,
@@ -147,7 +290,7 @@ export const parseNaturalLanguageTransaction = async (text, categories = [], par
       return {
         success: true,
         source: 'server_ai',
-        model: json.data.ai_model || 'Airouter (openai/gpt-4o-mini)',
+        model: json.data.ai_model || model || DEFAULT_AI_MODEL,
         provider: json.data.ai_provider || 'Airouter',
         data: json.data,
       };
