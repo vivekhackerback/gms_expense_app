@@ -13,6 +13,7 @@ import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 
 // Screens
+import { AITransactionScreen } from '../screens/AITransactionScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { TransactionsScreen } from '../screens/TransactionsScreen';
 import { KhataScreen } from '../screens/KhataScreen';
@@ -33,11 +34,12 @@ import { LogoutModal } from '../components/modals/LogoutModal';
 import { FloatingAddButton } from '../components/common/FloatingAddButton';
 
 const TABS = [
-  { name: 'Home', icon: 'home-outline', iconActive: 'home' },
-  { name: 'Transactions', icon: 'receipt-outline', iconActive: 'receipt' },
-  { name: 'Khata', icon: 'people-outline', iconActive: 'people' },
-  { name: 'Reports', icon: 'pie-chart-outline', iconActive: 'pie-chart' },
-  { name: 'More', icon: 'ellipsis-horizontal-circle-outline', iconActive: 'ellipsis-horizontal-circle' },
+  { name: 'AI', label: 'AI Entry', icon: 'sparkles-outline', iconActive: 'sparkles' },
+  { name: 'Home', label: 'Home', icon: 'home-outline', iconActive: 'home' },
+  { name: 'Transactions', label: 'History', icon: 'receipt-outline', iconActive: 'receipt' },
+  { name: 'Khata', label: 'Khata', icon: 'people-outline', iconActive: 'people' },
+  { name: 'Reports', label: 'Reports', icon: 'pie-chart-outline', iconActive: 'pie-chart' },
+  { name: 'More', label: 'More', icon: 'ellipsis-horizontal-circle-outline', iconActive: 'ellipsis-horizontal-circle' },
 ];
 
 export const Navigation = () => {
@@ -46,6 +48,8 @@ export const Navigation = () => {
 
   const renderActiveScreen = () => {
     switch (activeTab) {
+      case 'AI':
+        return <AITransactionScreen />;
       case 'Home':
         return <HomeScreen />;
       case 'Transactions':
@@ -59,7 +63,7 @@ export const Navigation = () => {
       case 'Backup':
         return <BackupScreen />;
       default:
-        return <HomeScreen />;
+        return <AITransactionScreen />;
     }
   };
 
@@ -101,7 +105,7 @@ export const Navigation = () => {
                   ]}
                   numberOfLines={1}
                 >
-                  {tab.name}
+                  {tab.label || tab.name}
                 </Text>
               </TouchableOpacity>
             );

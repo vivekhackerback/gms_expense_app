@@ -26,6 +26,8 @@ export const API_CONFIG = {
   // -------------------------------------------------------------
   // 1. Transaction & SQLite Text Data Sync (PHP Endpoints)
   // -------------------------------------------------------------
+  /** Endpoint for AI-powered natural language transaction parsing */
+  AI_PARSE_URL: `${API_BASE}/ai_parse.php`,
   /** Endpoint for single/batch transaction sync from SQLite to MySQL */
   TRANSACTION_SYNC_URL: `${API_BASE}/transactions_sync.php`,
   /** Endpoint for full multi-entity batch sync (transactions, parties, categories) */

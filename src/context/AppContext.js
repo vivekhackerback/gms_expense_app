@@ -48,8 +48,8 @@ const AppContext = createContext(null);
 
 export const AppProvider = ({ children }) => {
   const [isInitialized, setIsInitialized] = useState(false);
-  const [activeTab, setActiveTab] = useState('Home'); // Home, Transactions, Khata, Reports, More, Backup
-  const [previousTab, setPreviousTab] = useState('More');
+  const [activeTab, setActiveTab] = useState('AI'); // AI, Home, Transactions, Khata, Reports, More, Backup
+  const [previousTab, setPreviousTab] = useState('Home');
   
   // Authentication State
   const [currentUser, setCurrentUser] = useState(null);
