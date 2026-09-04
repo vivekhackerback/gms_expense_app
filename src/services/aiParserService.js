@@ -59,21 +59,15 @@ export const DEFAULT_AI_MODEL = 'google/gemini-2.5-flash-lite';
  * @returns {Promise<Object>} Status object
  */
 export const checkAiServerStatus = async (model = '') => {
+  const targetUrl = API_CONFIG.AI_PARSE_URL;
+  let urlDomain = 'expense.tplpro.in';
   try {
-    const net = await checkNetworkConnectivity();
-    if (!net.isConnected) {
-      return {
-        isOnline: false,
-        statusCode: 0,
-        provider: 'None',
-        model: model || DEFAULT_AI_MODEL,
-        availableModels: AI_MODELS,
-        message: 'Device has no internet connection.',
-      };
-    }
+    urlDomain = new URL(targetUrl).hostname;
+  } catch (e) {}
 
+  try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), 9000);
 
     const queryUrl = model
       ? `${API_CONFIG.AI_PARSE_URL}?model=${encodeURIComponent(model)}`
@@ -81,17 +75,15 @@ export const checkAiServerStatus = async (model = '') => {
 
     const response = await fetch(queryUrl, {
       method: 'GET',
-      headers: API_CONFIG.HEADERS,
+      headers: {
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache',
+        ...API_CONFIG.HEADERS,
+      },
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
-
-    const targetUrl = API_CONFIG.AI_PARSE_URL;
-    let urlDomain = 'expense.tplpro.in';
-    try {
-      urlDomain = new URL(targetUrl).hostname;
-    } catch (e) {}
 
     if (response.ok) {
       const json = await response.json();
@@ -101,7 +93,7 @@ export const checkAiServerStatus = async (model = '') => {
       const dbConnected = Boolean(json.db_connected);
 
       return {
-        isOnline: json.success === true,
+        isOnline: json.success === true || json.status === 'online',
         statusCode: response.status,
         domain: json.domain || urlDomain,
         endpoint: json.endpoint || targetUrl,
@@ -138,11 +130,6 @@ export const checkAiServerStatus = async (model = '') => {
       };
     }
   } catch (err) {
-    let urlDomain = 'expense.tplpro.in';
-    try {
-      urlDomain = new URL(API_CONFIG.AI_PARSE_URL).hostname;
-    } catch (e) {}
-
     return {
       isOnline: false,
       statusCode: 0,
@@ -157,7 +144,7 @@ export const checkAiServerStatus = async (model = '') => {
       maskedKey: null,
       keySource: 'None',
       dbError: err.message,
-      message: err.name === 'AbortError' ? 'AI server connection timed out.' : (err.message || 'AI server unreachable.'),
+      message: err.name === 'AbortError' ? 'AI server connection timed out (9s).' : (err.message || 'AI server unreachable.'),
     };
   }
 };

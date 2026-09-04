@@ -88,6 +88,8 @@ export const AITransactionScreen = () => {
   const [previewPartyId, setPreviewPartyId] = useState(null);
   const [previewNote, setPreviewNote] = useState('');
 
+  const inputRef = useRef(null);
+
   // Re-check AI Server Online Status
   const checkStatus = useCallback(async (modelToUse) => {
     setIsCheckingAi(true);
@@ -119,6 +121,20 @@ export const AITransactionScreen = () => {
         provider: result.provider,
         model: result.model,
       });
+
+      if (result.success && result.keyValid) {
+        setAiStatus((prev) => ({
+          ...prev,
+          isOnline: true,
+          keyFetched: true,
+          dbKeyFound: true,
+          maskedKey: result.maskedKey || prev.maskedKey,
+          keySource: result.keySource || prev.keySource,
+          statusCode: 200,
+          message: result.message,
+        }));
+      }
+
       triggerHaptic(result.success && result.keyValid ? 'success' : 'error');
     } catch (err) {
       setKeyTestResult({
@@ -134,8 +150,17 @@ export const AITransactionScreen = () => {
   };
 
   useEffect(() => {
+    let isMounted = true;
     checkStatus();
+
+    // Auto-retry after 1.5s in case network was initializing on cold start
+    const retryTimer = setTimeout(() => {
+      if (isMounted) checkStatus();
+    }, 1500);
+
     return () => {
+      isMounted = false;
+      clearTimeout(retryTimer);
       if (undoTimerRef.current) clearInterval(undoTimerRef.current);
     };
   }, [checkStatus]);
@@ -163,8 +188,8 @@ export const AITransactionScreen = () => {
     setErrorMessage(null);
   };
 
-  const handleSubmit = async () => {
-    const textToProcess = inputText.trim();
+  const handleSubmitWithText = async (customText) => {
+    const textToProcess = (customText !== undefined ? customText : inputText).trim();
     if (!textToProcess) return;
 
     // Check AI server connectivity first
@@ -251,6 +276,8 @@ export const AITransactionScreen = () => {
       setIsProcessing(false);
     }
   };
+
+  const handleSubmit = () => handleSubmitWithText();
 
   const handleUndo = () => {
     if (!lastSavedTx || !lastSavedTx.id) return;
@@ -474,6 +501,7 @@ export const AITransactionScreen = () => {
             {/* Natural Language Input Box */}
             <View style={styles.inputWrapper}>
               <TextInput
+                ref={inputRef}
                 style={styles.naturalInput}
                 placeholder="₹20 cash Surendar ko khane ke liye diya..."
                 placeholderTextColor={Colors.textMuted}
@@ -503,9 +531,9 @@ export const AITransactionScreen = () => {
 
             {/* Action Row */}
             <View style={styles.actionRow}>
-              <View style={styles.micHintBox}>
-                <Ionicons name="mic-outline" size={15} color={Colors.textSecondary} />
-                <Text style={styles.micHintText}>One natural sentence</Text>
+              <View style={styles.inputTipRow}>
+                <Ionicons name="bulb-outline" size={13} color={Colors.textMuted} />
+                <Text style={styles.inputTipText}>Type in Hindi, Hinglish or English</Text>
               </View>
 
               <TouchableOpacity
@@ -791,7 +819,7 @@ export const AITransactionScreen = () => {
           <View style={styles.suggestionsSection}>
             <View style={styles.sectionHeaderRow}>
               <Ionicons name="bulb-outline" size={16} color={Colors.warning} />
-              <Text style={styles.sectionTitle}>Try saying or typing:</Text>
+              <Text style={styles.sectionTitle}>Try typing:</Text>
             </View>
 
             <View style={styles.chipsWrap}>
@@ -1224,7 +1252,7 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     lineHeight: 22,
     textAlignVertical: 'top',
-    paddingRight: 24,
+    paddingRight: 28,
     minHeight: 65,
   },
   clearBtn: {
@@ -1237,15 +1265,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 2,
   },
-  micHintBox: {
+  inputTipRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flex: 1,
   },
-  micHintText: {
-    fontSize: Typography.fontSizes.xs,
-    color: Colors.textSecondary,
+  inputTipText: {
+    fontSize: 11,
+    color: Colors.textMuted,
   },
   sendButton: {
     flexDirection: 'row',
