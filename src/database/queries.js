@@ -133,7 +133,8 @@ export const getTransactions = ({
                   THEN date(t.transaction_date, 'unixepoch', 'localtime') 
                 ELSE date(t.transaction_date) 
               END) ASC, 
-              t.updated_at ASC, 
+              t.transaction_date ASC,
+              t.created_at ASC, 
               t.id ASC
           ) as runningBalance
       FROM transactions t
@@ -191,7 +192,7 @@ export const getTransactions = ({
     params.push(term, term, term, term);
   }
 
-  sql += ` ORDER BY txDateOnly DESC, updatedAt DESC, id DESC LIMIT ? OFFSET ?;`;
+  sql += ` ORDER BY txDateOnly DESC, transactionDate DESC, createdAt DESC, id DESC LIMIT ? OFFSET ?;`;
   params.push(limit, offset);
 
   const transactions = db.getAllSync(sql, params);
@@ -247,7 +248,8 @@ export const getTransactionById = (id) => {
                   THEN date(t.transaction_date, 'unixepoch', 'localtime') 
                 ELSE date(t.transaction_date) 
               END) ASC, 
-              t.updated_at ASC, 
+              t.transaction_date ASC,
+              t.created_at ASC, 
               t.id ASC
           ) as runningBalance
       FROM transactions t

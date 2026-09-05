@@ -55,13 +55,13 @@ export const TransactionsScreen = () => {
   const [customEndDate, setCustomEndDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Temp Date inputs for custom modal
-  const [startDay, setStartDay] = useState(1);
-  const [startMonth, setStartMonth] = useState(new Date().getMonth() + 1);
-  const [startYear, setStartYear] = useState(new Date().getFullYear());
+  const [startDay, setStartDay] = useState('1');
+  const [startMonth, setStartMonth] = useState(String(new Date().getMonth() + 1));
+  const [startYear, setStartYear] = useState(String(new Date().getFullYear()));
 
-  const [endDay, setEndDay] = useState(new Date().getDate());
-  const [endMonth, setEndMonth] = useState(new Date().getMonth() + 1);
-  const [endYear, setEndYear] = useState(new Date().getFullYear());
+  const [endDay, setEndDay] = useState(String(new Date().getDate()));
+  const [endMonth, setEndMonth] = useState(String(new Date().getMonth() + 1));
+  const [endYear, setEndYear] = useState(String(new Date().getFullYear()));
 
   const loadTransactions = useCallback(() => {
     let filterType = null;
@@ -104,15 +104,15 @@ export const TransactionsScreen = () => {
     if (filterId === 'custom') {
       // Pre-fill modal with current custom or default dates
       const now = new Date();
-      setEndDay(now.getDate());
-      setEndMonth(now.getMonth() + 1);
-      setEndYear(now.getFullYear());
+      setEndDay(String(now.getDate()));
+      setEndMonth(String(now.getMonth() + 1));
+      setEndYear(String(now.getFullYear()));
 
       const start = new Date();
       start.setDate(1); // 1st of current month as start default
-      setStartDay(1);
-      setStartMonth(start.getMonth() + 1);
-      setStartYear(start.getFullYear());
+      setStartDay('1');
+      setStartMonth(String(start.getMonth() + 1));
+      setStartYear(String(start.getFullYear()));
 
       setIsCustomModalOpen(true);
     } else {
@@ -122,13 +122,30 @@ export const TransactionsScreen = () => {
 
   const applyCustomRange = () => {
     try {
-      const sMonthStr = String(startMonth).padStart(2, '0');
-      const sDayStr = String(startDay).padStart(2, '0');
-      const eMonthStr = String(endMonth).padStart(2, '0');
-      const eDayStr = String(endDay).padStart(2, '0');
+      const sDayNum = parseInt(startDay, 10);
+      const sMonthNum = parseInt(startMonth, 10);
+      const sYearNum = parseInt(startYear, 10);
+      const eDayNum = parseInt(endDay, 10);
+      const eMonthNum = parseInt(endMonth, 10);
+      const eYearNum = parseInt(endYear, 10);
 
-      const sDateStr = `${startYear}-${sMonthStr}-${sDayStr}`;
-      const eDateStr = `${endYear}-${eMonthStr}-${eDayStr}`;
+      if (
+        isNaN(sDayNum) || isNaN(sMonthNum) || isNaN(sYearNum) ||
+        isNaN(eDayNum) || isNaN(eMonthNum) || isNaN(eYearNum) ||
+        sMonthNum < 1 || sMonthNum > 12 || sDayNum < 1 || sDayNum > 31 ||
+        eMonthNum < 1 || eMonthNum > 12 || eDayNum < 1 || eDayNum > 31
+      ) {
+        Alert.alert('Invalid Date', 'Please enter valid day, month, and year values.');
+        return;
+      }
+
+      const sMonthStr = String(sMonthNum).padStart(2, '0');
+      const sDayStr = String(sDayNum).padStart(2, '0');
+      const eMonthStr = String(eMonthNum).padStart(2, '0');
+      const eDayStr = String(eDayNum).padStart(2, '0');
+
+      const sDateStr = `${sYearNum}-${sMonthStr}-${sDayStr}`;
+      const eDateStr = `${eYearNum}-${eMonthStr}-${eDayStr}`;
 
       if (sDateStr > eDateStr) {
         Alert.alert('Invalid Range', 'Start Date cannot be later than End Date.');
@@ -146,15 +163,15 @@ export const TransactionsScreen = () => {
 
   const setPresetInModal = (daysBack) => {
     const now = new Date();
-    setEndDay(now.getDate());
-    setEndMonth(now.getMonth() + 1);
-    setEndYear(now.getFullYear());
+    setEndDay(String(now.getDate()));
+    setEndMonth(String(now.getMonth() + 1));
+    setEndYear(String(now.getFullYear()));
 
     const past = new Date();
     past.setDate(past.getDate() - daysBack);
-    setStartDay(past.getDate());
-    setStartMonth(past.getMonth() + 1);
-    setStartYear(past.getFullYear());
+    setStartDay(String(past.getDate()));
+    setStartMonth(String(past.getMonth() + 1));
+    setStartYear(String(past.getFullYear()));
   };
 
   return (
@@ -312,10 +329,11 @@ export const TransactionsScreen = () => {
                 <Text style={styles.dateSub}>Day</Text>
                 <TextInput
                   style={styles.dateField}
-                  value={String(startDay)}
-                  onChangeText={(val) => setStartDay(parseInt(val) || 1)}
+                  value={startDay}
+                  onChangeText={setStartDay}
                   keyboardType="number-pad"
                   maxLength={2}
+                  selectTextOnFocus
                 />
               </View>
               <Text style={styles.slash}>/</Text>
@@ -323,10 +341,11 @@ export const TransactionsScreen = () => {
                 <Text style={styles.dateSub}>Month</Text>
                 <TextInput
                   style={styles.dateField}
-                  value={String(startMonth)}
-                  onChangeText={(val) => setStartMonth(parseInt(val) || 1)}
+                  value={startMonth}
+                  onChangeText={setStartMonth}
                   keyboardType="number-pad"
                   maxLength={2}
+                  selectTextOnFocus
                 />
               </View>
               <Text style={styles.slash}>/</Text>
@@ -334,10 +353,11 @@ export const TransactionsScreen = () => {
                 <Text style={styles.dateSub}>Year</Text>
                 <TextInput
                   style={[styles.dateField, { width: 68 }]}
-                  value={String(startYear)}
-                  onChangeText={(val) => setStartYear(parseInt(val) || 2026)}
+                  value={startYear}
+                  onChangeText={setStartYear}
                   keyboardType="number-pad"
                   maxLength={4}
+                  selectTextOnFocus
                 />
               </View>
             </View>
@@ -349,10 +369,11 @@ export const TransactionsScreen = () => {
                 <Text style={styles.dateSub}>Day</Text>
                 <TextInput
                   style={styles.dateField}
-                  value={String(endDay)}
-                  onChangeText={(val) => setEndDay(parseInt(val) || 1)}
+                  value={endDay}
+                  onChangeText={setEndDay}
                   keyboardType="number-pad"
                   maxLength={2}
+                  selectTextOnFocus
                 />
               </View>
               <Text style={styles.slash}>/</Text>
@@ -360,10 +381,11 @@ export const TransactionsScreen = () => {
                 <Text style={styles.dateSub}>Month</Text>
                 <TextInput
                   style={styles.dateField}
-                  value={String(endMonth)}
-                  onChangeText={(val) => setEndMonth(parseInt(val) || 1)}
+                  value={endMonth}
+                  onChangeText={setEndMonth}
                   keyboardType="number-pad"
                   maxLength={2}
+                  selectTextOnFocus
                 />
               </View>
               <Text style={styles.slash}>/</Text>
@@ -371,10 +393,11 @@ export const TransactionsScreen = () => {
                 <Text style={styles.dateSub}>Year</Text>
                 <TextInput
                   style={[styles.dateField, { width: 68 }]}
-                  value={String(endYear)}
-                  onChangeText={(val) => setEndYear(parseInt(val) || 2026)}
+                  value={endYear}
+                  onChangeText={setEndYear}
                   keyboardType="number-pad"
                   maxLength={4}
+                  selectTextOnFocus
                 />
               </View>
             </View>

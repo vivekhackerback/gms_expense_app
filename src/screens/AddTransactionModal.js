@@ -49,9 +49,9 @@ export const AddTransactionModal = () => {
 
   // Date Picker Modal state
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [tempYear, setTempYear] = useState(new Date().getFullYear());
-  const [tempMonth, setTempMonth] = useState(new Date().getMonth() + 1);
-  const [tempDay, setTempDay] = useState(new Date().getDate());
+  const [tempYear, setTempYear] = useState(String(new Date().getFullYear()));
+  const [tempMonth, setTempMonth] = useState(String(new Date().getMonth() + 1));
+  const [tempDay, setTempDay] = useState(String(new Date().getDate()));
 
   // Sync state with open defaults or editing item
   useEffect(() => {
@@ -61,7 +61,8 @@ export const AddTransactionModal = () => {
         setDisplayAmount(formatInputWithCommas(raw));
         setType(editingTransaction.type || 'gave');
         setPaymentMode(editingTransaction.paymentMode || 'cash');
-        setSelectedDate(toUnixTimestamp(editingTransaction.transactionDate));
+        const origDate = editingTransaction.transactionDate || editingTransaction.createdAt;
+        setSelectedDate(toUnixTimestamp(origDate));
         setSelectedCategoryId(editingTransaction.categoryId || null);
         setSelectedPartyId(editingTransaction.partyId || null);
         setNote(editingTransaction.note || '');
@@ -137,20 +138,27 @@ export const AddTransactionModal = () => {
 
   const openCustomDatePicker = () => {
     const current = parseToDate(selectedDate);
-    setTempYear(current.getFullYear());
-    setTempMonth(current.getMonth() + 1);
-    setTempDay(current.getDate());
+    setTempYear(String(current.getFullYear()));
+    setTempMonth(String(current.getMonth() + 1));
+    setTempDay(String(current.getDate()));
     setIsDatePickerOpen(true);
   };
 
   const applyCustomDate = () => {
-    try {
-      const d = new Date(tempYear, tempMonth - 1, tempDay, 12, 0, 0);
-      setSelectedDate(toUnixTimestamp(d));
-      setIsDatePickerOpen(false);
-    } catch (e) {
-      Alert.alert('Invalid Date', 'Please enter a valid day, month, and year.');
+    const y = parseInt(tempYear, 10);
+    const m = parseInt(tempMonth, 10);
+    const d = parseInt(tempDay, 10);
+    if (isNaN(y) || isNaN(m) || isNaN(d) || m < 1 || m > 12 || d < 1 || d > 31 || y < 1900 || y > 2100) {
+      Alert.alert('Invalid Date', 'Please enter a valid day (1-31), month (1-12), and year.');
+      return;
     }
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+    if (isNaN(dateObj.getTime()) || dateObj.getMonth() !== m - 1) {
+      Alert.alert('Invalid Date', 'The date entered is not valid for the selected month.');
+      return;
+    }
+    setSelectedDate(toUnixTimestamp(dateObj));
+    setIsDatePickerOpen(false);
   };
 
   const { date: formattedDate } = formatFullDateTime(selectedDate);
@@ -170,6 +178,24 @@ export const AddTransactionModal = () => {
     }
 
     try {
+      let finalTxDate = toUnixTimestamp(selectedDate);
+      if (editingTransaction) {
+        const originalTs = toUnixTimestamp(editingTransaction.transactionDate || editingTransaction.createdAt);
+        if (originalTs > 0) {
+          const origDateObj = parseToDate(originalTs);
+          const selectedDateObj = parseToDate(selectedDate);
+
+          // If on the exact same calendar day, preserve original exact timestamp so time-of-day/order never shifts
+          if (
+            origDateObj.getFullYear() === selectedDateObj.getFullYear() &&
+            origDateObj.getMonth() === selectedDateObj.getMonth() &&
+            origDateObj.getDate() === selectedDateObj.getDate()
+          ) {
+            finalTxDate = originalTs;
+          }
+        }
+      }
+
       saveTransaction({
         amount: numAmount,
         type,
@@ -177,7 +203,7 @@ export const AddTransactionModal = () => {
         categoryId: selectedCategoryId,
         partyId: selectedPartyId,
         note: note.trim(),
-        transactionDate: toUnixTimestamp(selectedDate),
+        transactionDate: finalTxDate,
         images,
       });
       closeAddTransaction();
@@ -609,10 +635,11 @@ export const AddTransactionModal = () => {
                   <Text style={styles.dateInputLabel}>Day</Text>
                   <TextInput
                     style={styles.dateField}
-                    value={String(tempDay)}
-                    onChangeText={(val) => setTempDay(parseInt(val) || 1)}
+                    value={tempDay}
+                    onChangeText={setTempDay}
                     keyboardType="number-pad"
                     maxLength={2}
+                    selectTextOnFocus
                   />
                 </View>
 
@@ -622,10 +649,11 @@ export const AddTransactionModal = () => {
                   <Text style={styles.dateInputLabel}>Month</Text>
                   <TextInput
                     style={styles.dateField}
-                    value={String(tempMonth)}
-                    onChangeText={(val) => setTempMonth(parseInt(val) || 1)}
+                    value={tempMonth}
+                    onChangeText={setTempMonth}
                     keyboardType="number-pad"
                     maxLength={2}
+                    selectTextOnFocus
                   />
                 </View>
 
@@ -635,10 +663,11 @@ export const AddTransactionModal = () => {
                   <Text style={styles.dateInputLabel}>Year</Text>
                   <TextInput
                     style={[styles.dateField, { width: 68 }]}
-                    value={String(tempYear)}
-                    onChangeText={(val) => setTempYear(parseInt(val) || 2026)}
+                    value={tempYear}
+                    onChangeText={setTempYear}
                     keyboardType="number-pad"
                     maxLength={4}
+                    selectTextOnFocus
                   />
                 </View>
               </View>

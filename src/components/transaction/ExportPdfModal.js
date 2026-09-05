@@ -47,13 +47,13 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
 
   // Custom date state
   const now = new Date();
-  const [startDay, setStartDay] = useState(1);
-  const [startMonth, setStartMonth] = useState(now.getMonth() + 1);
-  const [startYear, setStartYear] = useState(now.getFullYear());
+  const [startDay, setStartDay] = useState('1');
+  const [startMonth, setStartMonth] = useState(String(now.getMonth() + 1));
+  const [startYear, setStartYear] = useState(String(now.getFullYear()));
 
-  const [endDay, setEndDay] = useState(now.getDate());
-  const [endMonth, setEndMonth] = useState(now.getMonth() + 1);
-  const [endYear, setEndYear] = useState(now.getFullYear());
+  const [endDay, setEndDay] = useState(String(now.getDate()));
+  const [endMonth, setEndMonth] = useState(String(now.getMonth() + 1));
+  const [endYear, setEndYear] = useState(String(now.getFullYear()));
 
   const [customStartDate, setCustomStartDate] = useState(
     new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
@@ -71,16 +71,29 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
 
   // Update custom dates when date inputs change
   useEffect(() => {
-    const sM = String(Math.min(Math.max(Number(startMonth) || 1, 1), 12)).padStart(2, '0');
-    const sD = String(Math.min(Math.max(Number(startDay) || 1, 1), 31)).padStart(2, '0');
-    const sY = String(startYear || 2026);
+    const sDNum = parseInt(startDay, 10);
+    const sMNum = parseInt(startMonth, 10);
+    const sYNum = parseInt(startYear, 10);
 
-    const eM = String(Math.min(Math.max(Number(endMonth) || 1, 1), 12)).padStart(2, '0');
-    const eD = String(Math.min(Math.max(Number(endDay) || 1, 1), 31)).padStart(2, '0');
-    const eY = String(endYear || 2026);
+    const eDNum = parseInt(endDay, 10);
+    const eMNum = parseInt(endMonth, 10);
+    const eYNum = parseInt(endYear, 10);
 
-    setCustomStartDate(`${sY}-${sM}-${sD}`);
-    setCustomEndDate(`${eY}-${eM}-${eD}`);
+    if (
+      !isNaN(sDNum) && !isNaN(sMNum) && !isNaN(sYNum) &&
+      !isNaN(eDNum) && !isNaN(eMNum) && !isNaN(eYNum)
+    ) {
+      const sM = String(Math.min(Math.max(sMNum, 1), 12)).padStart(2, '0');
+      const sD = String(Math.min(Math.max(sDNum, 1), 31)).padStart(2, '0');
+      const sY = String(sYNum);
+
+      const eM = String(Math.min(Math.max(eMNum, 1), 12)).padStart(2, '0');
+      const eD = String(Math.min(Math.max(eDNum, 1), 31)).padStart(2, '0');
+      const eY = String(eYNum);
+
+      setCustomStartDate(`${sY}-${sM}-${sD}`);
+      setCustomEndDate(`${eY}-${eM}-${eD}`);
+    }
   }, [startDay, startMonth, startYear, endDay, endMonth, endYear]);
 
   // Compute actual date range based on preset or custom
@@ -133,15 +146,15 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
 
   const setShortcutDays = (daysBack) => {
     const today = new Date();
-    setEndDay(today.getDate());
-    setEndMonth(today.getMonth() + 1);
-    setEndYear(today.getFullYear());
+    setEndDay(String(today.getDate()));
+    setEndMonth(String(today.getMonth() + 1));
+    setEndYear(String(today.getFullYear()));
 
     const past = new Date();
     past.setDate(past.getDate() - daysBack);
-    setStartDay(past.getDate());
-    setStartMonth(past.getMonth() + 1);
-    setStartYear(past.getFullYear());
+    setStartDay(String(past.getDate()));
+    setStartMonth(String(past.getMonth() + 1));
+    setStartYear(String(past.getFullYear()));
     setSelectedPreset('custom');
   };
 
@@ -219,9 +232,10 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
               })}
             </View>
 
-            {/* Custom Date Inputs (Always available or highlighted when custom selected) */}
+            {/* Custom Date Inputs */}
             {selectedPreset === 'custom' && (
               <View style={styles.customDateBox}>
+                {/* Shortcut Days */}
                 <View style={styles.shortcutRow}>
                   <Text style={styles.shortcutLabel}>Quick Range:</Text>
                   <TouchableOpacity style={styles.shortcutChip} onPress={() => setShortcutDays(7)}>
@@ -242,10 +256,11 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
                     <Text style={styles.dateSub}>Day</Text>
                     <TextInput
                       style={styles.dateField}
-                      value={String(startDay)}
-                      onChangeText={(val) => setStartDay(parseInt(val) || 1)}
+                      value={startDay}
+                      onChangeText={setStartDay}
                       keyboardType="number-pad"
                       maxLength={2}
+                      selectTextOnFocus
                     />
                   </View>
                   <Text style={styles.slash}>/</Text>
@@ -253,10 +268,11 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
                     <Text style={styles.dateSub}>Month</Text>
                     <TextInput
                       style={styles.dateField}
-                      value={String(startMonth)}
-                      onChangeText={(val) => setStartMonth(parseInt(val) || 1)}
+                      value={startMonth}
+                      onChangeText={setStartMonth}
                       keyboardType="number-pad"
                       maxLength={2}
+                      selectTextOnFocus
                     />
                   </View>
                   <Text style={styles.slash}>/</Text>
@@ -264,10 +280,11 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
                     <Text style={styles.dateSub}>Year</Text>
                     <TextInput
                       style={[styles.dateField, { width: 68 }]}
-                      value={String(startYear)}
-                      onChangeText={(val) => setStartYear(parseInt(val) || 2026)}
+                      value={startYear}
+                      onChangeText={setStartYear}
                       keyboardType="number-pad"
                       maxLength={4}
+                      selectTextOnFocus
                     />
                   </View>
                 </View>
@@ -279,10 +296,11 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
                     <Text style={styles.dateSub}>Day</Text>
                     <TextInput
                       style={styles.dateField}
-                      value={String(endDay)}
-                      onChangeText={(val) => setEndDay(parseInt(val) || 1)}
+                      value={endDay}
+                      onChangeText={setEndDay}
                       keyboardType="number-pad"
                       maxLength={2}
+                      selectTextOnFocus
                     />
                   </View>
                   <Text style={styles.slash}>/</Text>
@@ -290,10 +308,11 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
                     <Text style={styles.dateSub}>Month</Text>
                     <TextInput
                       style={styles.dateField}
-                      value={String(endMonth)}
-                      onChangeText={(val) => setEndMonth(parseInt(val) || 1)}
+                      value={endMonth}
+                      onChangeText={setEndMonth}
                       keyboardType="number-pad"
                       maxLength={2}
+                      selectTextOnFocus
                     />
                   </View>
                   <Text style={styles.slash}>/</Text>
@@ -301,10 +320,11 @@ export const ExportPdfModal = ({ visible, onClose, initialDateFilter = 'all' }) 
                     <Text style={styles.dateSub}>Year</Text>
                     <TextInput
                       style={[styles.dateField, { width: 68 }]}
-                      value={String(endYear)}
-                      onChangeText={(val) => setEndYear(parseInt(val) || 2026)}
+                      value={endYear}
+                      onChangeText={setEndYear}
                       keyboardType="number-pad"
                       maxLength={4}
+                      selectTextOnFocus
                     />
                   </View>
                 </View>

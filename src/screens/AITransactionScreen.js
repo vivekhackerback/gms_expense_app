@@ -225,6 +225,18 @@ export const AITransactionScreen = () => {
 
       const parsed = parseResult.data;
 
+      // Extract identified person or merchant name if any
+      const matchedParty = parsed.party_id ? parties.find((p) => p.id === parsed.party_id) : null;
+      const personName = (parsed.person_or_merchant || matchedParty?.name || '').trim();
+
+      // Ensure note always includes person's name if identified
+      let finalNote = (parsed.note || textToProcess || '').trim();
+      if (personName) {
+        if (!finalNote.toLowerCase().includes(personName.toLowerCase())) {
+          finalNote = finalNote ? `${personName} - ${finalNote}` : personName;
+        }
+      }
+
       // Check if essential information is missing or needs confirmation
       if (parsed.needs_confirmation || !parsed.amount || parsed.amount <= 0) {
         setPreviewData(parsed);
@@ -233,7 +245,7 @@ export const AITransactionScreen = () => {
         setPreviewMode(parsed.payment_mode || 'cash');
         setPreviewCategoryId(parsed.category_id || (categories[0]?.id || null));
         setPreviewPartyId(parsed.party_id || null);
-        setPreviewNote(parsed.note || textToProcess);
+        setPreviewNote(finalNote);
         triggerHaptic('light');
       } else {
         // High confidence: Save directly using existing transaction pipeline
@@ -243,7 +255,7 @@ export const AITransactionScreen = () => {
           paymentMode: parsed.payment_mode || 'cash',
           categoryId: parsed.category_id,
           partyId: parsed.party_id,
-          note: parsed.note || textToProcess,
+          note: finalNote,
           transactionDate: getCurrentTimestamp(),
         });
 
@@ -253,7 +265,10 @@ export const AITransactionScreen = () => {
         // Show Instant Undo Banner for 5 seconds
         setLastSavedTx({
           ...newTx,
-          parsedDetails: parsed,
+          parsedDetails: {
+            ...parsed,
+            note: finalNote,
+          },
           text: textToProcess,
         });
         setUndoCountdown(5);

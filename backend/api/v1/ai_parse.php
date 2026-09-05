@@ -481,8 +481,8 @@ CRITICAL RULES:
    - "mila", "mile", "receive hua", "salary aayi", "aaya", "kamaya" -> "got"
 4. "payment_mode" must be either "cash" or "online" (UPI, GPay, PhonePe, Paytm, Card, NetBanking, Transfer).
 5. "amount": Exact numeric value. If amount is missing or unclear, set needs_confirmation=true and missing_fields=["amount"].
-6. "person_or_merchant": Name of person or vendor.
-7. "note": Clean concise summary of transaction.
+6. "person_or_merchant": Name of person or vendor mentioned in the sentence (e.g. "Surendar", "Ramesh", "Amazon"). If no person or vendor is mentioned, set null.
+7. "note": Clean, concise summary of transaction. CRITICAL: If a person or merchant name is mentioned in the transaction, ALWAYS include their name in the note (e.g. "Surendar - Khane k liye", "Ramesh se cash mila", "Amazon shopping"). NEVER omit or drop the person's name from the note.
 8. "question": If amount or essential field is missing, ask a clear, polite Hindi/Hinglish question (e.g. "Surendar ko kitne rupaye diye?"), else null.
 
 CATEGORY LIST:
@@ -661,6 +661,28 @@ if (!$finalPartyId && $personOrMerchant && count($parties) > 0) {
     }
 }
 
+// Ensure person/merchant name is included in the note
+$rawNote = !empty($parsedResult['note']) ? trim($parsedResult['note']) : $text;
+$personNameForNote = $personOrMerchant;
+if (empty($personNameForNote) && $finalPartyId) {
+    foreach ($parties as $p) {
+        if (intval($p['id']) === $finalPartyId) {
+            $personNameForNote = trim($p['name']);
+            break;
+        }
+    }
+}
+
+if (!empty($personNameForNote)) {
+    if (stripos($rawNote, $personNameForNote) === false) {
+        $finalNote = $personNameForNote . ($rawNote !== '' ? ' - ' . $rawNote : '');
+    } else {
+        $finalNote = $rawNote;
+    }
+} else {
+    $finalNote = $rawNote;
+}
+
 // Return validated response and log success
 $responseData = [
     'type'                => $finalType,
@@ -671,7 +693,7 @@ $responseData = [
     'payment_mode'        => $finalMode,
     'person_or_merchant'  => $personOrMerchant,
     'party_id'            => $finalPartyId,
-    'note'                => !empty($parsedResult['note']) ? trim($parsedResult['note']) : $text,
+    'note'                => $finalNote,
     'confidence'          => $parsedResult['confidence'] ?? 0.95,
     'needs_confirmation'  => $needsConfirmation,
     'missing_fields'      => $missingFields,
