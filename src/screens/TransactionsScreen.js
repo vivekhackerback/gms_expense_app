@@ -147,36 +147,39 @@ export const TransactionsScreen = () => {
     isFetchingMoreRef.current = true;
     setIsLoadingMore(true);
 
-    try {
-      const currentOffset = transactions.length;
-      const newItems = fetchBatch(
-        currentOffset,
-        PAGE_SIZE,
-        selectedFilter,
-        selectedDateFilter,
-        customStartDate,
-        customEndDate,
-        debouncedSearch
-      );
+    // Run fetch in next event loop tick to decouple footer mount from list item insertion
+    setTimeout(() => {
+      try {
+        const currentOffset = transactions.length;
+        const newItems = fetchBatch(
+          currentOffset,
+          PAGE_SIZE,
+          selectedFilter,
+          selectedDateFilter,
+          customStartDate,
+          customEndDate,
+          debouncedSearch
+        );
 
-      if (!newItems || newItems.length === 0) {
-        setHasMore(false);
-      } else {
-        setTransactions((prev) => {
-          const existingIds = new Set(prev.map((t) => t.id));
-          const filteredNew = newItems.filter((t) => !existingIds.has(t.id));
-          return [...prev, ...filteredNew];
-        });
-        if (newItems.length < PAGE_SIZE) {
+        if (!newItems || newItems.length === 0) {
           setHasMore(false);
+        } else {
+          setTransactions((prev) => {
+            const existingIds = new Set(prev.map((t) => t.id));
+            const filteredNew = newItems.filter((t) => !existingIds.has(t.id));
+            return [...prev, ...filteredNew];
+          });
+          if (newItems.length < PAGE_SIZE) {
+            setHasMore(false);
+          }
         }
+      } catch (e) {
+        console.error('Failed to load more transactions:', e);
+      } finally {
+        isFetchingMoreRef.current = false;
+        setIsLoadingMore(false);
       }
-    } catch (e) {
-      console.error('Failed to load more transactions:', e);
-    } finally {
-      isFetchingMoreRef.current = false;
-      setIsLoadingMore(false);
-    }
+    }, 40);
   }, [
     hasMore,
     isLoading,

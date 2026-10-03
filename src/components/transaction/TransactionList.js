@@ -21,50 +21,12 @@ const MONTH_NAMES_SHORT = [
 ];
 
 /**
- * Native-driven Live Pulse Dot for TODAY's section header
- * Offloads animation completely to UI/native thread (0% JS thread overhead)
+ * Live Pulse Dot indicator for TODAY's section header
+ * Pure static view to ensure native view hierarchy stability on Android
  */
-const TodayLivePulseDot = React.memo(() => {
-  const pulseAnim = useRef(new Animated.Value(0.4)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0.4,
-          duration: 900,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulseAnim]);
-
-  return (
-    <Animated.View
-      style={[
-        styles.livePulseDot,
-        {
-          opacity: pulseAnim,
-          transform: [
-            {
-              scale: pulseAnim.interpolate({
-                inputRange: [0.4, 1],
-                outputRange: [0.85, 1.2],
-              }),
-            },
-          ],
-        },
-      ]}
-    />
-  );
-});
+const TodayLivePulseDot = React.memo(() => (
+  <View style={styles.livePulseDot} />
+));
 
 /**
  * Memoized Date Section Header
@@ -234,7 +196,7 @@ export const TransactionList = ({
       const fullDate = formatDayNameFullDate(group.dateObj);
 
       return {
-        key: group.dateKey,
+        key: `sec_${group.dateKey}`,
         primaryLabel,
         fullDate,
         dateObj: group.dateObj,
@@ -257,7 +219,7 @@ export const TransactionList = ({
   ), [onTransactionPress]);
 
   const keyExtractor = useCallback((item, index) => {
-    return String(item.id || item.uuid || index);
+    return `tx_${item.id != null ? item.id : (item.uuid || index)}`;
   }, []);
 
   const renderFooter = useCallback(() => {
@@ -276,7 +238,7 @@ export const TransactionList = ({
         </View>
       );
     }
-    return null;
+    return <View style={styles.footerSpacer} />;
   }, [isLoadingMore, hasMore, transactions.length]);
 
   return (
@@ -285,7 +247,7 @@ export const TransactionList = ({
       keyExtractor={keyExtractor}
       renderItem={renderItem}
       renderSectionHeader={renderSectionHeader}
-      stickySectionHeadersEnabled={true}
+      stickySectionHeadersEnabled={Platform.OS === 'ios'}
       ListHeaderComponent={ListHeaderComponent}
       ListEmptyComponent={ListEmptyComponent}
       ListFooterComponent={renderFooter}
@@ -458,5 +420,8 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSizes.xs,
     color: Colors.textMuted,
     fontWeight: Typography.fontWeights.medium,
+  },
+  footerSpacer: {
+    height: 16,
   },
 });
