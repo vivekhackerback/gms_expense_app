@@ -1,11 +1,10 @@
-import React, { useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   SectionList,
   RefreshControl,
-  Animated,
   ActivityIndicator,
   Platform,
 } from 'react-native';
@@ -27,6 +26,65 @@ const MONTH_NAMES_SHORT = [
 const TodayLivePulseDot = React.memo(() => (
   <View style={styles.livePulseDot} />
 ));
+
+/**
+ * Sticky Date Indicator Floating Banner
+ * Floats at the top of the transaction list showing the currently visible date.
+ * Rendered outside SectionList to avoid any native view hierarchy virtualization issues.
+ */
+const StickyDateIndicator = React.memo(({ dateInfo }) => {
+  if (!dateInfo) return null;
+
+  const { primaryLabel, fullDate, isToday, isYesterday, totalGot, totalGave, count } = dateInfo;
+
+  let iconName = 'calendar-outline';
+  let iconColor = Colors.primary;
+  let displayTitle = fullDate || primaryLabel;
+
+  if (isToday) {
+    iconName = 'sparkles';
+    iconColor = '#059669';
+    displayTitle = `Today · ${fullDate}`;
+  } else if (isYesterday) {
+    iconName = 'time-outline';
+    iconColor = '#475569';
+    displayTitle = `Yesterday · ${fullDate}`;
+  }
+
+  return (
+    <View style={styles.stickyHeaderWrapper} pointerEvents="none">
+      <View style={[styles.stickyDateCard, Shadows.md]}>
+        <View style={styles.stickyLeftGroup}>
+          <View style={[styles.stickyIconBadge, isToday && styles.todayIconBadge, isYesterday && styles.yesterdayIconBadge]}>
+            <Ionicons name={iconName} size={13} color={iconColor} />
+          </View>
+          <Text style={styles.stickyDateText} numberOfLines={1}>
+            {displayTitle}
+          </Text>
+        </View>
+
+        <View style={styles.stickyRightGroup}>
+          <View style={styles.stickyCountPill}>
+            <Text style={styles.stickyCountText}>{count} txn{count > 1 ? 's' : ''}</Text>
+          </View>
+          {(totalGot > 0 || totalGave > 0) && (
+            <View style={styles.stickyAmountsRow}>
+              {totalGot > 0 && (
+                <Text style={styles.stickyGotAmount}>+{formatCurrency(totalGot)}</Text>
+              )}
+              {totalGot > 0 && totalGave > 0 && (
+                <Text style={styles.stickyAmountDot}>·</Text>
+              )}
+              {totalGave > 0 && (
+                <Text style={styles.stickyGaveAmount}>-{formatCurrency(totalGave)}</Text>
+              )}
+            </View>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+});
 
 /**
  * Memoized Date Section Header
@@ -210,6 +268,62 @@ export const TransactionList = ({
     });
   }, [transactions]);
 
+  const [activeDate, setActiveDate] = useState(null);
+  const lastKeyRef = useRef(null);
+
+  // Sync initial top section whenever sections change
+  useEffect(() => {
+    if (sections && sections.length > 0) {
+      const topSec = sections[0];
+      lastKeyRef.current = topSec.key;
+      setActiveDate({
+        key: topSec.key,
+        primaryLabel: topSec.primaryLabel,
+        fullDate: topSec.fullDate,
+        isToday: topSec.isToday,
+        isYesterday: topSec.isYesterday,
+        totalGot: topSec.totalGot,
+        totalGave: topSec.totalGave,
+        count: topSec.count,
+      });
+    } else {
+      lastKeyRef.current = null;
+      setActiveDate(null);
+    }
+  }, [sections]);
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 10,
+    waitForInteraction: false,
+  }).current;
+
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (!viewableItems || viewableItems.length === 0) return;
+
+    const first = viewableItems[0];
+    let sec = first.section;
+    if (!sec && first.item) {
+      const rawDate = first.item.txDateOnly || first.item.transactionDate;
+      if (rawDate) {
+        sec = sections.find((s) => s.key && s.key.includes(String(rawDate)));
+      }
+    }
+
+    if (sec && sec.key && sec.key !== lastKeyRef.current) {
+      lastKeyRef.current = sec.key;
+      setActiveDate({
+        key: sec.key,
+        primaryLabel: sec.primaryLabel,
+        fullDate: sec.fullDate,
+        isToday: sec.isToday,
+        isYesterday: sec.isYesterday,
+        totalGot: sec.totalGot,
+        totalGave: sec.totalGave,
+        count: sec.count,
+      });
+    }
+  }).current;
+
   const renderSectionHeader = useCallback(({ section }) => (
     <DateHeader section={section} />
   ), []);
@@ -242,40 +356,133 @@ export const TransactionList = ({
   }, [isLoadingMore, hasMore, transactions.length]);
 
   return (
-    <SectionList
-      sections={sections}
-      keyExtractor={keyExtractor}
-      renderItem={renderItem}
-      renderSectionHeader={renderSectionHeader}
-      stickySectionHeadersEnabled={Platform.OS === 'ios'}
-      ListHeaderComponent={ListHeaderComponent}
-      ListEmptyComponent={ListEmptyComponent}
-      ListFooterComponent={renderFooter}
-      onEndReached={onEndReached}
-      onEndReachedThreshold={onEndReachedThreshold}
-      initialNumToRender={15}
-      maxToRenderPerBatch={15}
-      windowSize={7}
-      updateCellsBatchingPeriod={50}
-      removeClippedSubviews={false}
-      refreshControl={
-        onRefresh ? (
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={[Colors.primary]}
-            tintColor={Colors.primary}
-          />
-        ) : undefined
-      }
-      contentContainerStyle={styles.listContent}
-      showsVerticalScrollIndicator={false}
-    />
+    <View style={styles.listWrapper}>
+      {activeDate && sections.length > 0 && (
+        <StickyDateIndicator dateInfo={activeDate} />
+      )}
+      <SectionList
+        sections={sections}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        renderSectionHeader={renderSectionHeader}
+        stickySectionHeadersEnabled={Platform.OS === 'ios'}
+        ListHeaderComponent={ListHeaderComponent}
+        ListEmptyComponent={ListEmptyComponent}
+        ListFooterComponent={renderFooter}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={onEndReachedThreshold}
+        initialNumToRender={15}
+        maxToRenderPerBatch={15}
+        windowSize={7}
+        updateCellsBatchingPeriod={50}
+        removeClippedSubviews={false}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[Colors.primary]}
+              tintColor={Colors.primary}
+            />
+          ) : undefined
+        }
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+      />
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  listWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+  stickyHeaderWrapper: {
+    position: 'absolute',
+    top: 6,
+    left: Spacing.lg,
+    right: Spacing.lg,
+    zIndex: 100,
+    elevation: 8,
+  },
+  stickyDateCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  stickyLeftGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  stickyIconBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.xs + 2,
+  },
+  todayIconBadge: {
+    backgroundColor: '#ECFDF5',
+  },
+  yesterdayIconBadge: {
+    backgroundColor: '#F1F5F9',
+  },
+  stickyDateText: {
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+  },
+  stickyRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  stickyCountPill: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: BorderRadius.full,
+  },
+  stickyCountText: {
+    fontSize: 9.5,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#475569',
+  },
+  stickyAmountsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stickyGotAmount: {
+    fontSize: 10.5,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.got,
+  },
+  stickyGaveAmount: {
+    fontSize: 10.5,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.gave,
+  },
+  stickyAmountDot: {
+    fontSize: 9,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textMuted,
+    marginHorizontal: 2,
+  },
   listContent: {
+    paddingTop: 46, // Clearance for floating sticky date indicator
     paddingBottom: 140, // Generous clearance for floating button & bottom tabs
   },
   sectionHeaderContainer: {
