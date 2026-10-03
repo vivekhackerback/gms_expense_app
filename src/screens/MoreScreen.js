@@ -15,6 +15,11 @@ import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { Header } from '../components/common/Header';
+import {
+  generateStressTestTransactions,
+  deleteStressTestTransactions,
+  getStressTestStatus,
+} from '../services/stressTestService';
 
 export const MoreScreen = () => {
   const {
@@ -71,6 +76,82 @@ export const MoreScreen = () => {
 
   const handleLogoutPress = () => {
     openLogoutModal();
+  };
+
+  // Developer Stress Test States & Handlers
+  const [isStressGenerating, setIsStressGenerating] = useState(false);
+  const [stressProgress, setStressProgress] = useState({ current: 0, total: 50000, percentage: 0 });
+
+  const handleGenerateStressData = () => {
+    Alert.alert(
+      'Generate 50,000 Test Transactions',
+      'This will insert 50,000 realistic transactions spread across the past 365 days into your local SQLite database for stress testing. Your existing transactions will not be modified.\n\nDo you want to proceed?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Generate 50,000 Records',
+          onPress: async () => {
+            setIsStressGenerating(true);
+            setStressProgress({ current: 0, total: 50000, percentage: 0 });
+            try {
+              const startTime = Date.now();
+              const count = await generateStressTestTransactions({
+                targetCount: 50000,
+                chunkSize: 5000,
+                onProgress: (p) => setStressProgress(p),
+              });
+              const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
+              setIsStressGenerating(false);
+              if (refreshAll) refreshAll();
+              Alert.alert(
+                'Stress Test Data Ready!',
+                `Successfully created exactly ${count.toLocaleString('en-IN')} test transactions in ${durationSec}s.\n\nNow open the Transactions screen to test 60fps scrolling, pagination, and sticky dates!`
+              );
+            } catch (err) {
+              setIsStressGenerating(false);
+              Alert.alert('Error', 'Failed to generate test data: ' + err.message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCheckStressData = () => {
+    const status = getStressTestStatus();
+    Alert.alert(
+      'Database Transaction Records',
+      `• Total Records: ${status.totalCount.toLocaleString('en-IN')}\n• Test Generated: ${status.testCount.toLocaleString('en-IN')}\n• Real User Data: ${status.realCount.toLocaleString('en-IN')}`
+    );
+  };
+
+  const handleDeleteStressData = () => {
+    const status = getStressTestStatus();
+    if (status.testCount === 0) {
+      Alert.alert('No Test Data', 'There are no stress-test transactions in the database.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete Test Transactions',
+      `Are you sure you want to delete ${status.testCount.toLocaleString('en-IN')} stress-test transactions?\n\nYour ${status.realCount.toLocaleString('en-IN')} real transactions will be kept safe.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Test Data',
+          style: 'destructive',
+          onPress: () => {
+            try {
+              const deleted = deleteStressTestTransactions();
+              if (refreshAll) refreshAll();
+              Alert.alert('Cleaned Up', `Successfully removed ${deleted.toLocaleString('en-IN')} test transactions.`);
+            } catch (err) {
+              Alert.alert('Error', 'Failed to delete test data: ' + err.message);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const renderSection = (title, items) => (
@@ -349,7 +430,55 @@ export const MoreScreen = () => {
             },
           },
         ])}
+
+        {/* Developer Stress Testing Section */}
+        {renderSection('DEVELOPER STRESS TEST', [
+          {
+            icon: 'flash-outline',
+            iconColor: '#7C3AED',
+            iconBg: '#F5F3FF',
+            label: 'Generate 50,000 Test Transactions',
+            sublabel: 'Stress-test Transaction History with 50,000 records',
+            onPress: handleGenerateStressData,
+          },
+          {
+            icon: 'analytics-outline',
+            iconColor: Colors.primary,
+            iconBg: Colors.surfaceSubtle,
+            label: 'Check Database Record Counts',
+            sublabel: 'View test vs real transaction counts',
+            onPress: handleCheckStressData,
+          },
+          {
+            icon: 'trash-outline',
+            iconColor: Colors.danger,
+            iconBg: '#FEF2F2',
+            isDestructive: true,
+            label: 'Delete 50,000 Test Transactions',
+            sublabel: 'Safely removes test records only (real data preserved)',
+            onPress: handleDeleteStressData,
+          },
+        ])}
       </ScrollView>
+
+      {/* Stress Test Progress Modal */}
+      <Modal visible={isStressGenerating} transparent animationType="fade">
+        <View style={styles.stressModalBackdrop}>
+          <View style={[styles.stressModalCard, Shadows.lg]}>
+            <ActivityIndicator size="large" color="#7C3AED" />
+            <Text style={styles.stressModalTitle}>Generating 50,000 Records</Text>
+            <Text style={styles.stressModalSubtitle}>
+              Inserting test records across 365 days into local SQLite...
+            </Text>
+            <View style={styles.stressProgressBarBg}>
+              <View style={[styles.stressProgressBarFill, { width: `${stressProgress.percentage}%` }]} />
+            </View>
+            <Text style={styles.stressProgressCount}>
+              {stressProgress.current.toLocaleString('en-IN')} / {stressProgress.total.toLocaleString('en-IN')} ({stressProgress.percentage}%)
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -664,5 +793,52 @@ const styles = StyleSheet.create({
   menuItemRightText: {
     fontSize: Typography.fontSizes.xs,
     color: Colors.textMuted,
+  },
+  stressModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.xl,
+  },
+  stressModalCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.xl,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 340,
+  },
+  stressModalTitle: {
+    fontSize: Typography.fontSizes.lg,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+  stressModalSubtitle: {
+    fontSize: Typography.fontSizes.xs + 1,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: Spacing.lg,
+    lineHeight: 18,
+  },
+  stressProgressBarBg: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#F1F5F9',
+    borderRadius: BorderRadius.full,
+    overflow: 'hidden',
+    marginBottom: Spacing.sm,
+  },
+  stressProgressBarFill: {
+    height: '100%',
+    backgroundColor: '#7C3AED',
+    borderRadius: BorderRadius.full,
+  },
+  stressProgressCount: {
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#7C3AED',
   },
 });
