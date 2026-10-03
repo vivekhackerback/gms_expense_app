@@ -1,5 +1,14 @@
-import React, { useMemo, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, SectionList, RefreshControl, Animated } from 'react-native';
+import React, { useMemo, useEffect, useRef, useCallback } from 'react';
+import {
+  StyleSheet,
+  View,
+  Text,
+  SectionList,
+  RefreshControl,
+  Animated,
+  ActivityIndicator,
+  Platform,
+} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors } from '../../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
@@ -12,41 +21,64 @@ const MONTH_NAMES_SHORT = [
 ];
 
 /**
- * Animated Date Section Header
- * Provides smooth, professional color transitions on the calendar tile and border
+ * Native-driven Live Pulse Dot for TODAY's section header
+ * Offloads animation completely to UI/native thread (0% JS thread overhead)
  */
-const AnimatedDateHeader = ({ section }) => {
-  const { primaryLabel, fullDate, isToday, isYesterday, totalGot, totalGave, count, dateObj } = section;
-
-  // Animation value for gentle breathing color & border transition (0 -> 1 -> 0)
-  const animValue = useRef(new Animated.Value(0)).current;
+const TodayLivePulseDot = React.memo(() => {
+  const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(animValue, {
+        Animated.timing(pulseAnim, {
           toValue: 1,
-          duration: isToday ? 2000 : 2800,
-          useNativeDriver: false,
+          duration: 900,
+          useNativeDriver: true,
         }),
-        Animated.timing(animValue, {
-          toValue: 0,
-          duration: isToday ? 2000 : 2800,
-          useNativeDriver: false,
+        Animated.timing(pulseAnim, {
+          toValue: 0.4,
+          duration: 900,
+          useNativeDriver: true,
         }),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [animValue, isToday]);
+  }, [pulseAnim]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.livePulseDot,
+        {
+          opacity: pulseAnim,
+          transform: [
+            {
+              scale: pulseAnim.interpolate({
+                inputRange: [0.4, 1],
+                outputRange: [0.85, 1.2],
+              }),
+            },
+          ],
+        },
+      ]}
+    />
+  );
+});
+
+/**
+ * Memoized Date Section Header
+ * Zero JS-thread animation loops for instant 60fps scrolling
+ */
+const DateHeader = React.memo(({ section }) => {
+  const { primaryLabel, fullDate, isToday, isYesterday, totalGot, totalGave, count, dateObj } = section;
 
   const dayNumber = dateObj ? dateObj.getDate() : '';
   const monthShort = dateObj ? MONTH_NAMES_SHORT[dateObj.getMonth()] : '';
 
-  // Interpolated colors based on section type
-  let animatedBgColor;
-  let animatedBorderColor;
-  let animatedCalHeaderBg;
+  let cardBg = '#FFFFFF';
+  let cardBorder = '#E2E8F0';
+  let calHeaderBg = Colors.primary;
   let iconName = 'calendar-outline';
   let iconColor = Colors.primary;
   let badgeTextStyle = styles.standardBadgeText;
@@ -55,84 +87,40 @@ const AnimatedDateHeader = ({ section }) => {
     iconName = 'sparkles';
     iconColor = '#059669';
     badgeTextStyle = styles.todayBadgeText;
-
-    animatedBgColor = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#F0FDF4', '#DCFCE7'],
-    });
-    animatedBorderColor = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#BBF7D0', '#86EFAC'],
-    });
-    animatedCalHeaderBg = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#059669', '#10B981'],
-    });
+    cardBg = '#F0FDF4';
+    cardBorder = '#BBF7D0';
+    calHeaderBg = '#059669';
   } else if (isYesterday) {
     iconName = 'time-outline';
     iconColor = '#475569';
     badgeTextStyle = styles.yesterdayBadgeText;
-
-    animatedBgColor = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#F8FAFC', '#F1F5F9'],
-    });
-    animatedBorderColor = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#E2E8F0', '#CBD5E1'],
-    });
-    animatedCalHeaderBg = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#475569', '#64748B'],
-    });
-  } else {
-    animatedBgColor = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#FFFFFF', '#F8FAFC'],
-    });
-    animatedBorderColor = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['#E2E8F0', '#CBD5E1'],
-    });
-    animatedCalHeaderBg = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: [Colors.primary, '#2563EB'],
-    });
+    cardBg = '#F8FAFC';
+    cardBorder = '#E2E8F0';
+    calHeaderBg = '#475569';
   }
-
-  // Smooth subtle pulse for live dot
-  const dotOpacity = animValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.45, 1.0],
-  });
-  const dotScale = animValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.85, 1.15],
-  });
 
   return (
     <View style={styles.sectionHeaderContainer}>
-      {/* Animated Date Separator Card */}
-      <Animated.View
+      <View
         style={[
           styles.dateCard,
           Shadows.sm,
           {
-            backgroundColor: animatedBgColor,
-            borderColor: animatedBorderColor,
+            backgroundColor: cardBg,
+            borderColor: cardBorder,
           },
         ]}
       >
-        {/* Animated Mini Calendar Tile */}
+        {/* Mini Calendar Tile */}
         <View style={styles.calendarMiniBlock}>
-          <Animated.View
+          <View
             style={[
               styles.calendarMiniHeader,
-              { backgroundColor: animatedCalHeaderBg },
+              { backgroundColor: calHeaderBg },
             ]}
           >
             <Text style={styles.calendarMiniMonth}>{monthShort}</Text>
-          </Animated.View>
+          </View>
           <View style={styles.calendarMiniBody}>
             <Text style={styles.calendarMiniDay}>{dayNumber}</Text>
           </View>
@@ -143,17 +131,7 @@ const AnimatedDateHeader = ({ section }) => {
           <View style={styles.dateLabelRow}>
             <Ionicons name={iconName} size={13} color={iconColor} style={{ marginRight: 4 }} />
             <Text style={[styles.datePrimaryLabel, badgeTextStyle]}>{primaryLabel}</Text>
-            {isToday && (
-              <Animated.View
-                style={[
-                  styles.livePulseDot,
-                  {
-                    opacity: dotOpacity,
-                    transform: [{ scale: dotScale }],
-                  },
-                ]}
-              />
-            )}
+            {isToday && <TodayLivePulseDot />}
           </View>
           <Text style={styles.dateFullText} numberOfLines={1}>{fullDate}</Text>
         </View>
@@ -177,43 +155,28 @@ const AnimatedDateHeader = ({ section }) => {
             </View>
           )}
         </View>
-      </Animated.View>
+      </View>
     </View>
   );
-};
+});
 
 export const TransactionList = ({
   transactions = [],
   onTransactionPress,
   refreshing = false,
   onRefresh,
+  onEndReached,
+  onEndReachedThreshold = 0.5,
+  isLoadingMore = false,
+  hasMore = true,
   ListHeaderComponent,
   ListEmptyComponent,
 }) => {
   // Group transactions into rich sections by date with stats
   const sections = useMemo(() => {
-    const map = new Map();
+    if (!transactions || transactions.length === 0) return [];
 
-    for (const tx of transactions) {
-      const rawDate = tx.transactionDate || tx.createdAt;
-      const dateObj = parseToDate(rawDate);
-      const dateKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
-      
-      if (!map.has(dateKey)) {
-        map.set(dateKey, {
-          dateObj,
-          dateKey,
-          items: [],
-          totalGot: 0,
-          totalGave: 0,
-        });
-      }
-      const entry = map.get(dateKey);
-      entry.items.push(tx);
-      const amt = Number(tx.amount) || 0;
-      if (tx.type === 'got') entry.totalGot += amt;
-      else if (tx.type === 'gave') entry.totalGave += amt;
-    }
+    const map = new Map();
 
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -221,6 +184,41 @@ export const TransactionList = ({
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+    for (let i = 0; i < transactions.length; i++) {
+      const tx = transactions[i];
+      let dateKey = tx.txDateOnly;
+      let dateObj = null;
+
+      if (!dateKey) {
+        const rawDate = tx.transactionDate || tx.createdAt;
+        dateObj = parseToDate(rawDate);
+        dateKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+      }
+
+      let entry = map.get(dateKey);
+      if (!entry) {
+        if (!dateObj) {
+          const rawDate = tx.transactionDate || tx.createdAt;
+          dateObj = parseToDate(rawDate);
+        }
+        entry = {
+          dateObj,
+          dateKey,
+          items: [],
+          totalGot: 0,
+          totalGave: 0,
+        };
+        map.set(dateKey, entry);
+      }
+      
+      entry.items.push(tx);
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'got') entry.totalGot += amt;
+      else if (tx.type === 'gave') entry.totalGave += amt;
+    }
+
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
     return Array.from(map.values()).map((group) => {
       const isToday = group.dateKey === todayStr;
@@ -230,7 +228,6 @@ export const TransactionList = ({
       if (isToday) primaryLabel = 'TODAY';
       else if (isYesterday) primaryLabel = 'YESTERDAY';
       else {
-        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
         primaryLabel = `${days[group.dateObj.getDay()]}, ${group.dateObj.getDate()} ${MONTH_NAMES_SHORT[group.dateObj.getMonth()]}`;
       }
 
@@ -251,23 +248,54 @@ export const TransactionList = ({
     });
   }, [transactions]);
 
-  const renderSectionHeader = ({ section }) => (
-    <AnimatedDateHeader section={section} />
-  );
+  const renderSectionHeader = useCallback(({ section }) => (
+    <DateHeader section={section} />
+  ), []);
 
-  const renderItem = ({ item }) => (
+  const renderItem = useCallback(({ item }) => (
     <TransactionRow item={item} onPress={onTransactionPress} />
-  );
+  ), [onTransactionPress]);
+
+  const keyExtractor = useCallback((item, index) => {
+    return String(item.id || item.uuid || index);
+  }, []);
+
+  const renderFooter = useCallback(() => {
+    if (isLoadingMore) {
+      return (
+        <View style={styles.footerLoader}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <Text style={styles.footerLoaderText}>Loading older transactions...</Text>
+        </View>
+      );
+    }
+    if (transactions.length > 0 && !hasMore) {
+      return (
+        <View style={styles.footerEnd}>
+          <Text style={styles.footerEndText}>All transactions loaded</Text>
+        </View>
+      );
+    }
+    return null;
+  }, [isLoadingMore, hasMore, transactions.length]);
 
   return (
     <SectionList
       sections={sections}
-      keyExtractor={(item) => String(item.id || item.uuid)}
+      keyExtractor={keyExtractor}
       renderItem={renderItem}
       renderSectionHeader={renderSectionHeader}
       stickySectionHeadersEnabled={true}
       ListHeaderComponent={ListHeaderComponent}
       ListEmptyComponent={ListEmptyComponent}
+      ListFooterComponent={renderFooter}
+      onEndReached={onEndReached}
+      onEndReachedThreshold={onEndReachedThreshold}
+      initialNumToRender={15}
+      maxToRenderPerBatch={15}
+      windowSize={7}
+      updateCellsBatchingPeriod={50}
+      removeClippedSubviews={false}
       refreshControl={
         onRefresh ? (
           <RefreshControl
@@ -408,5 +436,27 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeights.bold,
     color: Colors.textMuted,
     marginHorizontal: 3,
+  },
+  footerLoader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.md,
+    gap: 8,
+  },
+  footerLoaderText: {
+    fontSize: Typography.fontSizes.xs + 1,
+    color: Colors.textSecondary,
+    fontWeight: Typography.fontWeights.medium,
+  },
+  footerEnd: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.md,
+  },
+  footerEndText: {
+    fontSize: Typography.fontSizes.xs,
+    color: Colors.textMuted,
+    fontWeight: Typography.fontWeights.medium,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,6 +8,7 @@ import {
   Modal,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
@@ -42,11 +43,21 @@ const DATE_FILTERS = [
 export const TransactionsScreen = () => {
   const { openTransactionDetails, isAddTransactionOpen, viewingTransactionId } = useApp();
 
+  const PAGE_SIZE = 40;
+
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [selectedDateFilter, setSelectedDateFilter] = useState('all');
   const [transactions, setTransactions] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const isFetchingMoreRef = useRef(false);
+  const prevAddOpen = useRef(isAddTransactionOpen);
+  const prevViewingId = useRef(viewingTransactionId);
 
   // Custom Date Range Modal State
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
@@ -63,42 +74,165 @@ export const TransactionsScreen = () => {
   const [endMonth, setEndMonth] = useState(String(new Date().getMonth() + 1));
   const [endYear, setEndYear] = useState(String(new Date().getFullYear()));
 
-  const loadTransactions = useCallback(() => {
+  // Debounce search input to avoid querying on every keystroke
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 280);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  // Batch fetch helper
+  const fetchBatch = useCallback((offset, limit, filter, dateFilter, cStart, cEnd, searchTerm) => {
     let filterType = null;
     let filterMode = null;
 
-    if (selectedFilter === 'gave') filterType = 'gave';
-    else if (selectedFilter === 'got') filterType = 'got';
-    else if (selectedFilter === 'cash') filterMode = 'cash';
-    else if (selectedFilter === 'online') filterMode = 'online';
+    if (filter === 'gave') filterType = 'gave';
+    else if (filter === 'got') filterType = 'got';
+    else if (filter === 'cash') filterMode = 'cash';
+    else if (filter === 'online') filterMode = 'online';
 
     const { startDate, endDate } = getDateRangePreset(
-      selectedDateFilter,
-      customStartDate,
-      customEndDate
+      dateFilter,
+      cStart,
+      cEnd
     );
 
-    const items = getTransactions({
-      limit: 150,
+    return getTransactions({
+      limit,
+      offset,
       filterType,
       filterMode,
       startDate,
       endDate,
-      search,
+      search: searchTerm,
+      includeImages: false,
     });
+  }, []);
 
-    setTransactions(items);
-  }, [selectedFilter, selectedDateFilter, customStartDate, customEndDate, search]);
+  // Initial load or when filters/search change
+  const loadInitialTransactions = useCallback(() => {
+    setIsLoading(true);
+    try {
+      const items = fetchBatch(
+        0,
+        PAGE_SIZE,
+        selectedFilter,
+        selectedDateFilter,
+        customStartDate,
+        customEndDate,
+        debouncedSearch
+      );
+      setTransactions(items);
+      setHasMore(items.length >= PAGE_SIZE);
+    } catch (e) {
+      console.error('Failed to load initial transactions:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchBatch, selectedFilter, selectedDateFilter, customStartDate, customEndDate, debouncedSearch]);
 
-  useEffect(() => {
-    loadTransactions();
-  }, [loadTransactions, isAddTransactionOpen, viewingTransactionId]);
+  // Infinite scrolling: load next page
+  const handleEndReached = useCallback(() => {
+    if (
+      isFetchingMoreRef.current ||
+      !hasMore ||
+      isLoading ||
+      isLoadingMore ||
+      refreshing
+    ) {
+      return;
+    }
 
-  const handleRefresh = async () => {
+    isFetchingMoreRef.current = true;
+    setIsLoadingMore(true);
+
+    try {
+      const currentOffset = transactions.length;
+      const newItems = fetchBatch(
+        currentOffset,
+        PAGE_SIZE,
+        selectedFilter,
+        selectedDateFilter,
+        customStartDate,
+        customEndDate,
+        debouncedSearch
+      );
+
+      if (!newItems || newItems.length === 0) {
+        setHasMore(false);
+      } else {
+        setTransactions((prev) => {
+          const existingIds = new Set(prev.map((t) => t.id));
+          const filteredNew = newItems.filter((t) => !existingIds.has(t.id));
+          return [...prev, ...filteredNew];
+        });
+        if (newItems.length < PAGE_SIZE) {
+          setHasMore(false);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load more transactions:', e);
+    } finally {
+      isFetchingMoreRef.current = false;
+      setIsLoadingMore(false);
+    }
+  }, [
+    hasMore,
+    isLoading,
+    isLoadingMore,
+    refreshing,
+    transactions.length,
+    fetchBatch,
+    selectedFilter,
+    selectedDateFilter,
+    customStartDate,
+    customEndDate,
+    debouncedSearch,
+  ]);
+
+  // Pull-to-refresh
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    loadTransactions();
-    setRefreshing(false);
-  };
+    try {
+      const items = fetchBatch(
+        0,
+        PAGE_SIZE,
+        selectedFilter,
+        selectedDateFilter,
+        customStartDate,
+        customEndDate,
+        debouncedSearch
+      );
+      setTransactions(items);
+      setHasMore(items.length >= PAGE_SIZE);
+    } catch (e) {
+      console.error('Failed to refresh transactions:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchBatch, selectedFilter, selectedDateFilter, customStartDate, customEndDate, debouncedSearch]);
+
+  // Load when filters or search change
+  useEffect(() => {
+    loadInitialTransactions();
+  }, [loadInitialTransactions]);
+
+  // Reload when Add or Detail modals close to display new/updated transactions
+  useEffect(() => {
+    if (prevAddOpen.current && !isAddTransactionOpen) {
+      loadInitialTransactions();
+    }
+    if (prevViewingId.current && !viewingTransactionId) {
+      loadInitialTransactions();
+    }
+    prevAddOpen.current = isAddTransactionOpen;
+    prevViewingId.current = viewingTransactionId;
+  }, [isAddTransactionOpen, viewingTransactionId, loadInitialTransactions]);
+
+  const handleTransactionPress = useCallback((tx) => {
+    openTransactionDetails(tx.id);
+  }, [openTransactionDetails]);
 
   const handleDateFilterPress = (filterId) => {
     if (filterId === 'custom') {
@@ -267,19 +401,32 @@ export const TransactionsScreen = () => {
       {/* Transaction List */}
       <TransactionList
         transactions={transactions}
-        onTransactionPress={(tx) => openTransactionDetails(tx.id)}
+        onTransactionPress={handleTransactionPress}
         refreshing={refreshing}
         onRefresh={handleRefresh}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.5}
+        isLoadingMore={isLoadingMore}
+        hasMore={hasMore}
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="search-outline" size={44} color={Colors.border} />
-            <Text style={styles.emptyTitle}>No matching transactions</Text>
-            <Text style={styles.emptySubtitle}>
-              {search
-                ? `No transactions matched "${search}".`
-                : 'No transactions found for the selected date range and filters.'}
-            </Text>
-          </View>
+          isLoading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+              <Text style={[styles.emptySubtitle, { marginTop: Spacing.md }]}>
+                Loading transactions...
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="search-outline" size={44} color={Colors.border} />
+              <Text style={styles.emptyTitle}>No matching transactions</Text>
+              <Text style={styles.emptySubtitle}>
+                {debouncedSearch
+                  ? `No transactions matched "${debouncedSearch}".`
+                  : 'No transactions found for the selected date range and filters.'}
+              </Text>
+            </View>
+          )
         }
       />
 

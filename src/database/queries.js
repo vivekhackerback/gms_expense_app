@@ -96,6 +96,7 @@ export const getTransactions = ({
   search = null,          // search string
   partyId = null,
   categoryId = null,
+  includeImages = false,
 } = {}) => {
   const db = getDatabase();
 
@@ -197,7 +198,14 @@ export const getTransactions = ({
 
   const transactions = db.getAllSync(sql, params);
 
-  // Fetch images for transactions in batch
+  if (!includeImages) {
+    return transactions.map((tx) => ({
+      ...tx,
+      images: [],
+    }));
+  }
+
+  // Fetch images for transactions in batch when requested
   return transactions.map((tx) => {
     let images = [];
     if (tx.imageCount > 0) {

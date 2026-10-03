@@ -5,7 +5,7 @@ import { Colors } from '../../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
 import { formatCurrency, formatFullDateTime } from '../../utils/formatters';
 
-export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => {
+const TransactionRowComponent = ({ item, onPress, isRecentYesterday = false }) => {
   const [isNoteExpanded, setIsNoteExpanded] = useState(false);
 
   const isGave = item.type === 'gave';
@@ -194,6 +194,30 @@ export const TransactionRow = ({ item, onPress, isRecentYesterday = false }) => 
     </TouchableOpacity>
   );
 };
+
+export const TransactionRow = React.memo(TransactionRowComponent, (prevProps, nextProps) => {
+  if (prevProps.isRecentYesterday !== nextProps.isRecentYesterday) return false;
+  if (prevProps.onPress !== nextProps.onPress) return false;
+  const p = prevProps.item;
+  const n = nextProps.item;
+  if (p === n) return true;
+  if (!p || !n) return false;
+  return (
+    p.id === n.id &&
+    p.amount === n.amount &&
+    p.type === n.type &&
+    p.paymentMode === n.paymentMode &&
+    p.note === n.note &&
+    p.partyName === n.partyName &&
+    p.categoryName === n.categoryName &&
+    p.categoryIcon === n.categoryIcon &&
+    p.categoryColor === n.categoryColor &&
+    p.imageCount === n.imageCount &&
+    p.runningBalance === n.runningBalance &&
+    p.transactionDate === n.transactionDate &&
+    p.updatedAt === n.updatedAt
+  );
+});
 
 const styles = StyleSheet.create({
   cardStrip: {
