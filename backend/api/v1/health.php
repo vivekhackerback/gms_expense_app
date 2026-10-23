@@ -20,7 +20,8 @@ $response = [
     'execution_ms'    => round((microtime(true) - $startTime) * 1000, 2),
     'message'         => $mysqlConnected 
         ? 'PHP API and MySQL database are working properly.' 
-        : 'PHP server is reachable, but MySQL database connection failed.'
+        : 'PHP server is reachable, but MySQL database connection failed.',
+    'db_error'        => $mysqlConnected ? null : ($GLOBALS['db_connection_error'] ?? 'Database connection failed. Please check db_connect.php credentials.')
 ];
 
 sendJsonResponse($response, $mysqlConnected ? 200 : 503);

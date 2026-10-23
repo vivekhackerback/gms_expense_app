@@ -16,16 +16,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // Database Credentials (Update with your live MySQL settings)
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'gmsexpense_db');
-define('DB_USER', 'gmsexpense_user');
-define('DB_PASS', 'your_mysql_password_here');
+define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
+define('DB_NAME', getenv('DB_NAME') ?: 'gmsexpense_db');
+define('DB_USER', getenv('DB_USER') ?: 'gmsexpense_user');
+define('DB_PASS', getenv('DB_PASS') ?: 'your_mysql_password_here');
 define('DB_CHARSET', 'utf8mb4');
+
+$GLOBALS['db_connection_error'] = null;
 
 function getDbConnection() {
     static $pdo = null;
     if ($pdo !== null) {
         return $pdo;
+    }
+
+    if (defined('DB_PASS') && DB_PASS === 'your_mysql_password_here') {
+        $GLOBALS['db_connection_error'] = "DB_PASS is set to placeholder 'your_mysql_password_here' in db_connect.php. Please set your MySQL database password.";
     }
 
     $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=" . DB_CHARSET;
@@ -39,6 +45,7 @@ function getDbConnection() {
         $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
         return $pdo;
     } catch (PDOException $e) {
+        $GLOBALS['db_connection_error'] = $e->getMessage();
         return null;
     }
 }

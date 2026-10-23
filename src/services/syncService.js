@@ -23,7 +23,7 @@ export const checkNetworkConnectivity = async () => {
   try {
     const networkState = await Network.getNetworkStateAsync();
     return {
-      isConnected: Boolean(networkState.isConnected && networkState.isInternetReachable !== false),
+      isConnected: Boolean(networkState.isConnected || networkState.isInternetReachable !== false),
       type: networkState.type || 'UNKNOWN',
       isWifi: networkState.type === Network.NetworkStateType.WIFI,
     };
@@ -160,7 +160,7 @@ export const testAllApiEndpoints = async () => {
       switch (ep.serviceType) {
         case 'server_health': {
           const isSuccess = json && (json.success === true || json.status === 'healthy' || json.server === 'online');
-          const isMysqlConnected = json && json.mysql_connected !== false;
+          const isMysqlConnected = json && json.mysql_connected === true;
 
           if (statusCode === 200 && isSuccess && isMysqlConnected) {
             results.push({
@@ -173,16 +173,17 @@ export const testAllApiEndpoints = async () => {
             });
             primaryHealthWorking = true;
             primaryStatusMessage = 'Server Online';
-          } else if (statusCode === 200 && isSuccess && !isMysqlConnected) {
+          } else if (statusCode === 503 || (json && json.mysql_connected === false)) {
             results.push({
               ...ep,
               status: 'failed',
-              statusCode: 200,
+              statusCode: statusCode || 503,
               latencyMs: latency,
-              message: `MySQL Disconnected (Database Error · ${latency}ms)`,
+              message: `PHP Online · MySQL Connection Failed (${latency}ms)`,
               details: json,
             });
-            primaryStatusMessage = 'MySQL Disconnected';
+            primaryHealthWorking = true;
+            primaryStatusMessage = 'Server Online (MySQL Degraded)';
           } else {
             results.push({
               ...ep,
@@ -192,6 +193,9 @@ export const testAllApiEndpoints = async () => {
               message: (json && json.message) ? `${json.message} (HTTP ${statusCode})` : `Server Error (HTTP ${statusCode})`,
               details: json,
             });
+            if (statusCode > 0) {
+              primaryHealthWorking = true;
+            }
           }
           break;
         }
@@ -258,6 +262,15 @@ export const testAllApiEndpoints = async () => {
               latencyMs: latency,
               message: `Sync Service Ready · POST Protocol Operational (${latency}ms)`,
             });
+          } else if (statusCode === 503) {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode: 503,
+              latencyMs: latency,
+              message: (json && json.message) || `MySQL Database Offline on Sync Route (${latency}ms)`,
+              details: json,
+            });
           } else {
             results.push({
               ...ep,
@@ -311,6 +324,15 @@ export const testAllApiEndpoints = async () => {
               statusCode: 200,
               latencyMs: latency,
               message: `Backup Service Active · ${json.total_transactions ?? 0} txs recorded (${latency}ms)`,
+              details: json,
+            });
+          } else if (statusCode === 503) {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode: 503,
+              latencyMs: latency,
+              message: (json && json.message) || `MySQL Database Unavailable on Backup Route (${latency}ms)`,
               details: json,
             });
           } else if (statusCode === 500 && rawText.includes('created_at')) {
@@ -443,19 +465,26 @@ export const testAllApiEndpoints = async () => {
     }
   }
 
+  const anyReachable = results.some(r => r.statusCode > 0);
   const allWorking = results.length > 0 && results.every(r => r.status === 'working');
-  const overallText = allWorking
-    ? 'All Services Operational'
-    : (primaryHealthWorking ? 'Server Online (Check Services)' : primaryStatusMessage);
+
+  let overallText = 'All Services Operational';
+  if (!anyReachable) {
+    overallText = 'Server Offline (Host Unreachable)';
+  } else if (!allWorking) {
+    const failedNames = results.filter(r => r.status === 'failed').map(r => r.name.replace(/\s*\(.*\)/, ''));
+    overallText = `Server Online · Issues in: ${failedNames.join(', ')}`;
+  }
 
   addBackupActivityLog(
     'health_check',
-    primaryHealthWorking ? 'success' : 'failed',
-    primaryHealthWorking ? `Server verified: ${overallText} ✓` : `Health check failed: ${overallText}`
+    allWorking ? 'success' : (anyReachable ? 'warning' : 'failed'),
+    `Server health check: ${overallText}`
   );
 
   return {
-    serverConnected: primaryHealthWorking,
+    serverConnected: anyReachable || primaryHealthWorking,
+    allWorking,
     overallStatus: overallText,
     lastChecked: Date.now(),
     endpoints: results,

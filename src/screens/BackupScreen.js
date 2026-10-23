@@ -166,12 +166,22 @@ export const BackupScreen = () => {
       setServerHealthResult(res);
       refreshAll();
       if (!isSilent) {
-        Alert.alert(
-          res.serverConnected ? 'Server Connected' : 'Server Check Result',
-          res.serverConnected
-            ? 'All configured API endpoints are online and responding.'
-            : 'One or more API endpoints are currently unreachable. Please check network connectivity.'
-        );
+        if (!res.serverConnected) {
+          Alert.alert(
+            'Server Unreachable',
+            'Could not reach the backend server. Please verify your internet connection or domain configuration.'
+          );
+        } else if (res.allWorking) {
+          Alert.alert(
+            'All Services Operational',
+            'All 7 server status and API endpoints are online, responding, and healthy.'
+          );
+        } else {
+          Alert.alert(
+            'Server Status Check',
+            `${res.overallStatus}\n\nReview the service list below for specific HTTP codes and error details.`
+          );
+        }
       }
     } catch (e) {
       console.warn('Server test error:', e);
