@@ -49,8 +49,8 @@ foreach ($envCandidatePaths as $envPath) {
 // Database Credentials (Hostinger MySQL Settings)
 define('DB_HOST', getenv('DB_HOST') ?: 'localhost');
 define('DB_NAME', getenv('DB_NAME') ?: 'u109731178_expense_db');
-define('DB_USER', getenv('DB_USER') ?: 'u109731178_expense_user'); // Update with your exact Hostinger user if different
-define('DB_PASS', getenv('DB_PASS') ?: 'your_mysql_password_here'); // Set your Hostinger database password
+define('DB_USER', getenv('DB_USER') ?: 'u109731178_expense_u');
+define('DB_PASS', getenv('DB_PASS') ?: 'Vivek@8651615629');
 define('DB_CHARSET', 'utf8mb4');
 
 $GLOBALS['db_connection_error'] = null;
