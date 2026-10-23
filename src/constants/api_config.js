@@ -46,6 +46,8 @@ export const API_CONFIG = {
   // -------------------------------------------------------------
   /** Endpoint to test server reachability, PHP version & MySQL connection */
   SERVER_HEALTH_URL: `${API_BASE}/health.php`,
+  /** Endpoint to verify API Gateway routes & JSON response schema */
+  API_HEALTH_URL: `${API_BASE}/api_health.php`,
   /** Endpoint to check sync statistics and last backup timestamp for a device */
   BACKUP_STATUS_URL: `${API_BASE}/backup_status.php`,
 

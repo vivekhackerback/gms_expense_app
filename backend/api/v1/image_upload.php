@@ -13,7 +13,31 @@
 
 require_once __DIR__ . '/db_connect.php';
 
-// 1. Validate HTTP Method
+// 1. Validate HTTP Method & Support GET/HEAD Health Checks
+if ($_SERVER['REQUEST_METHOD'] === 'GET' || $_SERVER['REQUEST_METHOD'] === 'HEAD') {
+    $baseUploadsDir = realpath(__DIR__ . '/../../uploads');
+    if (!$baseUploadsDir) {
+        $baseUploadsDir = __DIR__ . '/../../uploads';
+    }
+    $storageWritable = is_dir($baseUploadsDir) ? is_writable($baseUploadsDir) : is_writable(__DIR__ . '/../../');
+    $db = getDbConnection();
+    $dbOk = ($db !== null);
+
+    sendJsonResponse([
+        'success'          => true,
+        'status'           => 'ready',
+        'service'          => 'Transaction Image Upload API',
+        'endpoint'         => 'image_upload.php',
+        'storage_ready'    => $storageWritable,
+        'max_file_size_mb' => 15,
+        'allowed_formats'  => ['jpg', 'jpeg', 'png', 'webp'],
+        'method'           => 'POST (multipart/form-data) required for uploads',
+        'db_ready'         => $dbOk,
+        'server_time'      => time(),
+        'message'          => 'Image upload service is operational and storage directory is ready.'
+    ], 200);
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendJsonResponse([
         'success' => false,

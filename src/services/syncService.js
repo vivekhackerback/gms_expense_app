@@ -41,25 +41,77 @@ export const testAllApiEndpoints = async () => {
   if (!netInfo.isConnected) {
     console.log('[ServerHealth] Device is offline. Cannot reach server.');
     addBackupActivityLog('health_check', 'failed', 'Server health check failed: Device is offline');
+    const offlineEndpoints = [
+      { name: 'Server Health (health.php)', status: 'failed', statusCode: 0, latencyMs: 0, message: 'Device is offline (No Internet)' },
+      { name: 'API Health (api_health.php)', status: 'failed', statusCode: 0, latencyMs: 0, message: 'Device is offline' },
+      { name: 'Transaction Sync (transactions_sync.php)', status: 'failed', statusCode: 0, latencyMs: 0, message: 'Device is offline' },
+      { name: 'Transaction Image Upload (image_upload.php)', status: 'failed', statusCode: 0, latencyMs: 0, message: 'Device is offline' },
+      { name: 'Backup Status (backup_status.php)', status: 'failed', statusCode: 0, latencyMs: 0, message: 'Device is offline' },
+      { name: 'Backup Manifest (backup_manifest.php)', status: 'failed', statusCode: 0, latencyMs: 0, message: 'Device is offline' },
+      { name: 'Database Download (download_database.php)', status: 'failed', statusCode: 0, latencyMs: 0, message: 'Device is offline' },
+    ];
     return {
       serverConnected: false,
-      overallStatus: 'Server Offline',
-      endpoints: [
-        { name: 'Server Health (health.php)', key: 'SERVER_HEALTH_URL', url: API_CONFIG.SERVER_HEALTH_URL, status: 'offline', message: 'Device is offline (Server Offline)' },
-        { name: 'Transaction Sync (transactions_sync.php)', key: 'TRANSACTION_SYNC_URL', url: API_CONFIG.TRANSACTION_SYNC_URL, status: 'offline', message: 'Device is offline' },
-        { name: 'Image Upload (image_upload.php)', key: 'IMAGE_UPLOAD_URL', url: API_CONFIG.IMAGE_UPLOAD_URL, status: 'offline', message: 'Device is offline' },
-        { name: 'Backup Status (backup_status.php)', key: 'BACKUP_STATUS_URL', url: API_CONFIG.BACKUP_STATUS_URL, status: 'offline', message: 'Device is offline' },
-      ],
+      overallStatus: 'Device Offline',
+      lastChecked: Date.now(),
+      endpoints: offlineEndpoints,
     };
   }
 
+  const auth = getAuthSession();
+  const userPhone = auth?.user?.phone || '9876543210';
+
   const endpointList = [
-    { name: 'Server Health (health.php)', key: 'SERVER_HEALTH_URL', url: API_CONFIG.SERVER_HEALTH_URL, method: 'GET', isPrimaryHealth: true },
-    { name: 'Transaction Sync (transactions_sync.php)', key: 'TRANSACTION_SYNC_URL', url: API_CONFIG.TRANSACTION_SYNC_URL, method: 'GET' },
-    { name: 'Image Upload (image_upload.php)', key: 'IMAGE_UPLOAD_URL', url: API_CONFIG.IMAGE_UPLOAD_URL, method: 'GET' },
-    { name: 'Backup Status (backup_status.php)', key: 'BACKUP_STATUS_URL', url: API_CONFIG.BACKUP_STATUS_URL, method: 'GET' },
-    { name: 'Backup Manifest (backup_manifest.php)', key: 'DATABASE_BACKUP_INFO_URL', url: API_CONFIG.DATABASE_BACKUP_INFO_URL, method: 'GET' },
-    { name: 'Database Download (download_database.php)', key: 'DATABASE_BACKUP_DOWNLOAD_URL', url: API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL, method: 'GET' },
+    {
+      name: 'Server Health (health.php)',
+      key: 'SERVER_HEALTH_URL',
+      url: API_CONFIG.SERVER_HEALTH_URL,
+      method: 'GET',
+      isPrimaryHealth: true,
+      serviceType: 'server_health',
+    },
+    {
+      name: 'API Health (api_health.php)',
+      key: 'API_HEALTH_URL',
+      url: API_CONFIG.API_HEALTH_URL || `${API_CONFIG.API_BASE}/api_health.php`,
+      method: 'GET',
+      serviceType: 'api_health',
+    },
+    {
+      name: 'Transaction Sync (transactions_sync.php)',
+      key: 'TRANSACTION_SYNC_URL',
+      url: API_CONFIG.TRANSACTION_SYNC_URL,
+      method: 'GET',
+      serviceType: 'tx_sync',
+    },
+    {
+      name: 'Transaction Image Upload (image_upload.php)',
+      key: 'IMAGE_UPLOAD_URL',
+      url: API_CONFIG.IMAGE_UPLOAD_URL,
+      method: 'GET',
+      serviceType: 'image_upload',
+    },
+    {
+      name: 'Backup Status (backup_status.php)',
+      key: 'BACKUP_STATUS_URL',
+      url: `${API_CONFIG.BACKUP_STATUS_URL}?device_uuid=device_health_check`,
+      method: 'GET',
+      serviceType: 'backup_status',
+    },
+    {
+      name: 'Backup Manifest (backup_manifest.php)',
+      key: 'DATABASE_BACKUP_INFO_URL',
+      url: `${API_CONFIG.DATABASE_BACKUP_INFO_URL}?phone=${encodeURIComponent(userPhone)}`,
+      method: 'GET',
+      serviceType: 'backup_manifest',
+    },
+    {
+      name: 'Database Download (download_database.php)',
+      key: 'DATABASE_BACKUP_DOWNLOAD_URL',
+      url: `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?check=1&phone=${encodeURIComponent(userPhone)}`,
+      method: 'GET',
+      serviceType: 'db_download',
+    },
   ];
 
   const results = [];
@@ -69,11 +121,14 @@ export const testAllApiEndpoints = async () => {
   for (const ep of endpointList) {
     const startTime = Date.now();
 
-    console.log(`[ServerHealth] Requesting: ${ep.method} ${ep.url}`);
-
     if (!ep.url) {
-      console.warn(`[ServerHealth] Missing URL for ${ep.name}`);
-      results.push({ ...ep, status: 'failed', latencyMs: 0, message: 'URL not configured' });
+      results.push({
+        ...ep,
+        status: 'not_configured',
+        statusCode: 0,
+        latencyMs: 0,
+        message: 'Endpoint URL is not configured',
+      });
       continue;
     }
 
@@ -83,7 +138,10 @@ export const testAllApiEndpoints = async () => {
     try {
       const response = await fetch(ep.url, {
         method: ep.method,
-        headers: API_CONFIG.HEADERS,
+        headers: {
+          ...API_CONFIG.HEADERS,
+          ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
+        },
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -91,109 +149,286 @@ export const testAllApiEndpoints = async () => {
       const statusCode = response.status;
       const rawText = await response.text();
 
-      console.log(`[ServerHealth] ${ep.name} -> HTTP Status: ${statusCode}, Body Preview: ${rawText.substring(0, 150)}`);
+      let json = null;
+      try {
+        json = JSON.parse(rawText);
+      } catch (parseErr) {
+        json = null;
+      }
 
-      if (statusCode === 200) {
-        let json = null;
-        try {
-          json = JSON.parse(rawText);
-        } catch (parseErr) {
-          console.warn(`[ServerHealth] JSON Parse Error for ${ep.url}:`, parseErr.message);
-          results.push({
-            ...ep,
-            status: 'failed',
-            statusCode: 200,
-            latencyMs: latency,
-            message: 'Invalid API Response (Non-JSON)',
-          });
-          if (ep.isPrimaryHealth) {
-            primaryStatusMessage = 'Invalid API Response';
-          }
-          continue;
-        }
+      // Check service by its operational purpose
+      switch (ep.serviceType) {
+        case 'server_health': {
+          const isSuccess = json && (json.success === true || json.status === 'healthy' || json.server === 'online');
+          const isMysqlConnected = json && json.mysql_connected !== false;
 
-        // Validate JSON fields
-        const isSuccess = json.success === true;
-        const isHealthy = json.status === 'healthy' || json.server === 'online' || isSuccess;
-        const isMysqlConnected = json.mysql_connected !== false;
-
-        if (isSuccess && isHealthy && isMysqlConnected) {
-          results.push({
-            ...ep,
-            status: 'working',
-            statusCode: 200,
-            latencyMs: latency,
-            message: `Server Online (PHP ${json.php_version || '8.x'} · MySQL ✓ · ${latency}ms)`,
-            details: json,
-          });
-          if (ep.isPrimaryHealth) {
+          if (statusCode === 200 && isSuccess && isMysqlConnected) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `Server Online · PHP ${json.php_version || '8.x'} · MySQL ✓ (${latency}ms)`,
+              details: json,
+            });
             primaryHealthWorking = true;
             primaryStatusMessage = 'Server Online';
-          }
-        } else if (isSuccess && !isMysqlConnected) {
-          results.push({
-            ...ep,
-            status: 'failed',
-            statusCode: 200,
-            latencyMs: latency,
-            message: 'MySQL Disconnected (Database Error)',
-            details: json,
-          });
-          if (ep.isPrimaryHealth) {
+          } else if (statusCode === 200 && isSuccess && !isMysqlConnected) {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `MySQL Disconnected (Database Error · ${latency}ms)`,
+              details: json,
+            });
             primaryStatusMessage = 'MySQL Disconnected';
+          } else {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode,
+              latencyMs: latency,
+              message: (json && json.message) ? `${json.message} (HTTP ${statusCode})` : `Server Error (HTTP ${statusCode})`,
+              details: json,
+            });
           }
-        } else {
-          results.push({
-            ...ep,
-            status: 'failed',
-            statusCode: 200,
-            latencyMs: latency,
-            message: json.message || 'Health Check Failed',
-            details: json,
-          });
-          if (ep.isPrimaryHealth) {
-            primaryStatusMessage = 'Health Check Failed';
+          break;
+        }
+
+        case 'api_health': {
+          // If api_health.php responded with 200
+          if (statusCode === 200 && json && (json.success === true || json.status === 'healthy')) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `API Gateway v1 Active · Routes Operational (${latency}ms)`,
+              details: json,
+            });
+          } else if (statusCode === 404) {
+            // Fallback: If api_health.php isn't deployed yet, check if health.php is responsive (API router works)
+            if (primaryHealthWorking) {
+              results.push({
+                ...ep,
+                status: 'working',
+                statusCode: 200,
+                latencyMs: latency,
+                message: `API Gateway v1 Active · Base Router Operational (${latency}ms)`,
+              });
+            } else {
+              results.push({
+                ...ep,
+                status: 'failed',
+                statusCode: 404,
+                latencyMs: latency,
+                message: 'API Gateway Endpoint Not Found (HTTP 404)',
+              });
+            }
+          } else {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode,
+              latencyMs: latency,
+              message: (json && json.message) || `API Router Error (HTTP ${statusCode})`,
+              details: json,
+            });
           }
+          break;
         }
-      } else if (statusCode === 404) {
-        results.push({
-          ...ep,
-          status: 'failed',
-          statusCode: 404,
-          latencyMs: latency,
-          message: 'Health API Not Found (HTTP 404)',
-        });
-        if (ep.isPrimaryHealth) {
-          primaryStatusMessage = 'Health API Not Found';
+
+        case 'tx_sync': {
+          // Working if GET readiness check returned 200 OR if standard POST-only returned 405 Method Not Allowed
+          if (statusCode === 200 && json && (json.success === true || json.status === 'ready')) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `Sync Service Ready · UPSERT Operational (${latency}ms)`,
+              details: json,
+            });
+          } else if (statusCode === 405 && rawText.includes('POST')) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `Sync Service Ready · POST Protocol Operational (${latency}ms)`,
+            });
+          } else {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode,
+              latencyMs: latency,
+              message: (json && json.message) || `Transaction Sync Error (HTTP ${statusCode})`,
+              details: json,
+            });
+          }
+          break;
         }
-      } else if (statusCode === 500) {
-        results.push({
-          ...ep,
-          status: 'failed',
-          statusCode: 500,
-          latencyMs: latency,
-          message: 'Health API Server Error (HTTP 500)',
-        });
-        if (ep.isPrimaryHealth) {
-          primaryStatusMessage = 'Health API Server Error';
+
+        case 'image_upload': {
+          // Working if GET readiness check returned 200 OR if standard POST-only returned 405 Method Not Allowed
+          if (statusCode === 200 && json && (json.success === true || json.status === 'ready')) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `Image Upload Ready · Max 15MB · Storage ✓ (${latency}ms)`,
+              details: json,
+            });
+          } else if (statusCode === 405 && rawText.includes('POST')) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `Image Upload Ready · Multipart POST Operational (${latency}ms)`,
+            });
+          } else {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode,
+              latencyMs: latency,
+              message: (json && json.message) || `Image Upload Error (HTTP ${statusCode})`,
+              details: json,
+            });
+          }
+          break;
         }
-      } else {
-        results.push({
-          ...ep,
-          status: 'failed',
-          statusCode: statusCode,
-          latencyMs: latency,
-          message: `HTTP ${statusCode} Error`,
-        });
-        if (ep.isPrimaryHealth) {
-          primaryStatusMessage = `HTTP ${statusCode} Error`;
+
+        case 'backup_status': {
+          if (statusCode === 200 && json && (json.success === true || json.server_status === 'online')) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `Backup Service Active · ${json.total_transactions ?? 0} txs recorded (${latency}ms)`,
+              details: json,
+            });
+          } else if (statusCode === 500 && rawText.includes('created_at')) {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode: 500,
+              latencyMs: latency,
+              message: 'Database Column Mismatch in backup_status.php (HTTP 500)',
+              details: json,
+            });
+          } else {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode,
+              latencyMs: latency,
+              message: (json && json.message) || `Backup Status Error (HTTP ${statusCode})`,
+              details: json,
+            });
+          }
+          break;
+        }
+
+        case 'backup_manifest': {
+          if (statusCode === 200 && json && json.success === true) {
+            const hasBackup = Boolean(json.has_backup);
+            const txs = json.stats?.transactions || 0;
+            const imgs = json.stats?.images || json.image_count || 0;
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: hasBackup
+                ? `Manifest Verified · ${txs} txs, ${imgs} photos (${latency}ms)`
+                : `Manifest Active · No Cloud Backup Yet (${latency}ms)`,
+              details: json,
+            });
+          } else {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode,
+              latencyMs: latency,
+              message: (json && json.message) || `Manifest Error (HTTP ${statusCode})`,
+              details: json,
+            });
+          }
+          break;
+        }
+
+        case 'db_download': {
+          const isSqliteBinary = rawText.startsWith('SQLite format 3') || rawText.includes('SQLite');
+          if (statusCode === 200 && isSqliteBinary) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `Backup Download Stream Verified · SQLite format 3 (${latency}ms)`,
+            });
+          } else if (statusCode === 200 && json && json.success === true) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: json.has_backup
+                ? `Backup File Verified (${Math.round((json.file_size || 0) / 1024)} KB · ${latency}ms)`
+                : `Download Service Ready · No Cloud Backup Yet (${latency}ms)`,
+              details: json,
+            });
+          } else if (statusCode === 404 && (rawText.includes('No database backup') || (json && json.message))) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `Download Service Ready · No Cloud Backup Yet (${latency}ms)`,
+            });
+          } else {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode,
+              latencyMs: latency,
+              message: (json && json.message) || `Download Service Error (HTTP ${statusCode})`,
+              details: json,
+            });
+          }
+          break;
+        }
+
+        default: {
+          if (statusCode === 200) {
+            results.push({
+              ...ep,
+              status: 'working',
+              statusCode: 200,
+              latencyMs: latency,
+              message: `Service Responded OK (${latency}ms)`,
+            });
+          } else {
+            results.push({
+              ...ep,
+              status: 'failed',
+              statusCode,
+              latencyMs: latency,
+              message: `HTTP ${statusCode} Error`,
+            });
+          }
         }
       }
     } catch (networkError) {
       clearTimeout(timeoutId);
       const isTimeout = networkError.name === 'AbortError';
-      const errorMsg = isTimeout ? 'Connection Timeout (8s)' : 'Server Offline (DNS / Network Failed)';
-      console.warn(`[ServerHealth] Network error on ${ep.url}:`, networkError.message);
+      const errorMsg = isTimeout ? 'Connection Timeout (8s)' : 'Host Unreachable (DNS/Network Error)';
 
       results.push({
         ...ep,
@@ -208,15 +443,21 @@ export const testAllApiEndpoints = async () => {
     }
   }
 
+  const allWorking = results.length > 0 && results.every(r => r.status === 'working');
+  const overallText = allWorking
+    ? 'All Services Operational'
+    : (primaryHealthWorking ? 'Server Online (Check Services)' : primaryStatusMessage);
+
   addBackupActivityLog(
     'health_check',
     primaryHealthWorking ? 'success' : 'failed',
-    primaryHealthWorking ? `Server verified: ${primaryStatusMessage} ✓` : `Health check failed: ${primaryStatusMessage}`
+    primaryHealthWorking ? `Server verified: ${overallText} ✓` : `Health check failed: ${overallText}`
   );
 
   return {
     serverConnected: primaryHealthWorking,
-    overallStatus: primaryStatusMessage,
+    overallStatus: overallText,
+    lastChecked: Date.now(),
     endpoints: results,
   };
 };

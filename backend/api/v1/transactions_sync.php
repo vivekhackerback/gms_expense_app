@@ -10,6 +10,24 @@
 
 require_once __DIR__ . '/db_connect.php';
 
+// Health check / readiness ping
+if ($_SERVER['REQUEST_METHOD'] === 'GET' || $_SERVER['REQUEST_METHOD'] === 'HEAD') {
+    $db = getDbConnection();
+    $dbOk = ($db !== null);
+    sendJsonResponse([
+        'success'     => $dbOk,
+        'status'      => $dbOk ? 'ready' : 'degraded',
+        'service'     => 'Transaction Sync API',
+        'endpoint'    => 'transactions_sync.php',
+        'db_ready'    => $dbOk,
+        'method'      => 'POST required for batch sync',
+        'server_time' => time(),
+        'message'     => $dbOk 
+            ? 'Transaction sync endpoint is operational and ready to receive POST sync batches.' 
+            : 'Database connection failed on transaction sync service.'
+    ], $dbOk ? 200 : 503);
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     sendJsonResponse([
         'success' => false,

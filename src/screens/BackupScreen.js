@@ -31,6 +31,65 @@ const SCHEDULE_PRESETS = [
   { label: '11:00 PM', time: '23:00' },
 ];
 
+const DEFAULT_ENDPOINT_SERVICES = [
+  { name: 'Server Health (health.php)', status: 'unknown', message: 'Ready to verify server availability' },
+  { name: 'API Health (api_health.php)', status: 'unknown', message: 'Ready to verify API routing' },
+  { name: 'Transaction Sync (transactions_sync.php)', status: 'unknown', message: 'Ready to verify transaction sync' },
+  { name: 'Transaction Image Upload (image_upload.php)', status: 'unknown', message: 'Ready to verify image upload readiness' },
+  { name: 'Backup Status (backup_status.php)', status: 'unknown', message: 'Ready to check backup stats' },
+  { name: 'Database Download (download_database.php)', status: 'unknown', message: 'Ready to check database download' },
+  { name: 'Backup Manifest (backup_manifest.php)', status: 'unknown', message: 'Ready to verify backup manifest' },
+];
+
+const getServiceStatusDisplay = (status, isChecking) => {
+  if (isChecking) {
+    return {
+      text: 'Checking',
+      color: '#2563EB',
+      dotColor: '#3B82F6',
+      badgeBg: '#EFF6FF',
+    };
+  }
+  switch (status) {
+    case 'working':
+      return {
+        text: 'Working',
+        color: '#059669',
+        dotColor: '#059669',
+        badgeBg: '#ECFDF5',
+      };
+    case 'failed':
+      return {
+        text: 'Failed',
+        color: '#DC2626',
+        dotColor: '#DC2626',
+        badgeBg: '#FEF2F2',
+      };
+    case 'not_configured':
+      return {
+        text: 'Not Configured',
+        color: '#D97706',
+        dotColor: '#D97706',
+        badgeBg: '#FFFBEB',
+      };
+    case 'checking':
+      return {
+        text: 'Checking',
+        color: '#2563EB',
+        dotColor: '#3B82F6',
+        badgeBg: '#EFF6FF',
+      };
+    case 'unknown':
+    default:
+      return {
+        text: 'Unknown',
+        color: '#64748B',
+        dotColor: '#94A3B8',
+        badgeBg: '#F1F5F9',
+      };
+  }
+};
+
 export const BackupScreen = () => {
   const insets = useSafeAreaInsets();
   const {
@@ -94,6 +153,11 @@ export const BackupScreen = () => {
     const backHandlerSubscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => backHandlerSubscription.remove();
   }, [setActiveTab]);
+
+  // Silently check server & API health once on mount
+  useEffect(() => {
+    handleTestServerConnection(true);
+  }, []);
 
   const handleTestServerConnection = async (isSilent = false) => {
     setIsTestingServer(true);
@@ -525,17 +589,21 @@ export const BackupScreen = () => {
             </View>
             <View style={[
               styles.statusTag,
-              serverHealthResult
-                ? (serverHealthResult.serverConnected ? styles.tagSynced : styles.tagFailed)
-                : { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' }
+              isTestingServer
+                ? { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }
+                : serverHealthResult
+                  ? (serverHealthResult.serverConnected ? styles.tagSynced : styles.tagFailed)
+                  : { backgroundColor: '#F1F5F9', borderColor: '#E2E8F0' }
             ]}>
               <Text style={[
                 styles.statusTagText,
-                serverHealthResult
-                  ? (serverHealthResult.serverConnected ? styles.tagTextSynced : styles.tagTextFailed)
-                  : { color: '#64748B' }
+                isTestingServer
+                  ? { color: '#2563EB' }
+                  : serverHealthResult
+                    ? (serverHealthResult.serverConnected ? styles.tagTextSynced : styles.tagTextFailed)
+                    : { color: '#64748B' }
               ]}>
-                {isTestingServer ? 'Checking...' : (serverHealthResult ? (serverHealthResult.serverConnected ? 'Server Online' : 'Server Offline') : 'Not Tested')}
+                {isTestingServer ? 'Checking' : (serverHealthResult ? (serverHealthResult.serverConnected ? 'Working' : 'Failed') : 'Unknown')}
               </Text>
             </View>
           </View>
@@ -546,32 +614,44 @@ export const BackupScreen = () => {
 
           {/* Endpoints Health List */}
           <View style={styles.endpointTable}>
-            {(serverHealthResult?.endpoints || [
-              { name: 'Server Health (health.php)', status: 'idle', message: 'Press "Test Server Connection" to verify' },
-              { name: 'Transaction Sync (transactions_sync.php)', status: 'idle', message: 'Press "Test Server Connection" to verify' },
-              { name: 'Backup Status (backup_status.php)', status: 'idle', message: 'Press "Test Server Connection" to verify' },
-              { name: 'Database Download (download_database.php)', status: 'idle', message: 'Press "Test Server Connection" to verify' },
-            ]).map((ep, idx) => {
-              const isWorking = ep.status === 'working';
-              const isChecking = ep.status === 'checking';
-              const isIdle = ep.status === 'idle';
-              const dotColor = isWorking ? '#059669' : (isChecking ? '#3B82F6' : (isIdle ? '#94A3B8' : '#DC2626'));
-              const textColor = isWorking ? '#059669' : (isChecking ? '#2563EB' : (isIdle ? '#64748B' : '#DC2626'));
+            {(serverHealthResult?.endpoints || DEFAULT_ENDPOINT_SERVICES).map((ep, idx) => {
+              const currentStatus = isTestingServer ? 'checking' : (ep.status || 'unknown');
+              const statusInfo = getServiceStatusDisplay(currentStatus, isTestingServer);
 
               return (
-                <View key={idx} style={[styles.endpointRow, idx > 0 && styles.endpointBorder]}>
+                <View key={ep.name || idx} style={[styles.endpointRow, idx > 0 && styles.endpointBorder]}>
                   <View style={styles.endpointLeft}>
-                    <View style={[styles.healthDot, { backgroundColor: dotColor }]} />
+                    <View style={[styles.healthDot, { backgroundColor: statusInfo.dotColor }]} />
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.endpointName}>{ep.name}</Text>
-                      <Text style={styles.endpointUrl} numberOfLines={1}>{ep.message || ep.url || ep.name}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <Text style={styles.endpointName}>{ep.name}</Text>
+                        {ep.statusCode && ep.statusCode > 0 ? (
+                          <View style={[
+                            styles.httpStatusBadge,
+                            ep.statusCode === 200 ? styles.httpStatus200 : (ep.statusCode >= 500 ? styles.httpStatus500 : styles.httpStatusOther)
+                          ]}>
+                            <Text style={styles.httpStatusBadgeText}>HTTP {ep.statusCode}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text
+                        style={[
+                          styles.endpointUrl,
+                          ep.status === 'failed' && { color: '#DC2626' }
+                        ]}
+                        numberOfLines={2}
+                      >
+                        {ep.message || ep.url || ep.name}
+                      </Text>
                     </View>
                   </View>
 
                   <View style={styles.endpointRight}>
-                    <Text style={[styles.endpointStatusText, { color: textColor }]}>
-                      {isWorking ? '✓ Working' : (isChecking ? '● Checking' : (isIdle ? '○ Ready' : '✕ Failed'))}
-                    </Text>
+                    <View style={[styles.statusBadgePill, { backgroundColor: statusInfo.badgeBg }]}>
+                      <Text style={[styles.endpointStatusText, { color: statusInfo.color }]}>
+                        {statusInfo.text}
+                      </Text>
+                    </View>
                     {ep.latencyMs ? (
                       <Text style={styles.endpointLatency}>{ep.latencyMs}ms</Text>
                     ) : null}
@@ -581,6 +661,24 @@ export const BackupScreen = () => {
             })}
           </View>
 
+          {serverHealthResult?.lastChecked ? (
+            <View style={styles.healthTimestampRow}>
+              <Ionicons name="time-outline" size={13} color={Colors.textMuted} style={{ marginRight: 4 }} />
+              <Text style={styles.healthTimestampText}>
+                Last checked: {formatFullDateTime(serverHealthResult.lastChecked).combined}
+              </Text>
+              <TouchableOpacity
+                onPress={() => handleTestServerConnection(false)}
+                disabled={isTestingServer}
+                style={styles.inlineRetryBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="refresh" size={12} color={Colors.primary} style={{ marginRight: 3 }} />
+                <Text style={styles.inlineRetryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           <TouchableOpacity
             style={[styles.testServerBtn, isTestingServer && styles.actionBtnDisabled]}
             onPress={() => handleTestServerConnection(false)}
@@ -588,11 +686,16 @@ export const BackupScreen = () => {
             activeOpacity={0.8}
           >
             {isTestingServer ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <View style={styles.btnRow}>
+                <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.testServerBtnText}>Checking 7 Services...</Text>
+              </View>
             ) : (
               <View style={styles.btnRow}>
-                <Ionicons name="pulse-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.testServerBtnText}>Test Server Connection</Text>
+                <Ionicons name={serverHealthResult ? "refresh-outline" : "pulse-outline"} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.testServerBtnText}>
+                  {serverHealthResult ? 'Retry / Test All Services' : 'Test Server Connection'}
+                </Text>
               </View>
             )}
           </TouchableOpacity>
@@ -1482,15 +1585,68 @@ const styles = StyleSheet.create({
   },
   endpointRight: {
     alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  statusBadgePill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   endpointStatusText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: Typography.fontWeights.bold,
   },
   endpointLatency: {
     fontSize: 9.5,
     color: Colors.textMuted,
-    marginTop: 1,
+    marginTop: 2,
+  },
+  httpStatusBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  httpStatus200: {
+    backgroundColor: '#ECFDF5',
+  },
+  httpStatus500: {
+    backgroundColor: '#FEF2F2',
+  },
+  httpStatusOther: {
+    backgroundColor: '#F1F5F9',
+  },
+  httpStatusBadgeText: {
+    fontSize: 9,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textSecondary,
+  },
+  healthTimestampRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.sm,
+    paddingHorizontal: 2,
+  },
+  healthTimestampText: {
+    fontSize: 11,
+    color: Colors.textMuted,
+    flex: 1,
+  },
+  inlineRetryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  inlineRetryText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.primary,
   },
   testServerBtn: {
     backgroundColor: Colors.primaryDark,

@@ -21,6 +21,26 @@ if (!$baseUploadsDir) {
 
 $userDbFile = $baseUploadsDir . '/users/' . $cleanPhone . '/database/expenses_khata.db';
 
+// Support health check / readiness verification without streaming binary bytes
+$isCheckOnly = isset($_GET['check']) || isset($_GET['health']) || $_SERVER['REQUEST_METHOD'] === 'HEAD';
+if ($isCheckOnly) {
+    $hasBackup = file_exists($userDbFile);
+    $fileSize = $hasBackup ? filesize($userDbFile) : 0;
+    sendJsonResponse([
+        'success'       => true,
+        'status'        => 'ready',
+        'service'       => 'Database Download API',
+        'endpoint'      => 'download_database.php',
+        'has_backup'    => $hasBackup,
+        'phone'         => $cleanPhone,
+        'file_size'     => $fileSize,
+        'last_modified' => $hasBackup ? filemtime($userDbFile) : null,
+        'message'       => $hasBackup 
+            ? 'Database backup file is verified and ready for download (' . round($fileSize / 1024, 1) . ' KB).'
+            : 'Database download endpoint is reachable and authorized (No cloud database uploaded yet for this user).'
+    ], 200);
+}
+
 if (!file_exists($userDbFile)) {
     sendJsonResponse([
         'success' => false,
