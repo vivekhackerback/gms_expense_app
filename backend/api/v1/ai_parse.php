@@ -143,44 +143,73 @@ try {
         $dbConnected = true;
 
         // 1. Auto-create ai_api_key table if not existing
-        $db->exec("
-            CREATE TABLE IF NOT EXISTS ai_api_key (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                provider VARCHAR(50) NOT NULL DEFAULT 'Airouter',
-                model VARCHAR(100) NOT NULL DEFAULT 'google/gemini-2.5-flash-lite',
-                api TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-        ");
-
-        // 2. Check if table is empty -> If empty, insert dummy API key template
-        $countStmt = $db->query("SELECT COUNT(*) AS cnt FROM ai_api_key");
-        $countRow = $countStmt ? $countStmt->fetch() : null;
-        $totalRows = intval($countRow['cnt'] ?? 0);
-
-        if ($totalRows === 0) {
-            $dummyKey = 'sk-air-v1-YOUR_AIR_ROUTER_API_KEY_HERE';
-            $insertStmt = $db->prepare("INSERT INTO ai_api_key (provider, model, api) VALUES (?, ?, ?)");
-            $insertStmt->execute(['Airouter', 'google/gemini-2.5-flash-lite', $dummyKey]);
-            logAiHit('INFO', 'Auto-created ai_api_key table and inserted dummy key template (sk-air-v1-YOUR_AIR_ROUTER_API_KEY_HERE).');
+        try {
+            $db->exec("
+                CREATE TABLE IF NOT EXISTS ai_api_key (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    provider VARCHAR(50) NOT NULL DEFAULT 'Airouter',
+                    model VARCHAR(100) NOT NULL DEFAULT 'google/gemini-2.5-flash-lite',
+                    api TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ");
+        } catch (Exception $tblEx) {
+            // Table might already exist with custom schema, continue
         }
 
-        // 3. Fetch active API key from table
-        $stmt = $db->query("SELECT provider, model, api FROM ai_api_key WHERE api IS NOT NULL AND api != '' ORDER BY id DESC LIMIT 1");
-        $row = $stmt->fetch();
-        if ($row && !empty($row['api'])) {
-            $aiApiKey = trim($row['api']);
-            $keySource = 'MySQL Database (Table: ai_api_key)';
-            $dbKeyFound = true;
-            if (strpos($aiApiKey, 'YOUR_AIR_ROUTER_API_KEY') !== false || strpos($aiApiKey, 'sk-air-v1-xxx') !== false) {
-                $isDummyKey = true;
+        // 2. Fetch active row from ai_api_key using SELECT * (supports any column: api, api_key, key, token, etc.)
+        $stmt = null;
+        try {
+            $stmt = $db->query("SELECT * FROM ai_api_key ORDER BY id DESC LIMIT 1");
+        } catch (Exception $qEx1) {
+            try {
+                $stmt = $db->query("SELECT * FROM ai_api_key LIMIT 1");
+            } catch (Exception $qEx2) {
+                $dbError = "Query ai_api_key error: " . $qEx2->getMessage();
             }
-            if (!empty($row['model'])) $aiModel = trim($row['model']);
-            if (!empty($row['provider'])) $aiProvider = trim($row['provider']);
+        }
+
+        $row = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : null;
+        if ($row) {
+            $extractedKey = null;
+            $extractedProvider = $row['provider'] ?? ($row['service'] ?? 'Airouter');
+            $extractedModel = $row['model'] ?? ($row['ai_model'] ?? 'google/gemini-2.5-flash-lite');
+
+            // Check known column names in priority order
+            foreach (['api', 'api_key', 'apikey', 'key', 'token', 'key_value', 'value', 'secret'] as $colName) {
+                if (isset($row[$colName]) && !empty(trim((string)$row[$colName]))) {
+                    $extractedKey = trim((string)$row[$colName]);
+                    break;
+                }
+            }
+
+            // Fallback: scan all columns for a key pattern or string starting with sk-
+            if (empty($extractedKey)) {
+                foreach ($row as $colName => $colVal) {
+                    if (is_string($colVal) && !in_array($colName, ['id', 'provider', 'model', 'created_at', 'updated_at'])) {
+                        $trimmedVal = trim($colVal);
+                        if (strpos($trimmedVal, 'sk-') === 0 || strlen($trimmedVal) >= 15) {
+                            $extractedKey = $trimmedVal;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!empty($extractedKey)) {
+                $aiApiKey = $extractedKey;
+                $keySource = 'MySQL Database (ai_api_key)';
+                $dbKeyFound = true;
+                if (strpos($aiApiKey, 'YOUR_AIR_ROUTER_API_KEY') !== false || strpos($aiApiKey, 'sk-air-v1-xxx') !== false) {
+                    $isDummyKey = true;
+                }
+                if (!empty($extractedModel)) $aiModel = trim($extractedModel);
+                if (!empty($extractedProvider)) $aiProvider = trim($extractedProvider);
+            }
         }
     } else {
-        $dbError = 'Database connection returned null';
+        $dbError = $GLOBALS['db_connection_error'] ?? 'Database connection returned null. Please verify database credentials in db_connect.php.';
         logAiHit('WARNING', 'Database Connection Returned Null', ['error' => $dbError]);
     }
 } catch (Exception $dbEx) {
