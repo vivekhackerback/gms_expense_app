@@ -312,22 +312,239 @@ export const processSyncQueue = async () => {
   return syncTextData();
 };
 
+import { resolveLocalImageUri, getImageMimeType } from './imageService';
+
+let isImageUploadInProgress = false;
+
 /**
- * Receipt Image Upload (Paused for now - Future Feature)
+ * Receipt Image Upload
+ * Fetches pending transaction images from SQLite, constructs multipart/form-data payloads,
+ * sends them to IMAGE_UPLOAD_URL, and updates SQLite status upon server confirmation.
  */
-export const uploadPendingImages = async () => {
-  return {
-    success: true,
-    count: 0,
-    message: 'Image backup is currently paused and will be enabled in a future release.',
-  };
+export const uploadPendingImages = async (customBatchLimit = 20) => {
+  if (isImageUploadInProgress) {
+    console.log('[ImageSync] Image upload already in progress, skipping duplicate request.');
+    return { success: true, count: 0, message: 'Image upload already in progress.' };
+  }
+
+  const netInfo = await checkNetworkConnectivity();
+  if (!netInfo.isConnected) {
+    const offlineMsg = 'Device is offline. Pending receipt images will upload automatically once connected.';
+    addBackupActivityLog('image_upload', 'pending', offlineMsg);
+    return { success: false, count: 0, message: offlineMsg, offline: true };
+  }
+
+  const auth = getAuthSession();
+  if (!auth.isLoggedIn) {
+    return {
+      success: false,
+      count: 0,
+      requiresLogin: true,
+      message: 'Please sign in to upload receipt images to cloud.',
+    };
+  }
+
+  const userPhone = auth?.user?.phone || '9876543210';
+  const userId = auth?.user?.id || 1;
+
+  const pendingList = getPendingImages(customBatchLimit);
+  const pendingCount = pendingList.length;
+
+  if (pendingCount === 0) {
+    return {
+      success: true,
+      count: 0,
+      failedCount: 0,
+      message: 'All receipt photos are synchronized with server.',
+    };
+  }
+
+  isImageUploadInProgress = true;
+  const pendingIds = pendingList.map(img => img.id).filter(Boolean);
+  markImagesUploading(pendingIds);
+
+  let successCount = 0;
+  let failedCount = 0;
+  const failedIds = [];
+  const confirmedImages = [];
+
+  console.log(`[ImageSync] Starting upload of ${pendingCount} pending receipt images...`);
+
+  try {
+    for (const img of pendingList) {
+      try {
+        // 1. Resolve local file path on device
+        const resolvedUri = await resolveLocalImageUri(img.local_uri, img.file_name);
+        if (!resolvedUri) {
+          console.warn(`[ImageSync] File not found on device for image ID ${img.id}:`, img.local_uri);
+          failedCount++;
+          failedIds.push(img.id);
+          addBackupActivityLog('image_upload', 'failed', `File not found on device: ${img.file_name || 'receipt'}`);
+          continue;
+        }
+
+        // 2. Prepare FormData payload
+        const fileName = img.file_name || resolvedUri.split('/').pop() || `receipt_${Date.now()}.jpg`;
+        const mimeType = getImageMimeType(resolvedUri, fileName);
+
+        const formData = new FormData();
+        formData.append('file', {
+          uri: resolvedUri,
+          name: fileName,
+          type: mimeType,
+        });
+
+        const txUuid = img.transaction_uuid || `TXN_${img.transaction_id || Date.now()}`;
+        formData.append('transaction_uuid', txUuid);
+        if (img.transaction_id) {
+          formData.append('transaction_id', String(img.transaction_id));
+        }
+        formData.append('phone', String(userPhone));
+        formData.append('user_id', String(userId));
+        formData.append('file_name', fileName);
+
+        // 3. Send upload request to PHP backend
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout per photo
+
+        const response = await fetch(API_CONFIG.IMAGE_UPLOAD_URL, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
+            ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
+          },
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        const rawText = await response.text();
+        if (!response.ok) {
+          console.error(`[ImageSync] Upload HTTP ${response.status} for ${fileName}:`, rawText);
+          failedCount++;
+          failedIds.push(img.id);
+          addBackupActivityLog('image_upload', 'failed', `Upload failed (HTTP ${response.status}): ${fileName}`);
+          continue;
+        }
+
+        let json = null;
+        try {
+          json = JSON.parse(rawText);
+        } catch (pe) {
+          console.error(`[ImageSync] Invalid JSON response for ${fileName}:`, rawText);
+          failedCount++;
+          failedIds.push(img.id);
+          addBackupActivityLog('image_upload', 'failed', `Invalid server response for ${fileName}`);
+          continue;
+        }
+
+        if (json.success === true && json.saved === true) {
+          successCount++;
+          confirmedImages.push({
+            id: img.id,
+            transaction_uuid: txUuid,
+            file_name: json.file_name || fileName,
+            server_url: json.storage_url || json.storage_path,
+            server_id: json.server_id,
+          });
+          console.log(`[ImageSync] Uploaded receipt image: ${fileName} -> ${json.storage_url || json.file_name}`);
+        } else {
+          failedCount++;
+          failedIds.push(img.id);
+          const failMsg = json.message || 'Server rejected image upload';
+          console.warn(`[ImageSync] Server rejected ${fileName}:`, failMsg);
+          addBackupActivityLog('image_upload', 'failed', `${fileName}: ${failMsg}`);
+        }
+      } catch (err) {
+        failedCount++;
+        failedIds.push(img.id);
+        const errMsg = err.name === 'AbortError' ? 'Upload timeout (25s)' : (err.message || 'Network error');
+        console.warn(`[ImageSync] Exception uploading image ID ${img.id}:`, errMsg);
+        addBackupActivityLog('image_upload', 'failed', `Error uploading ${img.file_name || 'receipt'}: ${errMsg}`);
+      }
+    }
+
+    // 4. Update SQLite database statuses
+    if (confirmedImages.length > 0) {
+      markImagesServerConfirmed(confirmedImages);
+      addBackupActivityLog(
+        'image_upload',
+        'success',
+        `Successfully uploaded ${successCount} receipt photo${successCount > 1 ? 's' : ''} to cloud ✓`
+      );
+    }
+
+    if (failedIds.length > 0) {
+      markImagesFailed(failedIds);
+    }
+
+    const message = failedCount > 0
+      ? `Uploaded ${successCount} image${successCount > 1 ? 's' : ''}, ${failedCount} failed.`
+      : `Successfully uploaded ${successCount} receipt photo${successCount > 1 ? 's' : ''} to server.`;
+
+    return {
+      success: failedCount === 0 && successCount > 0,
+      count: successCount,
+      failedCount,
+      message,
+    };
+  } finally {
+    isImageUploadInProgress = false;
+  }
 };
 
 /**
- * Checks if the scheduled image backup time (Paused for now)
+ * Checks if the scheduled image backup time is due and triggers background image sync
  */
 export const checkScheduledImageBackup = async () => {
-  return { skipped: true, reason: 'Image backup is currently paused' };
+  try {
+    const stats = getDetailedBackupReportStats();
+    if (!stats.images.scheduleEnabled) {
+      return { skipped: true, reason: 'schedule_disabled' };
+    }
+
+    const netInfo = await checkNetworkConnectivity();
+    if (!netInfo.isConnected) {
+      return { skipped: true, reason: 'device_offline' };
+    }
+
+    const auth = getAuthSession();
+    if (!auth.isLoggedIn) {
+      return { skipped: true, reason: 'not_logged_in' };
+    }
+
+    // Check if there are any pending or failed images
+    if (stats.images.pending === 0 && stats.images.failed === 0) {
+      return { skipped: true, reason: 'no_pending_images' };
+    }
+
+    const schedTime = stats.images.scheduleTime || '02:00';
+    const [schedH, schedM] = schedTime.split(':').map(n => parseInt(n, 10) || 0);
+
+    const now = new Date();
+    const currentH = now.getHours();
+    const currentM = now.getMinutes();
+
+    const schedMinutes = schedH * 60 + schedM;
+    const currentMinutes = currentH * 60 + currentM;
+    const diff = Math.abs(currentMinutes - schedMinutes);
+
+    const lastSyncSec = parseInt(stats.images.lastSync || '0', 10);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const isDue = (nowSec - lastSyncSec) >= 86400 || (diff <= 30 && (nowSec - lastSyncSec) > 3600);
+
+    if (!isDue) {
+      return { skipped: true, reason: 'not_due_yet' };
+    }
+
+    console.log(`⏰ [IMAGE_SCHEDULE] Running scheduled image backup at ${schedTime}...`);
+    const res = await uploadPendingImages(50);
+    return { executed: true, result: res };
+  } catch (e) {
+    console.warn('Scheduled image backup check error:', e);
+    return { skipped: true, error: e };
+  }
 };
 
 /**

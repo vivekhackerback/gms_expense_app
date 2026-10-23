@@ -112,6 +112,13 @@ foreach ($allImages as $fileName => $relPath) {
 
 $dbDownloadUrl = $projectBaseUrl . 'api/v1/download_database.php?phone=' . urlencode($cleanPhone);
 
+$manifestStats = isset($manifest['stats']) && is_array($manifest['stats']) ? $manifest['stats'] : [
+    'transactions' => 0,
+    'parties'      => 0,
+    'categories'   => 0,
+];
+$manifestStats['images'] = count($imageList);
+
 sendJsonResponse([
     'success'         => true,
     'has_backup'      => true,
@@ -119,12 +126,7 @@ sendJsonResponse([
     'backup_time'     => $backupTime,
     'db_size'         => $dbSize,
     'db_download_url' => $dbDownloadUrl,
-    'stats'           => isset($manifest['stats']) ? $manifest['stats'] : [
-        'transactions' => 0,
-        'parties'      => 0,
-        'categories'   => 0,
-        'images'       => count($imageList),
-    ],
+    'stats'           => $manifestStats,
     'image_count'     => count($imageList),
     'images'          => $imageList,
     'message'         => 'Cloud backup found and ready for import.',

@@ -210,8 +210,8 @@ export const getTransactions = ({
     let images = [];
     if (tx.imageCount > 0) {
       images = db.getAllSync(
-        'SELECT id, local_uri as localUri, file_name as fileName, upload_status as uploadStatus FROM transaction_images WHERE transaction_id = ?;',
-        [tx.id]
+        'SELECT id, local_uri as localUri, server_url as serverUrl, file_name as fileName, upload_status as uploadStatus FROM transaction_images WHERE transaction_id = ? OR transaction_uuid = ?;',
+        [tx.id, tx.uuid || '']
       );
     }
     return {
@@ -270,8 +270,8 @@ export const getTransactionById = (id) => {
   if (!tx) return null;
 
   const images = db.getAllSync(
-    'SELECT id, local_uri as localUri, file_name as fileName, upload_status as uploadStatus FROM transaction_images WHERE transaction_id = ?;',
-    [id]
+    'SELECT id, local_uri as localUri, server_url as serverUrl, file_name as fileName, upload_status as uploadStatus FROM transaction_images WHERE transaction_id = ? OR transaction_uuid = ?;',
+    [id, tx.uuid || '']
   );
 
   return {
@@ -908,8 +908,13 @@ export const getSyncStats = () => {
     "SELECT value FROM settings WHERE key = 'last_full_backup';"
   )?.value || lastSyncSetting || null;
 
+  const pendingImagesCount = db.getFirstSync(
+    "SELECT COUNT(*) as count FROM transaction_images WHERE upload_status = 'pending' OR upload_status = 'uploading' OR upload_status = 'failed' OR upload_status IS NULL;"
+  )?.count || 0;
+
   return {
     pendingCount: Number(pendingCount),
+    pendingImagesCount: Number(pendingImagesCount),
     totalTransactions: Number(totalTransactions),
     lastSync: lastSyncSetting,
     lastFullBackup: lastFullBackupSetting,
@@ -1231,13 +1236,23 @@ export const markImagesServerConfirmed = (confirmedImages = []) => {
 
   db.withTransactionSync(() => {
     if (confirmedImages.length === 0) {
-      db.runSync("UPDATE transaction_images SET upload_status = 'uploaded', server_synced_at = ? WHERE upload_status = 'pending' OR upload_status = 'uploading' OR upload_status = 'failed';", [now]);
+      db.runSync(
+        "UPDATE transaction_images SET upload_status = 'uploaded', server_synced_at = ? WHERE upload_status = 'pending' OR upload_status = 'uploading' OR upload_status = 'failed';",
+        [now]
+      );
     } else {
       for (const img of confirmedImages) {
-        db.runSync(
-          "UPDATE transaction_images SET upload_status = 'uploaded', server_id = ?, server_synced_at = ? WHERE id = ? OR transaction_uuid = ?;",
-          [img.server_id || null, now, img.id || null, img.transaction_uuid || '']
-        );
+        if (img.id) {
+          db.runSync(
+            "UPDATE transaction_images SET upload_status = 'uploaded', server_id = ?, server_url = COALESCE(?, server_url), server_synced_at = ?, file_name = COALESCE(?, file_name) WHERE id = ?;",
+            [img.server_id || null, img.server_url || null, now, img.file_name || null, img.id]
+          );
+        } else if (img.transaction_uuid) {
+          db.runSync(
+            "UPDATE transaction_images SET upload_status = 'uploaded', server_id = ?, server_url = COALESCE(?, server_url), server_synced_at = ?, file_name = COALESCE(?, file_name) WHERE transaction_uuid = ? AND (file_name = ? OR local_uri LIKE ?);",
+            [img.server_id || null, img.server_url || null, now, img.file_name || null, img.transaction_uuid, img.file_name || '', `%${img.file_name || ''}`]
+          );
+        }
       }
     }
     db.runSync("INSERT INTO settings (key, value) VALUES ('last_image_sync', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;", [String(now)]);
@@ -1261,15 +1276,55 @@ export const getPendingTransactions = (limit = 50) => {
   `, [limit]);
 };
 
-export const getPendingImages = (limit = 10) => {
+export const getPendingImages = (limit = 20) => {
   const db = getDatabase();
   return db.getAllSync(`
-    SELECT *
-    FROM transaction_images
-    WHERE upload_status = 'pending' OR upload_status = 'uploading' OR upload_status = 'failed' OR upload_status IS NULL
-    ORDER BY id ASC
+    SELECT 
+      ti.id,
+      ti.transaction_id,
+      COALESCE(ti.transaction_uuid, t.uuid) as transaction_uuid,
+      ti.local_uri,
+      ti.server_url,
+      ti.file_name,
+      ti.original_file_name,
+      ti.upload_status,
+      ti.created_at
+    FROM transaction_images ti
+    LEFT JOIN transactions t ON ti.transaction_id = t.id
+    WHERE ti.upload_status = 'pending' OR ti.upload_status = 'uploading' OR ti.upload_status = 'failed' OR ti.upload_status IS NULL
+    ORDER BY ti.id ASC
     LIMIT ?;
   `, [limit]);
+};
+
+export const getAllTransactionImages = () => {
+  const db = getDatabase();
+  return db.getAllSync(`
+    SELECT 
+      ti.id,
+      ti.transaction_id,
+      COALESCE(ti.transaction_uuid, t.uuid) as transaction_uuid,
+      ti.local_uri,
+      ti.server_url,
+      ti.file_name,
+      ti.original_file_name,
+      ti.upload_status,
+      ti.created_at
+    FROM transaction_images ti
+    LEFT JOIN transactions t ON ti.transaction_id = t.id
+    ORDER BY ti.id ASC;
+  `);
+};
+
+export const updateRestoredImage = ({ id, localUri, serverUrl, fileName }) => {
+  const db = getDatabase();
+  const now = getCurrentTimestamp();
+  if (id) {
+    db.runSync(
+      "UPDATE transaction_images SET local_uri = ?, server_url = COALESCE(?, server_url), file_name = COALESCE(?, file_name), upload_status = 'uploaded', server_synced_at = ? WHERE id = ?;",
+      [localUri, serverUrl || null, fileName || null, now, id]
+    );
+  }
 };
 
 export const exportAllData = () => {

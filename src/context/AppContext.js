@@ -165,7 +165,13 @@ export const AppProvider = ({ children }) => {
           refreshAll();
         }
 
-        // 2. Auto scheduled full database backup if due
+        // 2. Check scheduled image backup if due
+        const imgSchedRes = await checkScheduledImageBackup();
+        if (imgSchedRes && imgSchedRes.executed) {
+          refreshAll();
+        }
+
+        // 3. Auto scheduled full database backup if due
         const autoBkRes = await checkScheduledAutoBackup();
         if (autoBkRes && autoBkRes.executed) {
           refreshAll();
@@ -375,10 +381,25 @@ export const AppProvider = ({ children }) => {
     }
     if (isSyncing) return;
     setIsSyncing(true);
-    const result = await syncTextData();
+    const textResult = await syncTextData();
+    let imgResult = null;
+    try {
+      const detailed = getDetailedBackupReportStats();
+      if (detailed?.images && (detailed.images.pending > 0 || detailed.images.failed > 0)) {
+        imgResult = await uploadPendingImages();
+      }
+    } catch (e) {}
     refreshAll();
     setIsSyncing(false);
-    return result;
+
+    if (imgResult && imgResult.count > 0) {
+      return {
+        success: textResult.success && imgResult.success,
+        count: (textResult.count || 0) + (imgResult.count || 0),
+        message: `${textResult.message} ${imgResult.message}`,
+      };
+    }
+    return textResult;
   };
 
   const triggerImageSync = async () => {

@@ -248,7 +248,10 @@ export const initDatabase = () => {
         transaction_uuid TEXT NOT NULL REFERENCES transactions(uuid) ON DELETE CASCADE,
         local_uri TEXT NOT NULL,
         server_url TEXT,
+        server_id INTEGER,
+        server_synced_at INTEGER,
         file_name TEXT,
+        original_file_name TEXT,
         upload_status TEXT DEFAULT 'pending',
         created_at INTEGER NOT NULL
       );
@@ -303,8 +306,20 @@ export const initDatabase = () => {
       if (!imgCols.some((col) => col.name === 'transaction_id')) {
         dbInstance.execSync('ALTER TABLE transaction_images ADD COLUMN transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE;');
       }
+      if (!imgCols.some((col) => col.name === 'server_url')) {
+        dbInstance.execSync('ALTER TABLE transaction_images ADD COLUMN server_url TEXT;');
+      }
+      if (!imgCols.some((col) => col.name === 'server_id')) {
+        dbInstance.execSync('ALTER TABLE transaction_images ADD COLUMN server_id INTEGER;');
+      }
+      if (!imgCols.some((col) => col.name === 'server_synced_at')) {
+        dbInstance.execSync('ALTER TABLE transaction_images ADD COLUMN server_synced_at INTEGER;');
+      }
+      if (!imgCols.some((col) => col.name === 'original_file_name')) {
+        dbInstance.execSync('ALTER TABLE transaction_images ADD COLUMN original_file_name TEXT;');
+      }
     } catch (migErr) {
-      console.warn('Migration error for transaction_images.transaction_id:', migErr);
+      console.warn('Migration error for transaction_images columns:', migErr);
     }
 
     try {

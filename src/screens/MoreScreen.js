@@ -271,16 +271,28 @@ export const MoreScreen = () => {
             <View style={styles.syncStatusHeader}>
               <View style={styles.syncIconContainer}>
                 <Ionicons
-                  name={syncStats.pendingCount > 0 ? 'cloud-upload-outline' : 'checkmark-circle-outline'}
+                  name={
+                    (syncStats.pendingCount > 0 || (syncStats.pendingImagesCount || 0) > 0)
+                      ? 'cloud-upload-outline'
+                      : 'checkmark-circle-outline'
+                  }
                   size={28}
-                  color={syncStats.pendingCount > 0 ? '#B45309' : Colors.got}
+                  color={
+                    (syncStats.pendingCount > 0 || (syncStats.pendingImagesCount || 0) > 0)
+                      ? '#B45309'
+                      : Colors.got
+                  }
                 />
               </View>
               <View style={styles.syncTextContainer}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Text style={styles.syncStateHeading}>
-                    {syncStats.pendingCount > 0
+                    {syncStats.pendingCount > 0 && (syncStats.pendingImagesCount || 0) > 0
+                      ? `${syncStats.pendingCount} txs & ${syncStats.pendingImagesCount} photos pending`
+                      : syncStats.pendingCount > 0
                       ? `${syncStats.pendingCount} transactions pending`
+                      : (syncStats.pendingImagesCount || 0) > 0
+                      ? `${syncStats.pendingImagesCount} receipt photos pending`
                       : 'All data is saved & synchronized'}
                   </Text>
                   <View style={styles.activePill}>

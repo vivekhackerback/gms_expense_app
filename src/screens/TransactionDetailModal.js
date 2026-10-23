@@ -220,16 +220,19 @@ export const TransactionDetailModal = () => {
             <View style={[styles.infoCard, Shadows.sm]}>
               <Text style={styles.infoLabel}>ATTACHED PHOTOS ({transaction.images.length})</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photosScroll}>
-                {transaction.images.map((img) => (
-                  <TouchableOpacity
-                    key={img.id || img.localUri}
-                    onPress={() => openFullScreenImage(img.localUri)}
-                    activeOpacity={0.85}
-                    style={styles.photoWrapper}
-                  >
-                    <Image source={{ uri: img.localUri }} style={styles.photoItem} />
-                  </TouchableOpacity>
-                ))}
+                {transaction.images.map((img) => {
+                  const displayUri = img.localUri || img.serverUrl;
+                  return (
+                    <TouchableOpacity
+                      key={img.id || displayUri}
+                      onPress={() => openFullScreenImage(displayUri)}
+                      activeOpacity={0.85}
+                      style={styles.photoWrapper}
+                    >
+                      <Image source={{ uri: displayUri }} style={styles.photoItem} />
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             </View>
           ) : null}

@@ -1,7 +1,8 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import API_CONFIG from '../constants/api_config';
-import { checkNetworkConnectivity } from './syncService';
+import { checkNetworkConnectivity, uploadPendingImages } from './syncService';
+import { ensureImageDirectoryExists, downloadAndSaveImageLocally } from './imageService';
 import {
   checkpointDatabase,
   closeDatabase,
@@ -15,6 +16,7 @@ import {
   updateSetting,
   getBackupSettings,
   updateBackupSettings,
+  getDetailedBackupReportStats,
 } from '../database/queries';
 
 const getImagesDir = () => {
@@ -83,7 +85,17 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
     const userPhone = auth?.user?.phone || '9876543210';
     const userId = auth?.user?.id || 1;
 
-    onProgress?.({ step: 1, totalSteps: 2, title: 'Preparing Database...', percent: 20 });
+    // 2.1 Sync/Upload any pending transaction receipt photos first
+    console.log('📸 [BACKUP_STEP_IMAGE] Checking and uploading pending transaction photos...');
+    onProgress?.({ step: 1, totalSteps: 3, title: 'Uploading Receipt Photos...', percent: 15 });
+    try {
+      const imgUploadRes = await uploadPendingImages(100);
+      console.log('📸 [BACKUP_STEP_IMAGE] Photo upload result:', imgUploadRes);
+    } catch (imgSyncErr) {
+      console.warn('⚠️ [BACKUP_STEP_IMAGE] Photo upload error (will proceed with DB backup):', imgSyncErr);
+    }
+
+    onProgress?.({ step: 2, totalSteps: 3, title: 'Preparing SQLite Database...', percent: 35 });
 
     // 3. Commit SQLite WAL checkpoint to ensure all data is in expenses_khata.db file
     console.log('💾 [BACKUP_STEP_3] Executing PRAGMA wal_checkpoint(TRUNCATE)...');
@@ -327,41 +339,82 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
       };
     }
 
-    onProgress?.({ step: 2, totalSteps: 2, title: 'Backup Completed!', percent: 100 });
+    onProgress?.({ step: 3, totalSteps: 3, title: 'Verifying Cloud Storage...', percent: 95 });
+
+    // 8. Re-query actual detailed stats from SQLite to report accurate image counts
+    let imgStats = { total: 0, uploaded: 0, pending: 0, failed: 0 };
+    try {
+      const detailed = getDetailedBackupReportStats();
+      if (detailed && detailed.images) {
+        imgStats = detailed.images;
+      }
+    } catch (statErr) {
+      console.warn('⚠️ Warning getting final stats:', statErr);
+    }
 
     const sizeKb = fileSize > 0 ? (fileSize / 1024).toFixed(1) : '0';
-    const successMsg = `Full database (${sizeKb} KB, ${txCount} txs) backed up to server ✓`;
-    console.log('\n========================================');
-    console.log('🎉 [BACKUP_SUCCESS] Full database backup completed successfully!');
-    console.log(`📊 Summary: ${sizeKb} KB DB file, ${txCount} transactions, ${partyCount} parties backed up.`);
-    console.log('========================================\n');
+    const totalPhotos = imgStats.total || imagesInDbCount || 0;
+    const uploadedPhotos = imgStats.uploaded || 0;
+    const failedPhotos = (imgStats.failed || 0) + (imgStats.pending || 0);
 
     const now = Math.floor(Date.now() / 1000);
     try {
       updateBackupSettings({
-        lastBackupStatus: 'success',
-        lastSuccessfulBackup: now,
-        lastBackupError: '',
+        lastBackupStatus: failedPhotos > 0 ? 'failed' : 'success',
+        lastSuccessfulBackup: failedPhotos > 0 ? (getBackupSettings().lastSuccessfulBackup || 0) : now,
+        lastFailedBackup: failedPhotos > 0 ? now : 0,
+        lastBackupError: failedPhotos > 0 ? `${failedPhotos} receipt photo(s) failed to upload` : '',
         lastBackupSize: fileSize,
         backupCompletedAt: now,
       });
-      updateSetting('last_full_backup', String(now));
-      updateSetting('last_sync', String(now));
+      if (failedPhotos === 0) {
+        updateSetting('last_full_backup', String(now));
+        updateSetting('last_sync', String(now));
+      }
     } catch (setErr) {
       console.warn('Could not save backup settings:', setErr);
     }
+
+    if (failedPhotos > 0) {
+      const partialMsg = `Database backed up (${sizeKb} KB, ${txCount} txs), but ${failedPhotos} photo(s) failed to upload.`;
+      console.warn('⚠️ [BACKUP_PARTIAL]', partialMsg);
+      addBackupActivityLog('db_backup_upload', 'failed', partialMsg);
+      return {
+        success: false,
+        message: partialMsg,
+        stats: {
+          transactions: txCount,
+          parties: partyCount,
+          categories: categoryCount,
+          images: totalPhotos,
+          uploadedImages: uploadedPhotos,
+          failedImages: failedPhotos,
+          pendingImages: imgStats.pending || 0,
+          dbSize: fileSize,
+        },
+      };
+    }
+
+    onProgress?.({ step: 3, totalSteps: 3, title: 'Backup Completed!', percent: 100 });
+    const successMsg = `Full database (${sizeKb} KB, ${txCount} txs) and all ${uploadedPhotos} photos backed up ✓`;
+    console.log('\n========================================');
+    console.log('🎉 [BACKUP_SUCCESS] Full database and photos backup completed successfully!');
+    console.log(`📊 Summary: ${sizeKb} KB DB file, ${txCount} transactions, ${uploadedPhotos} photos verified on server.`);
+    console.log('========================================\n');
 
     addBackupActivityLog('db_backup_upload', 'success', successMsg);
 
     return {
       success: true,
-      message: 'Complete SQLite database successfully uploaded to server.',
+      message: 'Complete SQLite database and receipt photos successfully uploaded to server.',
       stats: {
         transactions: txCount,
         parties: partyCount,
         categories: categoryCount,
-        images: 0,
+        images: totalPhotos,
+        uploadedImages: uploadedPhotos,
         failedImages: 0,
+        pendingImages: 0,
         dbSize: fileSize,
       },
     };
@@ -732,22 +785,105 @@ export const importCloudDataAndRestore = async (onProgress) => {
     console.log('🔄 [RESTORE_STEP_5] Re-opening and verifying SQLite database...');
     const db = initDatabase();
 
-    onProgress?.({ step: 2, totalSteps: 2, title: 'Data Restoration Completed!', percent: 100 });
+    // 6. Download and restore all transaction receipt photos
+    onProgress?.({ step: 3, totalSteps: 3, title: 'Restoring Receipt Photos...', percent: 75 });
+    console.log('🖼️ [RESTORE_STEP_6] Downloading and restoring transaction receipt photos...');
+    await ensureImageDirectoryExists();
+
+    let photosRestoredCount = 0;
+    let photosFailedCount = 0;
+
+    let restoredImages = [];
+    try {
+      restoredImages = db.getAllSync(
+        'SELECT id, transaction_id, transaction_uuid, local_uri, server_url, file_name FROM transaction_images;'
+      );
+    } catch (readErr) {
+      console.warn('⚠️ [RESTORE_STEP_6] Error reading restored transaction_images:', readErr);
+    }
+
+    const manifestMap = new Map();
+    if (Array.isArray(info.images)) {
+      for (const mImg of info.images) {
+        if (mImg.file_name) {
+          manifestMap.set(mImg.file_name, mImg.download_url);
+        }
+      }
+    }
+
+    const docDir = FileSystem.documentDirectory || '';
+    const imagesDir = `${docDir}transaction_photos/`;
+
+    for (const img of restoredImages) {
+      const fileName = img.file_name || (img.local_uri ? img.local_uri.split('/').pop() : `photo_${img.id}.jpg`);
+      const targetLocalUri = `${imagesDir}${fileName}`;
+
+      let existsLocally = false;
+      try {
+        const fileStat = await FileSystem.getInfoAsync(targetLocalUri);
+        if (fileStat && fileStat.exists && fileStat.size > 0) {
+          existsLocally = true;
+        }
+      } catch (e) {}
+
+      // If missing on disk, download from server
+      if (!existsLocally) {
+        const downloadUrl = img.server_url || manifestMap.get(fileName);
+        if (downloadUrl) {
+          try {
+            console.log(`📥 [RESTORE_STEP_6] Downloading photo from: ${downloadUrl}`);
+            const savedUri = await downloadAndSaveImageLocally(downloadUrl, fileName, auth.token);
+            if (savedUri) {
+              existsLocally = true;
+            }
+          } catch (dlErr) {
+            console.warn(`⚠️ [RESTORE_STEP_6] Failed to download photo ${fileName}:`, dlErr.message);
+          }
+        }
+      }
+
+      if (existsLocally) {
+        photosRestoredCount++;
+        try {
+          db.runSync(
+            "UPDATE transaction_images SET local_uri = ?, upload_status = 'uploaded' WHERE id = ?;",
+            [targetLocalUri, img.id]
+          );
+        } catch (upErr) {}
+      } else {
+        photosFailedCount++;
+        try {
+          db.runSync(
+            "UPDATE transaction_images SET upload_status = 'failed' WHERE id = ?;",
+            [img.id]
+          );
+        } catch (upErr) {}
+      }
+    }
+
+    onProgress?.({ step: 3, totalSteps: 3, title: 'Data Restoration Completed!', percent: 100 });
 
     const txCount = info.stats?.transactions || 0;
-    const restoreMsg = `Restored ${txCount} transactions from server ✓`;
+    const restoreMsg = photosFailedCount > 0
+      ? `Restored ${txCount} transactions & ${photosRestoredCount} photos (${photosFailedCount} missing on server)`
+      : `Restored ${txCount} transactions & all ${photosRestoredCount} photos from server ✓`;
+
     console.log('\n========================================');
-    console.log('🎉 [RESTORE_SUCCESS] Full database restoration completed successfully!');
-    console.log(`📊 Summary: ${txCount} transactions restored.`);
+    console.log('🎉 [RESTORE_SUCCESS] Full database & photos restoration completed!');
+    console.log(`📊 Summary: ${txCount} transactions, ${photosRestoredCount} photos restored (${photosFailedCount} failed).`);
     console.log('========================================\n');
 
-    addBackupActivityLog('cloud_restore', 'success', restoreMsg);
+    addBackupActivityLog('cloud_restore', photosFailedCount > 0 ? 'pending' : 'success', restoreMsg);
 
     return {
       success: true,
-      message: 'Your complete database has been restored successfully!',
-      stats: info.stats,
-      photosRestored: 0,
+      message: restoreMsg,
+      stats: {
+        ...info.stats,
+        images: photosRestoredCount,
+      },
+      photosRestored: photosRestoredCount,
+      photosFailed: photosFailedCount,
     };
   } catch (error) {
     console.error('\n========================================');
