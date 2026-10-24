@@ -12,12 +12,14 @@ import {
   Platform,
   ScrollView,
   Animated,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../../context/AppContext';
 import { Colors } from '../../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
+import { AppImages } from '../../constants/assets';
 
 export const LoginModal = () => {
   const insets = useSafeAreaInsets();
@@ -206,13 +208,7 @@ export const LoginModal = () => {
               {/* Header */}
               <View style={styles.header}>
                 <View style={styles.headerLeft}>
-                  <View style={[styles.iconCircle, isRegister && { backgroundColor: '#DCFCE7' }]}>
-                    <Ionicons
-                      name={isRegister ? 'person-add' : 'person'}
-                      size={22}
-                      color={isRegister ? '#15803D' : Colors.primaryDark}
-                    />
-                  </View>
+                  <Image source={AppImages.logo} style={styles.modalLogo} resizeMode="contain" />
                   <View style={{ marginLeft: 12 }}>
                     <Text style={styles.title}>
                       {isRegister ? 'Create Account' : 'User Account Login'}
@@ -480,6 +476,11 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  modalLogo: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
   },
   iconCircle: {
     width: 44,

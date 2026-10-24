@@ -380,6 +380,7 @@ export const AITransactionScreen = () => {
         title="AI Transaction"
         subtitle="100% Pure AI Natural Language Entry"
         showSync={true}
+        showLogo={true}
       />
 
       <KeyboardAvoidingView

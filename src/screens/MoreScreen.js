@@ -9,12 +9,14 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  Image,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { Header } from '../components/common/Header';
+import { AppImages, BrandConfig } from '../constants/assets';
 import {
   generateStressTestTransactions,
   deleteStressTestTransactions,
@@ -246,9 +248,7 @@ export const MoreScreen = () => {
             activeOpacity={0.85}
           >
             <View style={styles.loginPromptLeft}>
-              <View style={styles.loginIconWrap}>
-                <Ionicons name="person" size={22} color={Colors.primary} />
-              </View>
+              <Image source={AppImages.logo} style={styles.loginLogo} resizeMode="contain" />
               <View style={{ marginLeft: 12, flex: 1 }}>
                 <Text style={styles.loginPromptTitle}>Sign In / Create Account</Text>
                 <Text style={styles.loginPromptSub}>Create an account or log in to backup your ledger</Text>
@@ -471,6 +471,14 @@ export const MoreScreen = () => {
             onPress: handleDeleteStressData,
           },
         ])}
+
+        {/* App Branding Footer */}
+        <View style={styles.brandingFooter}>
+          <Image source={AppImages.logo} style={styles.brandingLogo} resizeMode="contain" />
+          <Text style={styles.brandingTitle}>{BrandConfig.appName}</Text>
+          <Text style={styles.brandingVersion}>Version {BrandConfig.version}</Text>
+          <Text style={styles.brandingTagline}>{BrandConfig.tagline}</Text>
+        </View>
       </ScrollView>
 
       {/* Stress Test Progress Modal */}
@@ -777,6 +785,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#DBEAFE',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  loginLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+  },
+  brandingFooter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.xl,
+    marginTop: Spacing.sm,
+  },
+  brandingLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    marginBottom: Spacing.xs,
+  },
+  brandingTitle: {
+    fontSize: Typography.fontSizes.sm + 1,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
+  },
+  brandingVersion: {
+    fontSize: Typography.fontSizes.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  brandingTagline: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    marginTop: 4,
   },
   loginPromptTitle: {
     fontSize: Typography.fontSizes.sm + 1,

@@ -351,7 +351,7 @@ export const HomeScreen = () => {
 
   return (
     <View style={styles.container}>
-      <Header title="Expense & Khata" />
+      <Header title="Expense & Khata" showLogo={true} />
 
       <SectionList
         sections={sections}

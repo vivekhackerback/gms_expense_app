@@ -1,10 +1,11 @@
 import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Colors } from '../../constants/colors';
-import { Typography, Spacing } from '../../constants/theme';
+import { Typography, Spacing, BorderRadius } from '../../constants/theme';
 import { SyncBadge } from './SyncBadge';
+import { AppImages } from '../../constants/assets';
 
 export const Header = ({
   title,
@@ -13,17 +14,21 @@ export const Header = ({
   onBack,
   rightElement,
   showSync = true,
+  showLogo = false,
 }) => {
   const insets = useSafeAreaInsets();
+  const shouldDisplayLogo = showLogo || title === 'Expense & Khata';
 
   return (
     <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) + 6 }]}>
       <View style={styles.leftContainer}>
-        {showBack && (
+        {showBack ? (
           <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.7}>
             <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
           </TouchableOpacity>
-        )}
+        ) : shouldDisplayLogo ? (
+          <Image source={AppImages.logo} style={styles.logoBadge} resizeMode="contain" />
+        ) : null}
         <View style={styles.titleContainer}>
           <Text style={styles.title} numberOfLines={1}>{title}</Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
@@ -72,6 +77,12 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSizes.xs,
     color: Colors.textSecondary,
     marginTop: 1,
+  },
+  logoBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    marginRight: Spacing.sm,
   },
   rightContainer: {
     flexDirection: 'row',
