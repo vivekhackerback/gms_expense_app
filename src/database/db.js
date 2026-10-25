@@ -294,18 +294,19 @@ export const initDatabase = () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         upi_id TEXT NOT NULL,
         upi_update INTEGER NOT NULL DEFAULT 1,
-        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        updated_at TEXT DEFAULT ''
       );
     `);
 
     // Migration for upi_info columns if not present
     try {
       const upiCols = dbInstance.getAllSync("PRAGMA table_info('upi_info');");
-      if (!upiCols.some((col) => col.name === 'upi_update')) {
-        dbInstance.execSync("ALTER TABLE upi_info ADD COLUMN upi_update INTEGER NOT NULL DEFAULT 1;");
+      const upiColNames = upiCols.map((col) => col.name);
+      if (!upiColNames.includes('upi_update')) {
+        dbInstance.execSync("ALTER TABLE upi_info ADD COLUMN upi_update INTEGER DEFAULT 1;");
       }
-      if (!upiCols.some((col) => col.name === 'updated_at')) {
-        dbInstance.execSync("ALTER TABLE upi_info ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'));");
+      if (!upiColNames.includes('updated_at')) {
+        dbInstance.execSync("ALTER TABLE upi_info ADD COLUMN updated_at TEXT DEFAULT '';");
       }
     } catch (migErr) {
       console.warn('Migration error for upi_info columns:', migErr);

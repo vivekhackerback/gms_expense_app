@@ -1389,11 +1389,36 @@ export const DEFAULT_UPI_UPDATE = 1;
 export const DEFAULT_UPI_UPDATED_AT = '2026-10-25 04:32:08';
 
 /**
+ * Ensures upi_info table has all required columns with constant default values
+ */
+export const ensureUpiInfoColumns = (db) => {
+  try {
+    const cols = db.getAllSync("PRAGMA table_info('upi_info');");
+    const colNames = cols.map((c) => c.name);
+
+    if (!colNames.includes('upi_update')) {
+      try {
+        db.execSync('ALTER TABLE `upi_info` ADD COLUMN `upi_update` INTEGER DEFAULT 1;');
+      } catch (e) {}
+    }
+    if (!colNames.includes('updated_at')) {
+      try {
+        db.execSync("ALTER TABLE `upi_info` ADD COLUMN `updated_at` TEXT DEFAULT '';");
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('[DB] ensureUpiInfoColumns warning:', e?.message);
+  }
+};
+
+/**
  * Returns the latest successfully cached UPI record from local SQLite: { id, upiId, upiUpdate, updatedAt }
  */
 export const getLocalUpiRecord = () => {
   try {
     const db = getDatabase();
+    ensureUpiInfoColumns(db);
+
     const row = db.getFirstSync(
       'SELECT id, upi_id, upi_update, updated_at FROM upi_info WHERE upi_id IS NOT NULL AND TRIM(upi_id) != "" ORDER BY id DESC LIMIT 1;'
     );
@@ -1449,6 +1474,8 @@ export const saveLocalUpiRecord = (upiId, upiUpdate = 1, updatedAt = null) => {
 
   try {
     const db = getDatabase();
+    ensureUpiInfoColumns(db);
+
     db.withTransactionSync(() => {
       // Overwrite / clear older rows so SQLite strictly preserves only the latest valid upi_id
       db.runSync('DELETE FROM upi_info;');

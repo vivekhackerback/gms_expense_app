@@ -5,12 +5,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Alert,
   Modal,
-  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -45,50 +46,76 @@ const triggerHaptic = (type = 'selection') => {
 
 export const FeedbackScreen = ({ visible, onClose }) => {
   const insets = useSafeAreaInsets();
+  const inputRef = useRef(null);
+  const scrollViewRef = useRef(null);
+
   const [feedbackText, setFeedbackText] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Suggestion');
   const [isSending, setIsSending] = useState(false);
   const [validationError, setValidationError] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [showDeviceDetails, setShowDeviceDetails] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const deviceInfo = getDeviceInfoString();
   const appVersion = getAppVersionString();
 
-  // Animation values
-  const modalScale = useRef(new Animated.Value(0.94)).current;
-  const modalOpacity = useRef(new Animated.Value(0)).current;
+  // Dynamic Keyboard Listener to lift card contents cleanly above keyboard
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      const h = e.endCoordinates?.height || 0;
+      setKeyboardHeight(h);
+      // Auto-scroll input into view
+      setTimeout(() => {
+        if (scrollViewRef.current) {
+          scrollViewRef.current.scrollTo({ y: 50, animated: true });
+        }
+      }, 60);
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (visible) {
       setValidationError('');
-      modalScale.setValue(0.94);
-      modalOpacity.setValue(0);
-      Animated.parallel([
-        Animated.timing(modalOpacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.spring(modalScale, {
-          toValue: 1,
-          friction: 8,
-          tension: 65,
-          useNativeDriver: true,
-        }),
-      ]).start();
+      const timer = setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setKeyboardHeight(0);
+      Keyboard.dismiss();
     }
   }, [visible]);
 
   const handleClose = () => {
+    Keyboard.dismiss();
     triggerHaptic('selection');
-    Animated.timing(modalOpacity, {
-      toValue: 0,
-      duration: 160,
-      useNativeDriver: true,
-    }).start(() => {
-      if (onClose) onClose();
-    });
+    if (onClose) onClose();
+  };
+
+  const handleFocusInput = () => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+    setTimeout(() => {
+      if (scrollViewRef.current) {
+        scrollViewRef.current.scrollTo({ y: 50, animated: true });
+      }
+    }, 60);
   };
 
   const handleCategoryPress = (category) => {
@@ -104,14 +131,16 @@ export const FeedbackScreen = ({ visible, onClose }) => {
   };
 
   const handleSendWhatsApp = async () => {
+    Keyboard.dismiss();
     const trimmed = feedbackText.trim();
     if (!trimmed) {
       triggerHaptic('warning');
       setValidationError('Please write your feedback message before sending.');
+      handleFocusInput();
       Alert.alert(
         'Feedback Required',
         'Please enter your thoughts, suggestion, or bug description so we can assist you.',
-        [{ text: 'OK' }]
+        [{ text: 'OK', onPress: handleFocusInput }]
       );
       return;
     }
@@ -140,26 +169,25 @@ export const FeedbackScreen = ({ visible, onClose }) => {
     <Modal
       visible={visible}
       transparent
-      animationType="none"
+      animationType="slide"
+      statusBarTranslucent
       onRequestClose={handleClose}
     >
-      <KeyboardAvoidingView
-        style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <TouchableOpacity
-          style={styles.backdropPressArea}
-          activeOpacity={1}
+      <View style={styles.backdrop}>
+        {/* Full-screen backdrop touch to dismiss */}
+        <Pressable
+          style={StyleSheet.absoluteFillObject}
           onPress={handleClose}
         />
 
-        <Animated.View
+        {/* Modal Card Content with Dynamic Bottom Padding for Keyboard */}
+        <View
           style={[
             styles.modalCard,
             {
-              opacity: modalOpacity,
-              transform: [{ scale: modalScale }],
-              paddingBottom: Math.max(insets.bottom, 20),
+              paddingBottom: keyboardHeight > 0
+                ? (Platform.OS === 'ios' ? keyboardHeight : Math.max(keyboardHeight - (insets.bottom || 0), 12))
+                : Math.max(insets.bottom, 20),
             },
           ]}
         >
@@ -197,23 +225,30 @@ export const FeedbackScreen = ({ visible, onClose }) => {
           </View>
 
           <ScrollView
+            ref={scrollViewRef}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollBody}
-            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={[
+              styles.scrollBody,
+              { paddingBottom: keyboardHeight > 0 ? 120 : Spacing.xl },
+            ]}
+            keyboardShouldPersistTaps="always"
+            nestedScrollEnabled={true}
           >
-            {/* Value / Welcome Banner */}
-            <View style={styles.welcomeBanner}>
-              <View style={styles.bannerIconBox}>
-                <Ionicons name="heart-circle" size={28} color="#059669" />
+            {/* Value / Welcome Banner - collapsed when typing to save vertical room */}
+            {keyboardHeight === 0 && (
+              <View style={styles.welcomeBanner}>
+                <View style={styles.bannerIconBox}>
+                  <Ionicons name="heart-circle" size={28} color="#059669" />
+                </View>
+                <View style={styles.bannerTextBox}>
+                  <Text style={styles.bannerHeadline}>We value your feedback!</Text>
+                  <Text style={styles.bannerSubtext}>
+                    Share your suggestions or report any issues to help us improve the app.
+                    Your message will open directly in WhatsApp for personal support.
+                  </Text>
+                </View>
               </View>
-              <View style={styles.bannerTextBox}>
-                <Text style={styles.bannerHeadline}>We value your feedback!</Text>
-                <Text style={styles.bannerSubtext}>
-                  Share your suggestions or report any issues to help us improve the app.
-                  Your message will open directly in WhatsApp for personal support.
-                </Text>
-              </View>
-            </View>
+            )}
 
             {/* Category Selector Chips */}
             <View style={styles.sectionWrap}>
@@ -254,13 +289,33 @@ export const FeedbackScreen = ({ visible, onClose }) => {
             {/* Feedback Text Input Box */}
             <View style={styles.sectionWrap}>
               <View style={styles.inputHeaderRow}>
-                <Text style={styles.sectionLabel}>YOUR MESSAGE</Text>
-                <Text style={styles.charCountText}>
-                  {feedbackText.length} characters
-                </Text>
+                <TouchableOpacity
+                  onPress={handleFocusInput}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.sectionLabel}>YOUR MESSAGE</Text>
+                </TouchableOpacity>
+
+                <View style={styles.inputHeaderRight}>
+                  <Text style={styles.charCountText}>
+                    {feedbackText.length} characters
+                  </Text>
+                  {keyboardHeight > 0 && (
+                    <TouchableOpacity
+                      onPress={() => Keyboard.dismiss()}
+                      style={styles.doneKbdBtn}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    >
+                      <Ionicons name="checkmark-done" size={13} color="#2563EB" />
+                      <Text style={styles.doneKbdBtnText}>Done</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
 
-              <View
+              <Pressable
+                onPress={handleFocusInput}
                 style={[
                   styles.inputContainer,
                   isFocused && styles.inputContainerFocused,
@@ -268,17 +323,29 @@ export const FeedbackScreen = ({ visible, onClose }) => {
                 ]}
               >
                 <TextInput
+                  ref={inputRef}
                   style={styles.textInput}
                   multiline
-                  numberOfLines={5}
+                  scrollEnabled={false}
+                  numberOfLines={4}
                   textAlignVertical="top"
                   placeholder="Write your feedback, suggestions, bug reports, or feature requests here..."
                   placeholderTextColor="#94A3B8"
                   value={feedbackText}
                   onChangeText={handleTextChange}
-                  onFocus={() => setIsFocused(true)}
+                  onFocus={() => {
+                    setIsFocused(true);
+                    setTimeout(() => {
+                      if (scrollViewRef.current) {
+                        scrollViewRef.current.scrollTo({ y: 50, animated: true });
+                      }
+                    }, 80);
+                  }}
                   onBlur={() => setIsFocused(false)}
                   maxLength={2000}
+                  autoCapitalize="sentences"
+                  autoCorrect={true}
+                  editable={true}
                 />
 
                 {feedbackText.length > 0 && (
@@ -287,13 +354,15 @@ export const FeedbackScreen = ({ visible, onClose }) => {
                     onPress={() => {
                       triggerHaptic('selection');
                       setFeedbackText('');
+                      handleFocusInput();
                     }}
                     activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
                     <Ionicons name="close-circle" size={18} color="#94A3B8" />
                   </TouchableOpacity>
                 )}
-              </View>
+              </Pressable>
 
               {validationError ? (
                 <View style={styles.errorRow}>
@@ -374,8 +443,8 @@ export const FeedbackScreen = ({ visible, onClose }) => {
               </Text>
             </View>
           </ScrollView>
-        </Animated.View>
-      </KeyboardAvoidingView>
+        </View>
+      </View>
     </Modal>
   );
 };
@@ -385,9 +454,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.65)',
     justifyContent: 'flex-end',
-  },
-  backdropPressArea: {
-    flex: 1,
   },
   modalCard: {
     backgroundColor: Colors.surface,
@@ -466,7 +532,6 @@ const styles = StyleSheet.create({
   scrollBody: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
-    paddingBottom: Spacing.xl,
   },
   welcomeBanner: {
     flexDirection: 'row',
@@ -530,10 +595,32 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: Spacing.xs,
+    paddingVertical: 2,
+  },
+  inputHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   charCountText: {
     fontSize: 11,
     color: Colors.textMuted,
+  },
+  doneKbdBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    gap: 3,
+  },
+  doneKbdBtnText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#2563EB',
   },
   inputContainer: {
     backgroundColor: Colors.surfaceSubtle,
@@ -541,8 +628,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.borderLight,
     borderRadius: BorderRadius.md,
     padding: Spacing.sm,
-    minHeight: 125,
+    minHeight: 115,
     position: 'relative',
+    justifyContent: 'flex-start',
   },
   inputContainerFocused: {
     borderColor: '#25D366',
@@ -556,9 +644,11 @@ const styles = StyleSheet.create({
   textInput: {
     fontSize: Typography.fontSizes.sm,
     color: Colors.textPrimary,
-    lineHeight: 21,
-    minHeight: 105,
+    lineHeight: 22,
+    minHeight: 95,
+    width: '100%',
     paddingTop: 2,
+    paddingRight: 24,
   },
   clearBtn: {
     position: 'absolute',
