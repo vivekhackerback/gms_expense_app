@@ -24,6 +24,7 @@ import {
   getStressTestStatus,
 } from '../services/stressTestService';
 import { SupportAppModal } from '../components/modals/SupportAppModal';
+import { FeedbackScreen } from './FeedbackScreen';
 import { syncAndGetLatestUpiConfig } from '../services/upiPaymentService';
 
 export const MoreScreen = () => {
@@ -50,6 +51,7 @@ export const MoreScreen = () => {
   const [editEmail, setEditEmail] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
 
   // Heartbeat pulse animation to attract user attention
   const heartScale = useRef(new Animated.Value(1)).current;
@@ -322,6 +324,36 @@ export const MoreScreen = () => {
           </View>
         </TouchableOpacity>
 
+        {/* Feedback on WhatsApp Button */}
+        <TouchableOpacity
+          style={[styles.feedbackAppCard, Shadows.sm]}
+          onPress={() => setIsFeedbackModalOpen(true)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Send Feedback on WhatsApp, We value your suggestions & bug reports."
+        >
+          <View style={styles.feedbackAppLeft}>
+            <View style={styles.feedbackIconWrap}>
+              <Ionicons name="chatbubbles" size={22} color="#25D366" />
+            </View>
+            <View style={styles.feedbackTextWrap}>
+              <View style={styles.feedbackTitleRow}>
+                <Text style={styles.feedbackAppTitle}>Feedback & Suggestions</Text>
+                <View style={styles.waPillBadge}>
+                  <Ionicons name="logo-whatsapp" size={10} color="#FFFFFF" style={{ marginRight: 3 }} />
+                  <Text style={styles.waPillBadgeText}>WhatsApp</Text>
+                </View>
+              </View>
+              <Text style={styles.feedbackAppSubtitle}>
+                We value your feedback! Share suggestions or bugs.
+              </Text>
+            </View>
+          </View>
+          <View style={styles.feedbackChevronWrap}>
+            <Ionicons name="chevron-forward" size={18} color="#059669" />
+          </View>
+        </TouchableOpacity>
+
         {/* Sync Status Banner */}
         {isLoggedIn ? (
           <TouchableOpacity
@@ -477,8 +509,17 @@ export const MoreScreen = () => {
           },
         ])}
 
-        {/* App Info */}
+        {/* App Info & Feedback */}
         {renderSection('ABOUT & SUPPORT', [
+          {
+            icon: 'chatbubbles-outline',
+            iconColor: '#25D366',
+            iconBg: '#DCFCE7',
+            label: 'Send Feedback on WhatsApp',
+            sublabel: 'Direct suggestions, bug reports & support (+91 8651615629)',
+            rightText: 'WhatsApp',
+            onPress: () => setIsFeedbackModalOpen(true),
+          },
           {
             icon: 'information-circle-outline',
             label: 'About Expense & Khata',
@@ -565,6 +606,12 @@ export const MoreScreen = () => {
       <SupportAppModal
         visible={isSupportModalOpen}
         onClose={() => setIsSupportModalOpen(false)}
+      />
+
+      {/* Direct WhatsApp Feedback Modal */}
+      <FeedbackScreen
+        visible={isFeedbackModalOpen}
+        onClose={() => setIsFeedbackModalOpen(false)}
       />
     </View>
   );
@@ -1023,6 +1070,72 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 14,
     backgroundColor: '#E0E7FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackAppCard: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md + 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  feedbackAppLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  feedbackIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedbackTextWrap: {
+    marginLeft: Spacing.md,
+    flex: 1,
+  },
+  feedbackTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  feedbackAppTitle: {
+    fontSize: Typography.fontSizes.md,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#064E3B',
+  },
+  waPillBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#25D366',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: BorderRadius.full,
+  },
+  waPillBadgeText: {
+    fontSize: 9.5,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  feedbackAppSubtitle: {
+    fontSize: Typography.fontSizes.xs,
+    color: '#059669',
+    marginTop: 2,
+    fontWeight: Typography.fontWeights.medium,
+  },
+  feedbackChevronWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
   },

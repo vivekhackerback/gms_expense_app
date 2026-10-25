@@ -21,6 +21,7 @@ import { ReportsScreen } from '../screens/ReportsScreen';
 import { MoreScreen } from '../screens/MoreScreen';
 import { BackupScreen } from '../screens/BackupScreen';
 import { BackupSettingsScreen } from '../screens/BackupSettingsScreen';
+import { FeedbackScreen } from '../screens/FeedbackScreen';
 
 // Modals & Overlays
 import { AddTransactionModal } from '../screens/AddTransactionModal';
@@ -62,6 +63,8 @@ export const Navigation = () => {
         return <MoreScreen />;
       case 'Backup':
         return <BackupScreen />;
+      case 'Feedback':
+        return <FeedbackScreen visible={true} onClose={() => setActiveTab('More')} />;
       default:
         return <AITransactionScreen />;
     }
