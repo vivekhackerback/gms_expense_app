@@ -1382,36 +1382,55 @@ export const wipeAndResetDatabase = () => {
 };
 
 // -------------------------------------------------------------
-// UPI Info Queries & Dynamic Local Storage (No Hardcoded Fallbacks)
+// UPI Info Queries & Dynamic Local Storage
 // -------------------------------------------------------------
+export const DEFAULT_UPI_ID = '8651615629-2@ybl';
+export const DEFAULT_UPI_UPDATE = 1;
+export const DEFAULT_UPI_UPDATED_AT = '2026-10-25 03:32:08';
 
 /**
- * Returns the latest successfully cached UPI record from local SQLite: { id, upiId, updatedAt }
+ * Returns the latest successfully cached UPI record from local SQLite: { id, upiId, upiUpdate, updatedAt }
  */
 export const getLocalUpiRecord = () => {
   try {
     const db = getDatabase();
     const row = db.getFirstSync(
-      'SELECT id, upi_id, updated_at FROM upi_info WHERE upi_id IS NOT NULL AND TRIM(upi_id) != "" ORDER BY updated_at DESC, id DESC LIMIT 1;'
+      'SELECT id, upi_id, upi_update, updated_at FROM upi_info WHERE upi_id IS NOT NULL AND TRIM(upi_id) != "" ORDER BY upi_update DESC, id DESC LIMIT 1;'
     );
     if (row && row.upi_id) {
       return {
         id: row.id,
         upiId: String(row.upi_id).trim(),
-        updatedAt: row.updated_at ? String(row.updated_at).trim() : null,
+        upiUpdate: Number(row.upi_update != null ? row.upi_update : DEFAULT_UPI_UPDATE),
+        updatedAt: row.updated_at ? String(row.updated_at).trim() : DEFAULT_UPI_UPDATED_AT,
       };
     }
+
+    // Auto-seed table if empty so app always has a valid initial configuration
+    try {
+      db.runSync(
+        'INSERT INTO `upi_info` (`id`, `upi_id`, `upi_update`, `updated_at`) VALUES (NULL, ?, ?, ?);',
+        [DEFAULT_UPI_ID, DEFAULT_UPI_UPDATE, DEFAULT_UPI_UPDATED_AT]
+      );
+    } catch (insertErr) {}
+
+    return {
+      id: 1,
+      upiId: DEFAULT_UPI_ID,
+      upiUpdate: DEFAULT_UPI_UPDATE,
+      updatedAt: DEFAULT_UPI_UPDATED_AT,
+    };
   } catch (e) {
     console.warn('[DB] Could not query local upi_info:', e?.message);
   }
 
-  return { id: null, upiId: null, updatedAt: null };
+  return { id: null, upiId: DEFAULT_UPI_ID, upiUpdate: DEFAULT_UPI_UPDATE, updatedAt: DEFAULT_UPI_UPDATED_AT };
 };
 
 /**
  * Saves a validated UPI record to local SQLite table upi_info
  */
-export const saveLocalUpiRecord = (upiId, updatedAt = null) => {
+export const saveLocalUpiRecord = (upiId, upiUpdate = 1, updatedAt = null) => {
   if (!upiId || typeof upiId !== 'string' || !upiId.includes('@')) {
     console.warn('[DB] Refusing to save invalid upi_id:', upiId);
     return false;
@@ -1419,13 +1438,15 @@ export const saveLocalUpiRecord = (upiId, updatedAt = null) => {
 
   try {
     const db = getDatabase();
+    const parsedUpdate = parseInt(upiUpdate, 10);
+    const safeUpdate = !isNaN(parsedUpdate) ? parsedUpdate : 1;
     const formattedUpdatedAt = updatedAt
       ? String(updatedAt).trim()
       : new Date().toISOString().replace('T', ' ').substring(0, 19);
 
     db.runSync(
-      'INSERT INTO `upi_info` (`id`, `upi_id`, `updated_at`) VALUES (NULL, ?, ?);',
-      [upiId.trim(), formattedUpdatedAt]
+      'INSERT INTO `upi_info` (`id`, `upi_id`, `upi_update`, `updated_at`) VALUES (NULL, ?, ?, ?);',
+      [upiId.trim(), safeUpdate, formattedUpdatedAt]
     );
 
     return true;
@@ -1439,8 +1460,8 @@ export const getUpiInfo = () => {
   return getLocalUpiRecord().upiId;
 };
 
-export const insertUpiInfo = (upiId, updatedAt = null) => {
-  return saveLocalUpiRecord(upiId, updatedAt);
+export const insertUpiInfo = (upiId, upiUpdate = 1, updatedAt = null) => {
+  return saveLocalUpiRecord(upiId, upiUpdate, updatedAt);
 };
 
 

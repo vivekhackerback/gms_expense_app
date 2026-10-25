@@ -24,6 +24,7 @@ import {
   getStressTestStatus,
 } from '../services/stressTestService';
 import { SupportAppModal } from '../components/modals/SupportAppModal';
+import { syncAndGetLatestUpiConfig } from '../services/upiPaymentService';
 
 export const MoreScreen = () => {
   const {
@@ -289,7 +290,11 @@ export const MoreScreen = () => {
         {/* Support the App Button */}
         <TouchableOpacity
           style={[styles.supportAppCard, Shadows.sm]}
-          onPress={() => setIsSupportModalOpen(true)}
+          onPress={() => {
+            // Trigger background upi_update check on every click without delaying modal open
+            syncAndGetLatestUpiConfig().catch(() => {});
+            setIsSupportModalOpen(true);
+          }}
           activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel="Support the App, Love this app? Support its development."

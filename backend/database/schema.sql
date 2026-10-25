@@ -105,7 +105,21 @@ CREATE TABLE IF NOT EXISTS sync_logs (
   created_at BIGINT UNSIGNED NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 8. UPI Payment Recipient Configuration
+CREATE TABLE IF NOT EXISTS upi_info (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  upi_id VARCHAR(255) NOT NULL,
+  upi_update INT NOT NULL DEFAULT 1,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Seed initial test user (using Unix timestamp)
 INSERT INTO users (id, name, email, password_hash, phone, created_at, updated_at) 
 VALUES (1, 'GMS Admin', 'admin@gmsexpense.tplpro.in', '$2y$10$abcdefghijklmnopqrstuv', '9876543210', UNIX_TIMESTAMP(), UNIX_TIMESTAMP())
 ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- Seed initial UPI configuration
+INSERT INTO upi_info (id, upi_id, upi_update)
+VALUES (1, '8651615629-2@ybl', 1)
+ON DUPLICATE KEY UPDATE upi_id = VALUES(upi_id), upi_update = VALUES(upi_update);
+

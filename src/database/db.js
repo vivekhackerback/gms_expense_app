@@ -293,18 +293,32 @@ export const initDatabase = () => {
       CREATE TABLE IF NOT EXISTS upi_info (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         upi_id TEXT NOT NULL,
+        upi_update INTEGER NOT NULL DEFAULT 1,
         updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
       );
     `);
 
-    // Migration for upi_info.updated_at if not present
+    // Migration for upi_info columns if not present
     try {
       const upiCols = dbInstance.getAllSync("PRAGMA table_info('upi_info');");
+      if (!upiCols.some((col) => col.name === 'upi_update')) {
+        dbInstance.execSync("ALTER TABLE upi_info ADD COLUMN upi_update INTEGER NOT NULL DEFAULT 1;");
+      }
       if (!upiCols.some((col) => col.name === 'updated_at')) {
         dbInstance.execSync("ALTER TABLE upi_info ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'));");
       }
     } catch (migErr) {
-      console.warn('Migration error for upi_info.updated_at:', migErr);
+      console.warn('Migration error for upi_info columns:', migErr);
+    }
+
+    // Ensure default initial row exists so app never shows "Connect to internet"
+    try {
+      const upiCount = dbInstance.getFirstSync("SELECT COUNT(*) as count FROM upi_info WHERE upi_id IS NOT NULL AND TRIM(upi_id) != '';");
+      if (!upiCount || Number(upiCount.count) === 0) {
+        dbInstance.runSync("INSERT INTO `upi_info` (`id`, `upi_id`, `upi_update`, `updated_at`) VALUES (NULL, '8651615629-2@ybl', 1, '2026-10-25 03:32:08');");
+      }
+    } catch (upiErr) {
+      console.warn('Could not ensure default upi_info:', upiErr);
     }
 
     // Dynamic Schema Migrations for existing DB instances

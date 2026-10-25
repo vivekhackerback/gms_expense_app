@@ -24,7 +24,7 @@ import {
   syncAndGetLatestUpiConfig,
   isValidUpiId,
 } from '../../services/upiPaymentService';
-import { getLocalUpiRecord } from '../../database/queries';
+import { getLocalUpiRecord, DEFAULT_UPI_ID } from '../../database/queries';
 
 const triggerHaptic = (type = 'selection') => {
   try {
@@ -50,8 +50,9 @@ export const SupportAppModal = ({ visible, onClose }) => {
   const [customAmountText, setCustomAmountText] = useState('');
   const [isLaunching, setIsLaunching] = useState(false);
 
-  // Dynamic UPI Info & updated_at state
+  // Dynamic UPI Info & upi_update state
   const [currentUpiId, setCurrentUpiId] = useState(() => getLocalUpiRecord().upiId);
+  const [currentUpiUpdate, setCurrentUpiUpdate] = useState(() => getLocalUpiRecord().upiUpdate);
   const [currentUpdatedAt, setCurrentUpdatedAt] = useState(() => getLocalUpiRecord().updatedAt);
   const [isConfigLoading, setIsConfigLoading] = useState(false);
 
@@ -84,7 +85,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
     return () => pulse.stop();
   }, [modalHeartScale]);
 
-  // Reset state and check for updated_at changes whenever modal is opened
+  // Reset state and check for upi_update changes whenever modal is opened
   useEffect(() => {
     if (visible) {
       setModalStep('FORM');
@@ -98,15 +99,19 @@ export const SupportAppModal = ({ visible, onClose }) => {
       const local = getLocalUpiRecord();
       if (local.upiId) {
         setCurrentUpiId(local.upiId);
+        setCurrentUpiUpdate(local.upiUpdate);
         setCurrentUpdatedAt(local.updatedAt);
       }
 
-      // 2. Perform lightweight server-side version check
+      // 2. Perform lightweight background upi_update version check
       setIsConfigLoading(true);
       syncAndGetLatestUpiConfig().then((res) => {
         setIsConfigLoading(false);
         if (res && res.success && res.upiId) {
           setCurrentUpiId(res.upiId);
+          if (res.upiUpdate != null) {
+            setCurrentUpiUpdate(res.upiUpdate);
+          }
           setCurrentUpdatedAt(res.updatedAt);
         }
       });
@@ -208,7 +213,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
     triggerHaptic('selection');
     setIsLaunching(true);
 
-    // Every Support App click: check latest server updated_at value
+    // Every Support App payment: ensure latest server upi_update value is respected
     const configRes = await syncAndGetLatestUpiConfig();
 
     if (!configRes.success || !configRes.upiId || !isValidUpiId(configRes.upiId)) {
@@ -223,8 +228,11 @@ export const SupportAppModal = ({ visible, onClose }) => {
       return;
     }
 
-    // Update state with fresh verified upi_id
+    // Update state with fresh verified upi_id and upi_update
     setCurrentUpiId(configRes.upiId);
+    if (configRes.upiUpdate != null) {
+      setCurrentUpiUpdate(configRes.upiUpdate);
+    }
     setCurrentUpdatedAt(configRes.updatedAt);
 
     // Set flag before launching intent
@@ -366,14 +374,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
                         </View>
                       </View>
                       <Text style={styles.recipientUpiText}>
-                        UPI ID:{' '}
-                        {currentUpiId ? (
-                          <Text style={styles.upiIdBold}>{currentUpiId}</Text>
-                        ) : isConfigLoading ? (
-                          <Text style={styles.upiIdLoading}>Checking server configuration...</Text>
-                        ) : (
-                          <Text style={styles.upiIdBold}>Connect to internet to load</Text>
-                        )}
+                        UPI ID: <Text style={styles.upiIdBold}>{currentUpiId || DEFAULT_UPI_ID}</Text>
                       </Text>
                     </View>
                   </View>

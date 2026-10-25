@@ -25,15 +25,26 @@ if (!$db) {
 }
 
 try {
-    // 1. Ensure table exists with automatic updated_at timestamping
+    // 1. Ensure table exists with upi_update column
     $db->exec("CREATE TABLE IF NOT EXISTS `upi_info` (
         `id` INT AUTO_INCREMENT PRIMARY KEY,
         `upi_id` VARCHAR(255) NOT NULL,
+        `upi_update` INT NOT NULL DEFAULT 1,
         `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // 2. Fetch the latest UPI row using prepared statement
-    $stmt = $db->prepare("SELECT id, upi_id, updated_at FROM upi_info ORDER BY updated_at DESC, id DESC LIMIT 1");
+    // Dynamic column check in case table was created previously without upi_update
+    try {
+        $checkCol = $db->query("SHOW COLUMNS FROM `upi_info` LIKE 'upi_update'");
+        if ($checkCol && $checkCol->rowCount() === 0) {
+            $db->exec("ALTER TABLE `upi_info` ADD COLUMN `upi_update` INT NOT NULL DEFAULT 1;");
+        }
+    } catch (Exception $colEx) {
+        // Ignored if column already exists
+    }
+
+    // 2. Fetch the latest UPI row by upi_update and id
+    $stmt = $db->prepare("SELECT id, upi_id, upi_update, updated_at FROM upi_info ORDER BY upi_update DESC, id DESC LIMIT 1");
     $stmt->execute();
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -45,25 +56,29 @@ try {
     }
 
     $serverUpiId = trim($row['upi_id']);
-    $serverUpdatedAt = trim($row['updated_at']);
+    $serverUpiUpdate = isset($row['upi_update']) ? (int)$row['upi_update'] : 1;
+    $serverUpdatedAt = isset($row['updated_at']) ? trim($row['updated_at']) : '';
 
-    // 3. Lightweight check: Compare client's local updated_at timestamp
-    $clientUpdatedAt = isset($_GET['client_updated_at']) ? trim($_GET['client_updated_at']) : null;
+    // 3. Check client_upi_update parameter
+    $clientUpiUpdate = isset($_GET['client_upi_update']) && is_numeric($_GET['client_upi_update'])
+        ? (int)$_GET['client_upi_update']
+        : null;
 
-    if ($clientUpdatedAt !== null && $clientUpdatedAt !== '' && $clientUpdatedAt === $serverUpdatedAt) {
-        // Timestamps match: Configuration has NOT changed
+    if ($clientUpiUpdate !== null && $serverUpiUpdate <= $clientUpiUpdate) {
+        // upi_update has NOT increased: Return lightweight response without fetching upi_id again
         sendJsonResponse([
             'success'    => true,
             'changed'    => false,
-            'updated_at' => $serverUpdatedAt
+            'upi_update' => $serverUpiUpdate
         ], 200);
     }
 
-    // Timestamps do NOT match (or first fetch): Return latest upi_id and timestamp
+    // upi_update has increased (or first fetch): Return latest upi_id and upi_update
     sendJsonResponse([
         'success'    => true,
         'changed'    => true,
         'upi_id'     => $serverUpiId,
+        'upi_update' => $serverUpiUpdate,
         'updated_at' => $serverUpdatedAt
     ], 200);
 

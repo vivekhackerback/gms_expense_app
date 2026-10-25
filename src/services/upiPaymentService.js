@@ -1,5 +1,11 @@
 import { Linking } from 'react-native';
-import { getLocalUpiRecord, saveLocalUpiRecord } from '../database/queries';
+import {
+  getLocalUpiRecord,
+  saveLocalUpiRecord,
+  DEFAULT_UPI_ID,
+  DEFAULT_UPI_UPDATE,
+  DEFAULT_UPI_UPDATED_AT,
+} from '../database/queries';
 import { API_CONFIG } from '../constants/api_config';
 
 export const SUPPORT_UPI_CONFIG = {
@@ -25,13 +31,14 @@ export const isValidUpiId = (upiId) => {
 let inFlightConfigPromise = null;
 
 /**
- * Server-Side Configuration Version Check
+ * Server-Side Configuration Version Check using upi_update field
  * 
- * 1. Reads last successfully saved UPI ID and updated_at from local storage.
- * 2. Makes a lightweight API request passing client_updated_at.
- * 3. If server timestamp matches local timestamp, reuses local cache.
- * 4. If timestamp changed or missing, fetches new UPI ID, validates, and updates local SQLite.
+ * 1. Reads last successfully saved UPI ID and upi_update version from local storage.
+ * 2. Makes a lightweight API request passing client_upi_update.
+ * 3. If server upi_update has not increased, reuses local cache without re-fetching.
+ * 4. If upi_update has increased, validates new UPI ID and updates local SQLite.
  * 5. Handles timeouts, malformed responses, and offline fallback safely.
+ * 6. Never replaces a valid cached UPI ID with an empty or invalid value.
  */
 export const syncAndGetLatestUpiConfig = async () => {
   if (inFlightConfigPromise) {
@@ -40,12 +47,11 @@ export const syncAndGetLatestUpiConfig = async () => {
 
   inFlightConfigPromise = (async () => {
     const local = getLocalUpiRecord();
+    const currentLocalUpdate = typeof local.upiUpdate === 'number' ? local.upiUpdate : DEFAULT_UPI_UPDATE;
 
     try {
       const url = new URL(API_CONFIG.GET_UPI_URL);
-      if (local.updatedAt) {
-        url.searchParams.append('client_updated_at', local.updatedAt);
-      }
+      url.searchParams.append('client_upi_update', String(currentLocalUpdate));
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -62,58 +68,61 @@ export const syncAndGetLatestUpiConfig = async () => {
         const json = await res.json();
 
         if (json && json.success) {
-          // Case A: Server confirms configuration has not changed
-          if (json.changed === false && local.upiId && isValidUpiId(local.upiId)) {
-            return {
-              success: true,
-              upiId: local.upiId,
-              updatedAt: local.updatedAt,
-              fromCache: true,
-            };
+          const serverUpiUpdate = parseInt(json.upi_update, 10);
+          const safeServerUpdate = !isNaN(serverUpiUpdate) ? serverUpiUpdate : currentLocalUpdate;
+
+          // Case A: Server confirms upi_update has NOT changed / increased
+          if (json.changed === false || safeServerUpdate <= currentLocalUpdate) {
+            if (local.upiId && isValidUpiId(local.upiId)) {
+              return {
+                success: true,
+                upiId: local.upiId,
+                upiUpdate: currentLocalUpdate,
+                updatedAt: local.updatedAt,
+                fromCache: true,
+              };
+            }
           }
 
-          // Case B: Server returned updated UPI ID
+          // Case B: upi_update has increased - server returned updated UPI ID
           const serverUpiId = json.upi_id ? String(json.upi_id).trim() : null;
           const serverUpdatedAt = json.updated_at ? String(json.updated_at).trim() : null;
 
+          // Never replace a valid cached UPI ID with an empty or invalid value
           if (serverUpiId && isValidUpiId(serverUpiId)) {
             // Update local storage only after successful validation
-            saveLocalUpiRecord(serverUpiId, serverUpdatedAt);
+            saveLocalUpiRecord(serverUpiId, safeServerUpdate, serverUpdatedAt);
 
             return {
               success: true,
               upiId: serverUpiId,
+              upiUpdate: safeServerUpdate,
               updatedAt: serverUpdatedAt,
               fromCache: false,
             };
+          } else {
+            console.warn('[UPI] Server returned invalid or empty upi_id. Preserving cached value:', serverUpiId);
           }
         }
       }
     } catch (err) {
-      console.warn('[UPI] Server config version check error:', err?.message);
+      console.warn('[UPI] Server upi_update check error:', err?.message);
     } finally {
       inFlightConfigPromise = null;
     }
 
-    // Edge Case: If API request fails or is offline, do NOT overwrite valid cached data
-    if (local.upiId && isValidUpiId(local.upiId)) {
-      return {
-        success: true,
-        upiId: local.upiId,
-        updatedAt: local.updatedAt,
-        fromCache: true,
-        fallback: true,
-      };
-    }
+    // Edge Case: If API request fails or is offline, guarantee a valid verified UPI ID is returned
+    const fallbackUpiId = (local.upiId && isValidUpiId(local.upiId)) ? local.upiId : DEFAULT_UPI_ID;
+    const fallbackUpiUpdate = local.upiUpdate || DEFAULT_UPI_UPDATE;
+    const fallbackUpdatedAt = local.updatedAt || DEFAULT_UPI_UPDATED_AT;
 
-    // If no valid cache exists either, refuse to proceed with invalid value
     return {
-      success: false,
-      upiId: null,
-      updatedAt: null,
-      error: 'NO_VALID_UPI',
-      message:
-        'Unable to retrieve payment information from server. Please check your internet connection and try again.',
+      success: true,
+      upiId: fallbackUpiId,
+      upiUpdate: fallbackUpiUpdate,
+      updatedAt: fallbackUpdatedAt,
+      fromCache: true,
+      fallback: true,
     };
   })();
 
