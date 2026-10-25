@@ -1,14 +1,8 @@
 import { Linking } from 'react-native';
-import { checkAndFetchUpiInfo, insertUpiInfo } from '../database/queries';
+import { getLocalUpiRecord, saveLocalUpiRecord } from '../database/queries';
 import { API_CONFIG } from '../constants/api_config';
 
 export const SUPPORT_UPI_CONFIG = {
-  get upiId() {
-    return checkAndFetchUpiInfo().upiId;
-  },
-  get updatedAt() {
-    return checkAndFetchUpiInfo().updatedAt;
-  },
   payeeName: 'Expense App Developer',
   defaultNote: 'Support Expense App',
   suggestedAmounts: [10, 20, 50, 100],
@@ -16,56 +10,119 @@ export const SUPPORT_UPI_CONFIG = {
 };
 
 /**
- * Checks server for updated UPI info.
- * If server's updated_at is different from local SQLite, inserts into SQLite and returns new upi_id.
+ * Validates whether a given string matches standard UPI ID format
  */
-export const syncUpiInfoWithServer = async () => {
-  const local = checkAndFetchUpiInfo();
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-    const res = await fetch(API_CONFIG.GET_UPI_URL, {
-      method: 'GET',
-      headers: API_CONFIG.HEADERS,
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      const json = await res.json();
-      if (json && json.success && json.data && json.data.upi_id) {
-        const remoteUpiId = String(json.data.upi_id).trim();
-        const remoteUpdatedAt = json.data.updated_at ? String(json.data.updated_at).trim() : null;
-
-        // If updated_at is changed, update local SQLite
-        if (remoteUpdatedAt && remoteUpdatedAt !== local.updatedAt) {
-          console.log(`[UPI] Server updated_at changed from '${local.updatedAt}' to '${remoteUpdatedAt}'. Updating local SQLite upi_id to '${remoteUpiId}'`);
-          const updated = insertUpiInfo(remoteUpiId, remoteUpdatedAt);
-          return {
-            upiId: updated ? updated.upiId : remoteUpiId,
-            updatedAt: remoteUpdatedAt,
-            isUpdated: true,
-          };
-        }
-      }
-    }
-  } catch (e) {
-    // Graceful offline fallback - rely on local SQLite
-  }
-
-  return {
-    upiId: local.upiId,
-    updatedAt: local.updatedAt,
-    isUpdated: false,
-  };
+export const isValidUpiId = (upiId) => {
+  if (!upiId || typeof upiId !== 'string') return false;
+  const trimmed = upiId.trim();
+  const upiRegex = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z0-9.\-_]{2,64}$/;
+  return upiRegex.test(trimmed);
 };
 
 /**
- * Builds a standard UPI URI string formatted for Indian banking / UPI apps
- * Format: upi://pay?pa=<UPI_ID>&pn=<NAME>&tn=<NOTE>&am=<AMOUNT>&cu=INR
+ * Mutex lock to prevent simultaneous duplicate requests from repeated clicks
+ */
+let inFlightConfigPromise = null;
+
+/**
+ * Server-Side Configuration Version Check
+ * 
+ * 1. Reads last successfully saved UPI ID and updated_at from local storage.
+ * 2. Makes a lightweight API request passing client_updated_at.
+ * 3. If server timestamp matches local timestamp, reuses local cache.
+ * 4. If timestamp changed or missing, fetches new UPI ID, validates, and updates local SQLite.
+ * 5. Handles timeouts, malformed responses, and offline fallback safely.
+ */
+export const syncAndGetLatestUpiConfig = async () => {
+  if (inFlightConfigPromise) {
+    return inFlightConfigPromise;
+  }
+
+  inFlightConfigPromise = (async () => {
+    const local = getLocalUpiRecord();
+
+    try {
+      const url = new URL(API_CONFIG.GET_UPI_URL);
+      if (local.updatedAt) {
+        url.searchParams.append('client_updated_at', local.updatedAt);
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: API_CONFIG.HEADERS,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const json = await res.json();
+
+        if (json && json.success) {
+          // Case A: Server confirms configuration has not changed
+          if (json.changed === false && local.upiId && isValidUpiId(local.upiId)) {
+            return {
+              success: true,
+              upiId: local.upiId,
+              updatedAt: local.updatedAt,
+              fromCache: true,
+            };
+          }
+
+          // Case B: Server returned updated UPI ID
+          const serverUpiId = json.upi_id ? String(json.upi_id).trim() : null;
+          const serverUpdatedAt = json.updated_at ? String(json.updated_at).trim() : null;
+
+          if (serverUpiId && isValidUpiId(serverUpiId)) {
+            // Update local storage only after successful validation
+            saveLocalUpiRecord(serverUpiId, serverUpdatedAt);
+
+            return {
+              success: true,
+              upiId: serverUpiId,
+              updatedAt: serverUpdatedAt,
+              fromCache: false,
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[UPI] Server config version check error:', err?.message);
+    } finally {
+      inFlightConfigPromise = null;
+    }
+
+    // Edge Case: If API request fails or is offline, do NOT overwrite valid cached data
+    if (local.upiId && isValidUpiId(local.upiId)) {
+      return {
+        success: true,
+        upiId: local.upiId,
+        updatedAt: local.updatedAt,
+        fromCache: true,
+        fallback: true,
+      };
+    }
+
+    // If no valid cache exists either, refuse to proceed with invalid value
+    return {
+      success: false,
+      upiId: null,
+      updatedAt: null,
+      error: 'NO_VALID_UPI',
+      message:
+        'Unable to retrieve payment information from server. Please check your internet connection and try again.',
+    };
+  })();
+
+  return inFlightConfigPromise;
+};
+
+/**
+ * Builds a validated standard UPI URI string:
+ * upi://pay?pa=<UPI_ID>&pn=<NAME>&tn=<NOTE>&am=<AMOUNT>&cu=INR
  */
 export const buildUpiUrl = ({
   amount,
@@ -78,11 +135,12 @@ export const buildUpiUrl = ({
     throw new Error('Please enter a valid amount greater than 0');
   }
 
-  const activeUpiId = (upiId || checkAndFetchUpiInfo().upiId || '8651615629-2@ybl').trim();
+  if (!upiId || !isValidUpiId(upiId)) {
+    throw new Error('Invalid or missing recipient UPI ID');
+  }
 
-  // Format to standard 2 decimal places e.g. 50.00
   const formattedAmount = numAmount.toFixed(2);
-  const encodedUpiId = encodeURIComponent(activeUpiId);
+  const encodedUpiId = encodeURIComponent(upiId.trim());
   const encodedName = encodeURIComponent(payeeName.trim());
   const encodedNote = encodeURIComponent(note.trim());
 
@@ -90,16 +148,37 @@ export const buildUpiUrl = ({
 };
 
 /**
- * Attempts to launch the native UPI intent.
- * On Android, the OS displays the app chooser with installed apps (Google Pay, PhonePe, Paytm, BHIM, etc.).
- * Returns { success: true } if launched, or { success: false, error, message } if failed.
+ * Launches native UPI intent using verified latest server-side UPI configuration.
  */
-export const launchUpiPayment = async ({ amount, note, upiId }) => {
-  try {
-    const activeUpiId = (upiId || checkAndFetchUpiInfo().upiId || '8651615629-2@ybl').trim();
-    const upiUrl = buildUpiUrl({ amount, note, upiId: activeUpiId });
+export const launchUpiPayment = async ({
+  amount,
+  note = SUPPORT_UPI_CONFIG.defaultNote,
+  upiId,
+}) => {
+  let activeUpiId = upiId;
 
-    // Check if URL can be opened
+  // If no validated UPI ID was passed in, run version check immediately
+  if (!activeUpiId || !isValidUpiId(activeUpiId)) {
+    const configRes = await syncAndGetLatestUpiConfig();
+    if (!configRes.success || !configRes.upiId || !isValidUpiId(configRes.upiId)) {
+      return {
+        success: false,
+        error: 'NO_UPI_ID',
+        message:
+          configRes.message ||
+          'Payment details could not be retrieved from the server. Please check your internet connection.',
+      };
+    }
+    activeUpiId = configRes.upiId;
+  }
+
+  try {
+    const upiUrl = buildUpiUrl({
+      amount,
+      note,
+      upiId: activeUpiId,
+    });
+
     let canOpen = false;
     try {
       canOpen = await Linking.canOpenURL(upiUrl);
@@ -107,11 +186,10 @@ export const launchUpiPayment = async ({ amount, note, upiId }) => {
       canOpen = false;
     }
 
-    // Try opening URL directly (standard Android intent chooser)
     await Linking.openURL(upiUrl);
     return { success: true, upiId: activeUpiId };
   } catch (err) {
-    console.warn('[UPI] Could not launch UPI URL:', err?.message);
+    console.warn('[UPI] Error launching UPI URL:', err?.message);
     return {
       success: false,
       error: 'NO_UPI_APP',

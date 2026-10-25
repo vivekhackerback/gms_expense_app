@@ -21,9 +21,10 @@ import { Typography, Spacing, BorderRadius, Shadows } from '../../constants/them
 import {
   SUPPORT_UPI_CONFIG,
   launchUpiPayment,
-  syncUpiInfoWithServer,
+  syncAndGetLatestUpiConfig,
+  isValidUpiId,
 } from '../../services/upiPaymentService';
-import { checkAndFetchUpiInfo } from '../../database/queries';
+import { getLocalUpiRecord } from '../../database/queries';
 
 const triggerHaptic = (type = 'selection') => {
   try {
@@ -50,9 +51,9 @@ export const SupportAppModal = ({ visible, onClose }) => {
   const [isLaunching, setIsLaunching] = useState(false);
 
   // Dynamic UPI Info & updated_at state
-  const initialUpi = checkAndFetchUpiInfo();
-  const [currentUpiId, setCurrentUpiId] = useState(initialUpi.upiId);
-  const [currentUpdatedAt, setCurrentUpdatedAt] = useState(initialUpi.updatedAt);
+  const [currentUpiId, setCurrentUpiId] = useState(() => getLocalUpiRecord().upiId);
+  const [currentUpdatedAt, setCurrentUpdatedAt] = useState(() => getLocalUpiRecord().updatedAt);
+  const [isConfigLoading, setIsConfigLoading] = useState(false);
 
   // AppState tracking for returning from UPI app
   const awaitingUpiReturnRef = useRef(false);
@@ -93,14 +94,18 @@ export const SupportAppModal = ({ visible, onClose }) => {
       setIsLaunching(false);
       awaitingUpiReturnRef.current = false;
 
-      // 1. Check local SQLite updated_at change
-      const localUpi = checkAndFetchUpiInfo();
-      setCurrentUpiId(localUpi.upiId);
-      setCurrentUpdatedAt(localUpi.updatedAt);
+      // 1. Read last successfully cached UPI record from local storage
+      const local = getLocalUpiRecord();
+      if (local.upiId) {
+        setCurrentUpiId(local.upiId);
+        setCurrentUpdatedAt(local.updatedAt);
+      }
 
-      // 2. Check remote server for updated_at change
-      syncUpiInfoWithServer().then((res) => {
-        if (res && res.isUpdated) {
+      // 2. Perform lightweight server-side version check
+      setIsConfigLoading(true);
+      syncAndGetLatestUpiConfig().then((res) => {
+        setIsConfigLoading(false);
+        if (res && res.success && res.upiId) {
           setCurrentUpiId(res.upiId);
           setCurrentUpdatedAt(res.updatedAt);
         }
@@ -203,16 +208,32 @@ export const SupportAppModal = ({ visible, onClose }) => {
     triggerHaptic('selection');
     setIsLaunching(true);
 
+    // Every Support App click: check latest server updated_at value
+    const configRes = await syncAndGetLatestUpiConfig();
+
+    if (!configRes.success || !configRes.upiId || !isValidUpiId(configRes.upiId)) {
+      setIsLaunching(false);
+      triggerHaptic('warning');
+      Alert.alert(
+        'Payment Details Unavailable',
+        configRes.message ||
+          'Unable to retrieve payment information from server. Please check your internet connection.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    // Update state with fresh verified upi_id
+    setCurrentUpiId(configRes.upiId);
+    setCurrentUpdatedAt(configRes.updatedAt);
+
     // Set flag before launching intent
     awaitingUpiReturnRef.current = true;
-
-    const latestUpi = checkAndFetchUpiInfo();
-    const targetUpiId = latestUpi.upiId || currentUpiId;
 
     const result = await launchUpiPayment({
       amount,
       note: SUPPORT_UPI_CONFIG.defaultNote,
-      upiId: targetUpiId,
+      upiId: configRes.upiId,
     });
 
     if (!result.success) {
@@ -222,7 +243,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
       Alert.alert(
         'No Compatible UPI App Found',
         'We could not find any installed UPI payment application (such as Google Pay, PhonePe, Paytm, or BHIM) on this device.\n\nRecipient UPI ID: ' +
-          currentUpiId,
+          configRes.upiId,
         [{ text: 'OK' }]
       );
     }
@@ -345,7 +366,14 @@ export const SupportAppModal = ({ visible, onClose }) => {
                         </View>
                       </View>
                       <Text style={styles.recipientUpiText}>
-                        UPI ID: <Text style={styles.upiIdBold}>{currentUpiId}</Text>
+                        UPI ID:{' '}
+                        {currentUpiId ? (
+                          <Text style={styles.upiIdBold}>{currentUpiId}</Text>
+                        ) : isConfigLoading ? (
+                          <Text style={styles.upiIdLoading}>Checking server configuration...</Text>
+                        ) : (
+                          <Text style={styles.upiIdBold}>Connect to internet to load</Text>
+                        )}
                       </Text>
                     </View>
                   </View>
@@ -702,6 +730,10 @@ const styles = StyleSheet.create({
   upiIdBold: {
     fontWeight: Typography.fontWeights.bold,
     color: Colors.primary,
+  },
+  upiIdLoading: {
+    fontStyle: 'italic',
+    color: Colors.textMuted,
   },
   amountSection: {
     gap: Spacing.xs + 2,

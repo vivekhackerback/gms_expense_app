@@ -307,16 +307,6 @@ export const initDatabase = () => {
       console.warn('Migration error for upi_info.updated_at:', migErr);
     }
 
-    // Seed upi_info with latest record if not present
-    try {
-      const checkUpi = dbInstance.getFirstSync("SELECT id FROM upi_info WHERE upi_id = '8651615629-2@ybl';");
-      if (!checkUpi) {
-        dbInstance.runSync("INSERT INTO `upi_info` (`id`, `upi_id`, `updated_at`) VALUES (NULL, '8651615629-2@ybl', '2026-10-25 03:32:08');");
-      }
-    } catch (upiErr) {
-      console.warn('Could not seed upi_info:', upiErr);
-    }
-
     // Dynamic Schema Migrations for existing DB instances
     try {
       const catCols = dbInstance.getAllSync("PRAGMA table_info('categories');");

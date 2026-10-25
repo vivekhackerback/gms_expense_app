@@ -1382,65 +1382,41 @@ export const wipeAndResetDatabase = () => {
 };
 
 // -------------------------------------------------------------
-// UPI Info Queries & updated_at Change Tracking
+// UPI Info Queries & Dynamic Local Storage (No Hardcoded Fallbacks)
 // -------------------------------------------------------------
-let cachedUpiRecord = {
-  upiId: '8651615629-2@ybl',
-  updatedAt: null,
-};
 
 /**
- * Checks whether the UPI record changed in database using updated_at.
- * If updated_at changed (or on first read), fetches and updates the new upi_id.
- * Returns { id, upiId, updatedAt, isChanged }
+ * Returns the latest successfully cached UPI record from local SQLite: { id, upiId, updatedAt }
  */
-export const checkAndFetchUpiInfo = () => {
+export const getLocalUpiRecord = () => {
   try {
     const db = getDatabase();
-    // Fetch latest record ordered by updated_at descending
     const row = db.getFirstSync(
-      'SELECT id, upi_id, updated_at FROM upi_info ORDER BY updated_at DESC, id DESC LIMIT 1;'
+      'SELECT id, upi_id, updated_at FROM upi_info WHERE upi_id IS NOT NULL AND TRIM(upi_id) != "" ORDER BY updated_at DESC, id DESC LIMIT 1;'
     );
-
     if (row && row.upi_id) {
-      const dbUpiId = String(row.upi_id).trim();
-      const dbUpdatedAt = row.updated_at ? String(row.updated_at).trim() : null;
-
-      const isChanged =
-        cachedUpiRecord.updatedAt !== null &&
-        cachedUpiRecord.updatedAt !== dbUpdatedAt;
-
-      if (isChanged || cachedUpiRecord.updatedAt === null) {
-        cachedUpiRecord = {
-          upiId: dbUpiId,
-          updatedAt: dbUpdatedAt,
-        };
-      }
-
       return {
         id: row.id,
-        upiId: cachedUpiRecord.upiId,
-        updatedAt: cachedUpiRecord.updatedAt,
-        isChanged,
+        upiId: String(row.upi_id).trim(),
+        updatedAt: row.updated_at ? String(row.updated_at).trim() : null,
       };
     }
   } catch (e) {
-    console.warn('Could not check upi_info from database:', e);
+    console.warn('[DB] Could not query local upi_info:', e?.message);
   }
 
-  return {
-    id: null,
-    upiId: cachedUpiRecord.upiId || '8651615629-2@ybl',
-    updatedAt: cachedUpiRecord.updatedAt || '2026-10-25 03:32:08',
-    isChanged: false,
-  };
+  return { id: null, upiId: null, updatedAt: null };
 };
 
-export const getUpiInfo = () => {
-  return checkAndFetchUpiInfo().upiId;
-};
+/**
+ * Saves a validated UPI record to local SQLite table upi_info
+ */
+export const saveLocalUpiRecord = (upiId, updatedAt = null) => {
+  if (!upiId || typeof upiId !== 'string' || !upiId.includes('@')) {
+    console.warn('[DB] Refusing to save invalid upi_id:', upiId);
+    return false;
+  }
 
-export const insertUpiInfo = (upiId, updatedAt = null) => {
   try {
     const db = getDatabase();
     const formattedUpdatedAt = updatedAt
@@ -1452,11 +1428,20 @@ export const insertUpiInfo = (upiId, updatedAt = null) => {
       [upiId.trim(), formattedUpdatedAt]
     );
 
-    return checkAndFetchUpiInfo();
+    return true;
   } catch (e) {
-    console.warn('Could not insert upi_info:', e);
-    return null;
+    console.warn('[DB] Could not save upi_info:', e?.message);
+    return false;
   }
 };
+
+export const getUpiInfo = () => {
+  return getLocalUpiRecord().upiId;
+};
+
+export const insertUpiInfo = (upiId, updatedAt = null) => {
+  return saveLocalUpiRecord(upiId, updatedAt);
+};
+
 
 
