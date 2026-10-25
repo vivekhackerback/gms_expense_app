@@ -50,6 +50,8 @@ export const API_CONFIG = {
   API_HEALTH_URL: `${API_BASE}/api_health.php`,
   /** Endpoint to check sync statistics and last backup timestamp for a device */
   BACKUP_STATUS_URL: `${API_BASE}/backup_status.php`,
+  /** Endpoint to fetch latest upi_id and updated_at timestamp */
+  GET_UPI_URL: `${API_BASE}/get_upi.php`,
 
   // -------------------------------------------------------------
   // 4. Cloud Restore / SQLite Database & Media Backup (PHP Endpoints)

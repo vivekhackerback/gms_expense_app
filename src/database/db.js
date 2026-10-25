@@ -288,6 +288,35 @@ export const initDatabase = () => {
       );
     `);
 
+    // 8. UPI Payment Recipient Info Table
+    dbInstance.execSync(`
+      CREATE TABLE IF NOT EXISTS upi_info (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        upi_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
+
+    // Migration for upi_info.updated_at if not present
+    try {
+      const upiCols = dbInstance.getAllSync("PRAGMA table_info('upi_info');");
+      if (!upiCols.some((col) => col.name === 'updated_at')) {
+        dbInstance.execSync("ALTER TABLE upi_info ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'));");
+      }
+    } catch (migErr) {
+      console.warn('Migration error for upi_info.updated_at:', migErr);
+    }
+
+    // Seed upi_info with latest record if not present
+    try {
+      const checkUpi = dbInstance.getFirstSync("SELECT id FROM upi_info WHERE upi_id = '8651615629-2@ybl';");
+      if (!checkUpi) {
+        dbInstance.runSync("INSERT INTO `upi_info` (`id`, `upi_id`, `updated_at`) VALUES (NULL, '8651615629-2@ybl', '2026-10-25 03:32:08');");
+      }
+    } catch (upiErr) {
+      console.warn('Could not seed upi_info:', upiErr);
+    }
+
     // Dynamic Schema Migrations for existing DB instances
     try {
       const catCols = dbInstance.getAllSync("PRAGMA table_info('categories');");

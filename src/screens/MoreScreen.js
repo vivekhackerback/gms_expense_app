@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Animated,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
@@ -22,6 +23,7 @@ import {
   deleteStressTestTransactions,
   getStressTestStatus,
 } from '../services/stressTestService';
+import { SupportAppModal } from '../components/modals/SupportAppModal';
 
 export const MoreScreen = () => {
   const {
@@ -46,6 +48,29 @@ export const MoreScreen = () => {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
+
+  // Heartbeat pulse animation to attract user attention
+  const heartScale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(heartScale, {
+          toValue: 1.22,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(heartScale, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [heartScale]);
 
   const handleOpenEditProfile = () => {
     setEditName(currentUser?.name || '');
@@ -260,6 +285,37 @@ export const MoreScreen = () => {
             </View>
           </TouchableOpacity>
         )}
+
+        {/* Support the App Button */}
+        <TouchableOpacity
+          style={[styles.supportAppCard, Shadows.sm]}
+          onPress={() => setIsSupportModalOpen(true)}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Support the App, Love this app? Support its development."
+        >
+          <View style={styles.supportAppLeft}>
+            <View style={styles.supportIconWrap}>
+              <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+                <Ionicons name="heart" size={22} color="#E11D48" />
+              </Animated.View>
+            </View>
+            <View style={styles.supportTextWrap}>
+              <View style={styles.supportTitleRow}>
+                <Text style={styles.supportAppTitle}>Support the App</Text>
+                <View style={styles.upiBadge}>
+                  <Text style={styles.upiBadgeText}>UPI</Text>
+                </View>
+              </View>
+              <Text style={styles.supportAppSubtitle}>
+                Love this app? Support its development.
+              </Text>
+            </View>
+          </View>
+          <View style={styles.supportChevronWrap}>
+            <Ionicons name="chevron-forward" size={18} color="#4F46E5" />
+          </View>
+        </TouchableOpacity>
 
         {/* Sync Status Banner */}
         {isLoggedIn ? (
@@ -499,6 +555,12 @@ export const MoreScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Support App UPI Modal */}
+      <SupportAppModal
+        visible={isSupportModalOpen}
+        onClose={() => setIsSupportModalOpen(false)}
+      />
     </View>
   );
 };
@@ -892,5 +954,71 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSizes.xs + 1,
     fontWeight: Typography.fontWeights.bold,
     color: '#7C3AED',
+  },
+  supportAppCard: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md + 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  supportAppLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  supportIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFE4E6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  supportTextWrap: {
+    marginLeft: Spacing.md,
+    flex: 1,
+  },
+  supportTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  supportAppTitle: {
+    fontSize: Typography.fontSizes.md,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#1E1B4B',
+  },
+  upiBadge: {
+    backgroundColor: '#E0E7FF',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#A5B4FC',
+  },
+  upiBadgeText: {
+    fontSize: 9.5,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#4338CA',
+    letterSpacing: 0.5,
+  },
+  supportAppSubtitle: {
+    fontSize: Typography.fontSizes.xs,
+    color: '#4F46E5',
+    marginTop: 2,
+    fontWeight: Typography.fontWeights.medium,
+  },
+  supportChevronWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#E0E7FF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

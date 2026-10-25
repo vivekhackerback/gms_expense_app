@@ -1380,3 +1380,83 @@ export const eraseLocalDeviceDataOnly = () => {
 export const wipeAndResetDatabase = () => {
   return eraseLocalDeviceDataOnly();
 };
+
+// -------------------------------------------------------------
+// UPI Info Queries & updated_at Change Tracking
+// -------------------------------------------------------------
+let cachedUpiRecord = {
+  upiId: '8651615629-2@ybl',
+  updatedAt: null,
+};
+
+/**
+ * Checks whether the UPI record changed in database using updated_at.
+ * If updated_at changed (or on first read), fetches and updates the new upi_id.
+ * Returns { id, upiId, updatedAt, isChanged }
+ */
+export const checkAndFetchUpiInfo = () => {
+  try {
+    const db = getDatabase();
+    // Fetch latest record ordered by updated_at descending
+    const row = db.getFirstSync(
+      'SELECT id, upi_id, updated_at FROM upi_info ORDER BY updated_at DESC, id DESC LIMIT 1;'
+    );
+
+    if (row && row.upi_id) {
+      const dbUpiId = String(row.upi_id).trim();
+      const dbUpdatedAt = row.updated_at ? String(row.updated_at).trim() : null;
+
+      const isChanged =
+        cachedUpiRecord.updatedAt !== null &&
+        cachedUpiRecord.updatedAt !== dbUpdatedAt;
+
+      if (isChanged || cachedUpiRecord.updatedAt === null) {
+        cachedUpiRecord = {
+          upiId: dbUpiId,
+          updatedAt: dbUpdatedAt,
+        };
+      }
+
+      return {
+        id: row.id,
+        upiId: cachedUpiRecord.upiId,
+        updatedAt: cachedUpiRecord.updatedAt,
+        isChanged,
+      };
+    }
+  } catch (e) {
+    console.warn('Could not check upi_info from database:', e);
+  }
+
+  return {
+    id: null,
+    upiId: cachedUpiRecord.upiId || '8651615629-2@ybl',
+    updatedAt: cachedUpiRecord.updatedAt || '2026-10-25 03:32:08',
+    isChanged: false,
+  };
+};
+
+export const getUpiInfo = () => {
+  return checkAndFetchUpiInfo().upiId;
+};
+
+export const insertUpiInfo = (upiId, updatedAt = null) => {
+  try {
+    const db = getDatabase();
+    const formattedUpdatedAt = updatedAt
+      ? String(updatedAt).trim()
+      : new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+    db.runSync(
+      'INSERT INTO `upi_info` (`id`, `upi_id`, `updated_at`) VALUES (NULL, ?, ?);',
+      [upiId.trim(), formattedUpdatedAt]
+    );
+
+    return checkAndFetchUpiInfo();
+  } catch (e) {
+    console.warn('Could not insert upi_info:', e);
+    return null;
+  }
+};
+
+
