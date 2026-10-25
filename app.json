@@ -17,7 +17,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.vivekniceboy.gms_expense_app"
+      "package": "com.tplpro.expenseapp"
     },
     "web": {
       "favicon": "./assets/favicon.png"
