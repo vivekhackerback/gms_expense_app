@@ -563,22 +563,25 @@ export const SupportAppModal = ({ visible, onClose }) => {
                   to all features, reports, and cloud backups anytime.
                 </Text>
 
-                <View style={styles.retryRow}>
+                <View style={styles.cancelledActionWrap}>
                   <TouchableOpacity
-                    style={styles.retryBtn}
-                    onPress={() => setModalStep('FORM')}
-                    activeOpacity={0.8}
+                    style={styles.tryAgainPrimaryBtn}
+                    onPress={() => {
+                      triggerHaptic('selection');
+                      setModalStep('FORM');
+                    }}
+                    activeOpacity={0.85}
                   >
-                    <Ionicons name="refresh-outline" size={16} color={Colors.primary} style={{ marginRight: 6 }} />
-                    <Text style={styles.retryBtnText}>Try Again</Text>
+                    <Ionicons name="refresh-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.tryAgainPrimaryBtnText}>Try Again</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={styles.doneBtnSecondary}
+                    style={styles.cancelTextBtn}
                     onPress={handleClose}
-                    activeOpacity={0.8}
+                    activeOpacity={0.7}
                   >
-                    <Text style={styles.doneBtnSecondaryText}>Close</Text>
+                    <Text style={styles.cancelTextBtnText}>Close</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -933,38 +936,35 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSizes.md,
     fontWeight: Typography.fontWeights.bold,
   },
-  retryRow: {
+  cancelledActionWrap: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tryAgainPrimaryBtn: {
     width: '100%',
     flexDirection: 'row',
-    gap: 10,
-  },
-  retryBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.surfaceSubtle,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingVertical: 12,
-    borderRadius: BorderRadius.lg,
-  },
-  retryBtnText: {
-    color: Colors.primary,
-    fontSize: Typography.fontSizes.sm,
-    fontWeight: Typography.fontWeights.bold,
-  },
-  doneBtnSecondary: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.primary,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderRadius: BorderRadius.lg,
+    ...Shadows.md,
   },
-  doneBtnSecondaryText: {
+  tryAgainPrimaryBtnText: {
     color: '#FFFFFF',
-    fontSize: Typography.fontSizes.sm,
+    fontSize: Typography.fontSizes.md,
     fontWeight: Typography.fontWeights.bold,
+  },
+  cancelTextBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelTextBtnText: {
+    color: Colors.textSecondary,
+    fontSize: Typography.fontSizes.sm,
+    fontWeight: Typography.fontWeights.medium,
   },
 });
