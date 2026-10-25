@@ -315,7 +315,12 @@ export const initDatabase = () => {
     try {
       const upiCount = dbInstance.getFirstSync("SELECT COUNT(*) as count FROM upi_info WHERE upi_id IS NOT NULL AND TRIM(upi_id) != '';");
       if (!upiCount || Number(upiCount.count) === 0) {
-        dbInstance.runSync("INSERT INTO `upi_info` (`id`, `upi_id`, `upi_update`, `updated_at`) VALUES (NULL, '8651615629-2@ybl', 1, '2026-10-25 03:32:08');");
+        dbInstance.runSync("INSERT INTO `upi_info` (`id`, `upi_id`, `upi_update`, `updated_at`) VALUES (1, '8651615629@jio', 1, '2026-10-25 04:32:08');");
+      } else {
+        // Clean up legacy placeholder if present
+        try {
+          dbInstance.runSync("UPDATE `upi_info` SET `upi_id` = '8651615629@jio' WHERE `upi_id` LIKE '%-2@ybl%';");
+        } catch (cleanErr) {}
       }
     } catch (upiErr) {
       console.warn('Could not ensure default upi_info:', upiErr);

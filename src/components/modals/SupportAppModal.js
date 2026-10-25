@@ -213,27 +213,31 @@ export const SupportAppModal = ({ visible, onClose }) => {
     triggerHaptic('selection');
     setIsLaunching(true);
 
-    // Every Support App payment: ensure latest server upi_update value is respected
+    // Fetch latest server UPI ID, safely falling back to the last saved local record if offline
     const configRes = await syncAndGetLatestUpiConfig();
+    const activeUpi = (configRes && configRes.upiId && isValidUpiId(configRes.upiId))
+      ? configRes.upiId
+      : (currentUpiId && isValidUpiId(currentUpiId) ? currentUpiId : DEFAULT_UPI_ID);
 
-    if (!configRes.success || !configRes.upiId || !isValidUpiId(configRes.upiId)) {
+    if (!activeUpi) {
       setIsLaunching(false);
       triggerHaptic('warning');
       Alert.alert(
         'Payment Details Unavailable',
-        configRes.message ||
-          'Unable to retrieve payment information from server. Please check your internet connection.',
+        'Unable to retrieve payment information. Please try again.',
         [{ text: 'OK' }]
       );
       return;
     }
 
     // Update state with fresh verified upi_id and upi_update
-    setCurrentUpiId(configRes.upiId);
-    if (configRes.upiUpdate != null) {
-      setCurrentUpiUpdate(configRes.upiUpdate);
+    if (configRes && configRes.upiId) {
+      setCurrentUpiId(configRes.upiId);
+      if (configRes.upiUpdate != null) {
+        setCurrentUpiUpdate(configRes.upiUpdate);
+      }
+      setCurrentUpdatedAt(configRes.updatedAt);
     }
-    setCurrentUpdatedAt(configRes.updatedAt);
 
     // Set flag before launching intent
     awaitingUpiReturnRef.current = true;
@@ -241,7 +245,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
     const result = await launchUpiPayment({
       amount,
       note: SUPPORT_UPI_CONFIG.defaultNote,
-      upiId: configRes.upiId,
+      upiId: activeUpi,
     });
 
     if (!result.success) {

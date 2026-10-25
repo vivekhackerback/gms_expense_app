@@ -42,6 +42,7 @@ import {
   testBackupLocation,
   checkScheduledAutoBackup,
 } from '../services/backupRestoreService';
+import { syncAndGetLatestUpiConfig } from '../services/upiPaymentService';
 import API_CONFIG from '../constants/api_config';
 
 const AppContext = createContext(null);
@@ -156,6 +157,11 @@ export const AppProvider = ({ children }) => {
       const net = await checkNetworkConnectivity();
       setNetworkStatus(net);
 
+      if (net.isConnected) {
+        // Silently fetch and sync the latest UPI ID in background
+        syncAndGetLatestUpiConfig().catch(() => {});
+      }
+
       // Only perform cloud backup/sync when user is logged in
       const session = getAuthSession();
       if (net.isConnected && session.isLoggedIn) {
@@ -200,6 +206,11 @@ export const AppProvider = ({ children }) => {
         const net = await checkNetworkConnectivity();
         setNetworkStatus(net);
         setIsInitialized(true);
+
+        // Fetch latest UPI configuration in background
+        if (net.isConnected) {
+          syncAndGetLatestUpiConfig().catch(() => {});
+        }
 
         // Run initial sync check
         runBackgroundChecks();

@@ -120,6 +120,6 @@ ON DUPLICATE KEY UPDATE name = VALUES(name);
 
 -- Seed initial UPI configuration
 INSERT INTO upi_info (id, upi_id, upi_update)
-VALUES (1, '8651615629-2@ybl', 1)
+VALUES (1, '8651615629@jio', 1)
 ON DUPLICATE KEY UPDATE upi_id = VALUES(upi_id), upi_update = VALUES(upi_update);
 

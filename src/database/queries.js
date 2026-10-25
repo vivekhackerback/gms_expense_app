@@ -1384,9 +1384,9 @@ export const wipeAndResetDatabase = () => {
 // -------------------------------------------------------------
 // UPI Info Queries & Dynamic Local Storage
 // -------------------------------------------------------------
-export const DEFAULT_UPI_ID = '8651615629-2@ybl';
+export const DEFAULT_UPI_ID = '8651615629@jio';
 export const DEFAULT_UPI_UPDATE = 1;
-export const DEFAULT_UPI_UPDATED_AT = '2026-10-25 03:32:08';
+export const DEFAULT_UPI_UPDATED_AT = '2026-10-25 04:32:08';
 
 /**
  * Returns the latest successfully cached UPI record from local SQLite: { id, upiId, upiUpdate, updatedAt }
@@ -1395,21 +1395,24 @@ export const getLocalUpiRecord = () => {
   try {
     const db = getDatabase();
     const row = db.getFirstSync(
-      'SELECT id, upi_id, upi_update, updated_at FROM upi_info WHERE upi_id IS NOT NULL AND TRIM(upi_id) != "" ORDER BY upi_update DESC, id DESC LIMIT 1;'
+      'SELECT id, upi_id, upi_update, updated_at FROM upi_info WHERE upi_id IS NOT NULL AND TRIM(upi_id) != "" ORDER BY id DESC LIMIT 1;'
     );
     if (row && row.upi_id) {
-      return {
-        id: row.id,
-        upiId: String(row.upi_id).trim(),
-        upiUpdate: Number(row.upi_update != null ? row.upi_update : DEFAULT_UPI_UPDATE),
-        updatedAt: row.updated_at ? String(row.updated_at).trim() : DEFAULT_UPI_UPDATED_AT,
-      };
+      const upiId = String(row.upi_id).trim();
+      if (upiId.includes('@')) {
+        return {
+          id: row.id,
+          upiId,
+          upiUpdate: Number(row.upi_update != null ? row.upi_update : DEFAULT_UPI_UPDATE),
+          updatedAt: row.updated_at ? String(row.updated_at).trim() : DEFAULT_UPI_UPDATED_AT,
+        };
+      }
     }
 
     // Auto-seed table if empty so app always has a valid initial configuration
     try {
       db.runSync(
-        'INSERT INTO `upi_info` (`id`, `upi_id`, `upi_update`, `updated_at`) VALUES (NULL, ?, ?, ?);',
+        'INSERT INTO `upi_info` (`id`, `upi_id`, `upi_update`, `updated_at`) VALUES (1, ?, ?, ?);',
         [DEFAULT_UPI_ID, DEFAULT_UPI_UPDATE, DEFAULT_UPI_UPDATED_AT]
       );
     } catch (insertErr) {}
@@ -1428,7 +1431,8 @@ export const getLocalUpiRecord = () => {
 };
 
 /**
- * Saves a validated UPI record to local SQLite table upi_info
+ * Saves a validated UPI record to local SQLite table upi_info.
+ * Overwrites any old records so local storage strictly keeps only the latest fetched upi_id.
  */
 export const saveLocalUpiRecord = (upiId, upiUpdate = 1, updatedAt = null) => {
   if (!upiId || typeof upiId !== 'string' || !upiId.includes('@')) {
@@ -1436,18 +1440,23 @@ export const saveLocalUpiRecord = (upiId, upiUpdate = 1, updatedAt = null) => {
     return false;
   }
 
+  const cleanUpiId = upiId.trim();
+  const parsedUpdate = parseInt(upiUpdate, 10);
+  const safeUpdate = !isNaN(parsedUpdate) ? parsedUpdate : 1;
+  const formattedUpdatedAt = updatedAt
+    ? String(updatedAt).trim()
+    : new Date().toISOString().replace('T', ' ').substring(0, 19);
+
   try {
     const db = getDatabase();
-    const parsedUpdate = parseInt(upiUpdate, 10);
-    const safeUpdate = !isNaN(parsedUpdate) ? parsedUpdate : 1;
-    const formattedUpdatedAt = updatedAt
-      ? String(updatedAt).trim()
-      : new Date().toISOString().replace('T', ' ').substring(0, 19);
-
-    db.runSync(
-      'INSERT INTO `upi_info` (`id`, `upi_id`, `upi_update`, `updated_at`) VALUES (NULL, ?, ?, ?);',
-      [upiId.trim(), safeUpdate, formattedUpdatedAt]
-    );
+    db.withTransactionSync(() => {
+      // Overwrite / clear older rows so SQLite strictly preserves only the latest valid upi_id
+      db.runSync('DELETE FROM upi_info;');
+      db.runSync(
+        'INSERT INTO `upi_info` (`id`, `upi_id`, `upi_update`, `updated_at`) VALUES (1, ?, ?, ?);',
+        [cleanUpiId, safeUpdate, formattedUpdatedAt]
+      );
+    });
 
     return true;
   } catch (e) {

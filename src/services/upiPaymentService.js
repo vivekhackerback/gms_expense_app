@@ -31,14 +31,13 @@ export const isValidUpiId = (upiId) => {
 let inFlightConfigPromise = null;
 
 /**
- * Server-Side Configuration Version Check using upi_update field
+ * Always fetches, saves, and returns the latest UPI ID from the server.
  * 
- * 1. Reads last successfully saved UPI ID and upi_update version from local storage.
- * 2. Makes a lightweight API request passing client_upi_update.
- * 3. If server upi_update has not increased, reuses local cache without re-fetching.
- * 4. If upi_update has increased, validates new UPI ID and updates local SQLite.
- * 5. Handles timeouts, malformed responses, and offline fallback safely.
- * 6. Never replaces a valid cached UPI ID with an empty or invalid value.
+ * 1. Makes an API request to fetch the latest server-configured upi_id.
+ * 2. If fetched successfully and valid, immediately saves it to local SQLite storage.
+ * 3. Returns the latest fetched upi_id for immediate display.
+ * 4. If offline, network fails, or timeout occurs, gracefully returns the last successfully
+ *    saved UPI record from local storage without failing or showing an outdated value.
  */
 export const syncAndGetLatestUpiConfig = async () => {
   if (inFlightConfigPromise) {
@@ -51,10 +50,11 @@ export const syncAndGetLatestUpiConfig = async () => {
 
     try {
       const url = new URL(API_CONFIG.GET_UPI_URL);
-      url.searchParams.append('client_upi_update', String(currentLocalUpdate));
+      // Cache-busting timestamp to prevent stale proxy or HTTP caching
+      url.searchParams.append('_t', String(Date.now()));
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
       const res = await fetch(url.toString(), {
         method: 'GET',
@@ -68,29 +68,13 @@ export const syncAndGetLatestUpiConfig = async () => {
         const json = await res.json();
 
         if (json && json.success) {
+          const serverUpiId = json.upi_id ? String(json.upi_id).trim() : null;
           const serverUpiUpdate = parseInt(json.upi_update, 10);
           const safeServerUpdate = !isNaN(serverUpiUpdate) ? serverUpiUpdate : currentLocalUpdate;
-
-          // Case A: Server confirms upi_update has NOT changed / increased
-          if (json.changed === false || safeServerUpdate <= currentLocalUpdate) {
-            if (local.upiId && isValidUpiId(local.upiId)) {
-              return {
-                success: true,
-                upiId: local.upiId,
-                upiUpdate: currentLocalUpdate,
-                updatedAt: local.updatedAt,
-                fromCache: true,
-              };
-            }
-          }
-
-          // Case B: upi_update has increased - server returned updated UPI ID
-          const serverUpiId = json.upi_id ? String(json.upi_id).trim() : null;
           const serverUpdatedAt = json.updated_at ? String(json.updated_at).trim() : null;
 
-          // Never replace a valid cached UPI ID with an empty or invalid value
+          // Always validate and save the latest fetched UPI ID to local storage
           if (serverUpiId && isValidUpiId(serverUpiId)) {
-            // Update local storage only after successful validation
             saveLocalUpiRecord(serverUpiId, safeServerUpdate, serverUpdatedAt);
 
             return {
@@ -106,15 +90,19 @@ export const syncAndGetLatestUpiConfig = async () => {
         }
       }
     } catch (err) {
-      console.warn('[UPI] Server upi_update check error:', err?.message);
+      console.warn('[UPI] Server UPI fetch error:', err?.message);
     } finally {
       inFlightConfigPromise = null;
     }
 
-    // Edge Case: If API request fails or is offline, guarantee a valid verified UPI ID is returned
-    const fallbackUpiId = (local.upiId && isValidUpiId(local.upiId)) ? local.upiId : DEFAULT_UPI_ID;
-    const fallbackUpiUpdate = local.upiUpdate || DEFAULT_UPI_UPDATE;
-    const fallbackUpdatedAt = local.updatedAt || DEFAULT_UPI_UPDATED_AT;
+    // Offline / Network Failure Fallback:
+    // Safely retrieve and return the last successfully saved UPI record from local SQLite.
+    const fallbackRecord = getLocalUpiRecord();
+    const fallbackUpiId = (fallbackRecord.upiId && isValidUpiId(fallbackRecord.upiId))
+      ? fallbackRecord.upiId
+      : DEFAULT_UPI_ID;
+    const fallbackUpiUpdate = fallbackRecord.upiUpdate || DEFAULT_UPI_UPDATE;
+    const fallbackUpdatedAt = fallbackRecord.updatedAt || DEFAULT_UPI_UPDATED_AT;
 
     return {
       success: true,

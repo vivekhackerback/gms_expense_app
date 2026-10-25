@@ -43,8 +43,8 @@ try {
         // Ignored if column already exists
     }
 
-    // 2. Fetch the latest UPI row by upi_update and id
-    $stmt = $db->prepare("SELECT id, upi_id, upi_update, updated_at FROM upi_info ORDER BY upi_update DESC, id DESC LIMIT 1");
+    // 2. Fetch the latest UPI row by updated_at and id
+    $stmt = $db->prepare("SELECT id, upi_id, upi_update, updated_at FROM upi_info ORDER BY updated_at DESC, id DESC LIMIT 1");
     $stmt->execute();
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -59,24 +59,17 @@ try {
     $serverUpiUpdate = isset($row['upi_update']) ? (int)$row['upi_update'] : 1;
     $serverUpdatedAt = isset($row['updated_at']) ? trim($row['updated_at']) : '';
 
-    // 3. Check client_upi_update parameter
+    // Check client_upi_update parameter if supplied
     $clientUpiUpdate = isset($_GET['client_upi_update']) && is_numeric($_GET['client_upi_update'])
         ? (int)$_GET['client_upi_update']
         : null;
 
-    if ($clientUpiUpdate !== null && $serverUpiUpdate <= $clientUpiUpdate) {
-        // upi_update has NOT increased: Return lightweight response without fetching upi_id again
-        sendJsonResponse([
-            'success'    => true,
-            'changed'    => false,
-            'upi_update' => $serverUpiUpdate
-        ], 200);
-    }
+    $isChanged = ($clientUpiUpdate === null || $serverUpiUpdate > $clientUpiUpdate);
 
-    // upi_update has increased (or first fetch): Return latest upi_id and upi_update
+    // Always provide the latest upi_id from server so client always gets and saves the latest value
     sendJsonResponse([
         'success'    => true,
-        'changed'    => true,
+        'changed'    => $isChanged,
         'upi_id'     => $serverUpiId,
         'upi_update' => $serverUpiUpdate,
         'updated_at' => $serverUpdatedAt
