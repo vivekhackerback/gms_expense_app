@@ -9,6 +9,7 @@ import {
   getDetailedBackupReportStats,
   getBackupActivityLogs,
   addBackupActivityLog,
+  clearBackupActivityLogs as dbClearBackupActivityLogs,
   getAuthSession,
   saveAuthSession,
   clearAuthSession,
@@ -130,7 +131,7 @@ export const AppProvider = ({ children }) => {
       const bSettings = getBackupSettings();
       setBackupSettings(bSettings);
 
-      const logs = getBackupActivityLogs(20);
+      const logs = getBackupActivityLogs(50);
       setBackupActivityLogs(logs);
 
       const session = getAuthSession();
@@ -470,6 +471,11 @@ export const AppProvider = ({ children }) => {
     return res;
   };
 
+  const clearAllBackupLogs = useCallback(() => {
+    dbClearBackupActivityLogs();
+    setBackupActivityLogs([]);
+  }, []);
+
   // Safe Local-Only Erase
   const eraseLocalDeviceData = () => {
     const success = eraseLocalDeviceDataOnly();
@@ -657,6 +663,7 @@ export const AppProvider = ({ children }) => {
         syncStats,
         detailedBackupStats,
         backupActivityLogs,
+        clearAllBackupLogs,
         networkStatus,
         isSyncing,
         isImageSyncing,

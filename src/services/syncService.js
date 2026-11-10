@@ -501,6 +501,7 @@ export const syncTextData = async () => {
   const pendingCount = pendingList.length;
 
   if (pendingCount === 0) {
+    addBackupActivityLog('text_sync', 'success', 'Text data verified: All transactions are up to date');
     return { success: true, count: 0, message: 'All text data is already synchronized with server.' };
   }
 
@@ -621,6 +622,7 @@ export const uploadPendingImages = async (customBatchLimit = 20) => {
   const pendingCount = pendingList.length;
 
   if (pendingCount === 0) {
+    addBackupActivityLog('image_upload', 'success', 'Photo storage verified: All receipts are backed up');
     return {
       success: true,
       count: 0,

@@ -41,6 +41,88 @@ const generateStressUUID = (index) => {
 };
 
 /**
+ * Checks whether developer mode is unlocked in persistent SQLite settings
+ */
+export const isDeveloperModeUnlocked = () => {
+  try {
+    const db = getDatabase();
+    const row = db.getFirstSync("SELECT value FROM settings WHERE key = 'developer_mode_unlocked';");
+    return row?.value === '1';
+  } catch (e) {
+    return false;
+  }
+};
+
+/**
+ * Saves developer mode unlocked state into SQLite settings
+ */
+export const setDeveloperModeUnlocked = (unlocked) => {
+  try {
+    const db = getDatabase();
+    db.runSync(
+      "INSERT INTO settings (key, value) VALUES ('developer_mode_unlocked', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+      [unlocked ? '1' : '0']
+    );
+    return true;
+  } catch (e) {
+    console.error('Failed to update developer mode setting:', e);
+    return false;
+  }
+};
+
+/**
+ * Executes a high-performance SQLite benchmark test
+ * Measures execution time for aggregation, grouping, counting, and pagination.
+ */
+export const runSqliteBenchmark = () => {
+  const db = getDatabase();
+  const startTime = Date.now();
+
+  // 1. Total counts & sum calculations
+  const countRow = db.getFirstSync(`
+    SELECT 
+      COUNT(*) as count,
+      SUM(CASE WHEN type = 'got' THEN amount ELSE 0 END) as totalGot,
+      SUM(CASE WHEN type = 'gave' THEN amount ELSE 0 END) as totalGave
+    FROM transactions;
+  `);
+
+  // 2. Group by month & aggregation
+  const groupRows = db.getAllSync(`
+    SELECT 
+      strftime('%Y-%m', datetime(transaction_date, 'unixepoch')) as month,
+      type,
+      COUNT(*) as count,
+      SUM(amount) as total
+    FROM transactions
+    GROUP BY month, type
+    ORDER BY month DESC
+    LIMIT 24;
+  `);
+
+  // 3. Paginated query simulation (first 100 rows ordered by date)
+  const pageRows = db.getAllSync(`
+    SELECT t.id, t.uuid, t.type, t.amount, t.transaction_date, p.name as party_name, c.name as category_name
+    FROM transactions t
+    LEFT JOIN parties p ON t.party_id = p.id
+    LEFT JOIN categories c ON t.category_id = c.id
+    ORDER BY t.transaction_date DESC
+    LIMIT 100;
+  `);
+
+  const elapsedMs = Date.now() - startTime;
+
+  return {
+    totalRecords: countRow?.count ? Number(countRow.count) : 0,
+    totalGot: countRow?.totalGot ? Number(countRow.totalGot) : 0,
+    totalGave: countRow?.totalGave ? Number(countRow.totalGave) : 0,
+    monthsAnalyzed: groupRows ? groupRows.length : 0,
+    paginatedRows: pageRows ? pageRows.length : 0,
+    elapsedMs,
+  };
+};
+
+/**
  * Returns current count of test records vs real records
  */
 export const getStressTestStatus = () => {

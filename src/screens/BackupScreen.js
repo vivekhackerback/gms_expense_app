@@ -11,16 +11,18 @@ import {
   Alert,
   Switch,
   BackHandler,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
-import { formatFullDateTime } from '../utils/formatters';
+import { formatFullDateTime, formatTimeAgo } from '../utils/formatters';
 import { exportTransactionsToCSV, exportFullJSONBackup, exportTransactionsToPDF } from '../services/exportService';
 import API_CONFIG from '../constants/api_config';
 import { testAllApiEndpoints } from '../services/syncService';
+import { clearBackupActivityLogs } from '../database/queries';
 
 const SCHEDULE_PRESETS = [
   { label: '12:00 AM (Midnight)', time: '00:00' },
@@ -106,6 +108,7 @@ export const BackupScreen = () => {
     getCloudBackupInfo,
     importAndRestoreData,
     backupActivityLogs,
+    clearAllBackupLogs,
     refreshAll,
     setActiveTab,
     openBackupSettings,
@@ -113,6 +116,9 @@ export const BackupScreen = () => {
     currentUser,
     openLoginModal,
   } = useApp();
+
+  // Pull to refresh & UI state
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Server health test state
   const [isTestingServer, setIsTestingServer] = useState(false);
@@ -154,10 +160,59 @@ export const BackupScreen = () => {
     return () => backHandlerSubscription.remove();
   }, [setActiveTab]);
 
-  // Silently check server & API health once on mount
+  // Silently check server & API health and load logs on mount
   useEffect(() => {
     handleTestServerConnection(true);
+    if (refreshAll) refreshAll();
   }, []);
+
+  const handlePullToRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await handleTestServerConnection(true);
+      if (refreshAll) refreshAll();
+    } catch (e) {
+      console.warn('Pull-to-refresh error:', e);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleClearLogs = () => {
+    Alert.alert(
+      'Clear Activity Logs',
+      'Are you sure you want to delete all recent backup and sync activity logs from device storage?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: () => {
+            if (clearAllBackupLogs) {
+              clearAllBackupLogs();
+            } else {
+              clearBackupActivityLogs();
+            }
+            if (refreshAll) refreshAll();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleViewLogDetail = (log) => {
+    const isSuccess = log.status === 'success';
+    const isFailed = log.status === 'failed';
+    const statusIcon = isSuccess ? '✅' : isFailed ? '❌' : 'ℹ️';
+    const logTs = log.timestamp || log.created_at;
+    const dt = formatFullDateTime(logTs).combined || 'Recently';
+    const timeAgo = formatTimeAgo(logTs);
+
+    Alert.alert(
+      `${statusIcon} Activity Details`,
+      `• Type: ${String(log.action_type || log.type || 'Backup Event').toUpperCase()}\n• Status: ${String(log.status).toUpperCase()}\n• Time: ${dt} (${timeAgo})\n\n📝 Message:\n${log.message}${log.details ? `\n\n🔍 Technical Details:\n${log.details}` : ''}`
+    );
+  };
 
   const handleTestServerConnection = async (isSilent = false) => {
     setIsTestingServer(true);
@@ -546,6 +601,14 @@ export const BackupScreen = () => {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handlePullToRefresh}
+            colors={[Colors.primary]}
+            tintColor={Colors.primary}
+          />
+        }
       >
         {/* Master Status Card */}
         <View style={[styles.masterCard, { backgroundColor: masterBg, borderColor: masterBorder }, Shadows.sm]}>
@@ -888,11 +951,31 @@ export const BackupScreen = () => {
               <Ionicons name="list-circle-outline" size={20} color={Colors.primary} style={{ marginRight: 6 }} />
               <Text style={styles.sectionTitle}>Recent Backup Activity</Text>
             </View>
-            <Text style={styles.activityCountBadge}>{(backupActivityLogs || []).length} events</Text>
+            <View style={styles.activityHeaderActions}>
+              <Text style={styles.activityCountBadge}>{(backupActivityLogs || []).length} events</Text>
+              <TouchableOpacity
+                onPress={handlePullToRefresh}
+                style={styles.activityActionBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="refresh-outline" size={16} color={Colors.primary} />
+              </TouchableOpacity>
+              {(backupActivityLogs || []).length > 0 && (
+                <TouchableOpacity
+                  onPress={handleClearLogs}
+                  style={styles.activityActionBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="trash-outline" size={15} color={Colors.danger} />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
           <Text style={styles.sectionDesc}>
-            Audit log of background sync events, health checks, and server responses.
+            Audit log of background sync events, health checks, and server responses. Tap any row to view diagnostic details.
           </Text>
 
           {(!backupActivityLogs || backupActivityLogs.length === 0) ? (
@@ -902,15 +985,23 @@ export const BackupScreen = () => {
             </View>
           ) : (
             <View style={styles.activityList}>
-              {backupActivityLogs.slice(0, 8).map((log, idx) => {
+              {backupActivityLogs.slice(0, 12).map((log, idx) => {
                 const isSuccess = log.status === 'success';
                 const isFailed = log.status === 'failed';
-                const formattedTime = formatFullDateTime(log.timestamp).time;
+                const logTs = log.timestamp || log.created_at;
+                const formattedTime = formatFullDateTime(logTs).time || 'Recent';
+                const timeAgo = formatTimeAgo(logTs);
 
                 return (
-                  <View key={log.id || idx} style={[styles.activityRow, idx > 0 && styles.activityBorder]}>
+                  <TouchableOpacity
+                    key={log.id || idx}
+                    activeOpacity={0.7}
+                    onPress={() => handleViewLogDetail(log)}
+                    style={[styles.activityRow, idx > 0 && styles.activityBorder]}
+                  >
                     <View style={styles.activityTimeCol}>
                       <Text style={styles.activityTimeText}>{formattedTime}</Text>
+                      <Text style={styles.activityTimeAgoText}>{timeAgo}</Text>
                     </View>
 
                     <View style={styles.activityContentCol}>
@@ -919,14 +1010,16 @@ export const BackupScreen = () => {
                           name={isSuccess ? 'checkmark-circle' : isFailed ? 'close-circle' : 'information-circle'}
                           size={15}
                           color={isSuccess ? Colors.gotDark : isFailed ? Colors.danger : Colors.warning}
-                          style={{ marginRight: 4 }}
+                          style={{ marginRight: 6 }}
                         />
                         <Text style={[styles.activityMsg, isFailed && { color: Colors.danger }]}>
                           {log.message}
                         </Text>
                       </View>
                     </View>
-                  </View>
+
+                    <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} style={{ marginLeft: 4 }} />
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -1798,6 +1891,19 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontWeight: Typography.fontWeights.medium,
   },
+  activityHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  activityActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.surfaceSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   activityCountBadge: {
     fontSize: 10.5,
     fontWeight: Typography.fontWeights.bold,
@@ -1834,12 +1940,19 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.borderLight,
   },
   activityTimeCol: {
-    width: 60,
+    width: 72,
+    justifyContent: 'center',
   },
   activityTimeText: {
     fontSize: 11,
     fontWeight: Typography.fontWeights.bold,
     color: Colors.textMuted,
+  },
+  activityTimeAgoText: {
+    fontSize: 9.5,
+    color: Colors.textMuted,
+    marginTop: 1.5,
+    fontWeight: Typography.fontWeights.medium,
   },
   activityContentCol: {
     flex: 1,

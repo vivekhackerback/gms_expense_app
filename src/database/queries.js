@@ -1001,10 +1001,17 @@ export const addBackupActivityLog = (actionType, status, message, details = '') 
         [now, actionType, actionType, status, message, details ? String(details) : '', now]
       );
     } catch (insertErr) {
-      db.runSync(
-        `INSERT INTO backup_activity_logs (type, status, message, created_at) VALUES (?, ?, ?, ?);`,
-        [actionType, status, message, now]
-      );
+      try {
+        db.runSync(
+          `INSERT INTO backup_activity_logs (timestamp, type, status, message, created_at) VALUES (?, ?, ?, ?, ?);`,
+          [now, actionType, status, message, now]
+        );
+      } catch (e2) {
+        db.runSync(
+          `INSERT INTO backup_activity_logs (type, status, message, created_at) VALUES (?, ?, ?, ?);`,
+          [actionType, status, message, now]
+        );
+      }
     }
 
     // Maintain max 50 recent logs
@@ -1018,7 +1025,7 @@ export const addBackupActivityLog = (actionType, status, message, details = '') 
   }
 };
 
-export const getBackupActivityLogs = (limit = 20) => {
+export const getBackupActivityLogs = (limit = 50) => {
   try {
     const db = getDatabase();
     return db.getAllSync(
@@ -1027,6 +1034,17 @@ export const getBackupActivityLogs = (limit = 20) => {
     );
   } catch (err) {
     return [];
+  }
+};
+
+export const clearBackupActivityLogs = () => {
+  try {
+    const db = getDatabase();
+    db.runSync('DELETE FROM backup_activity_logs;');
+    return true;
+  } catch (err) {
+    console.warn('Failed to clear backup activity logs:', err);
+    return false;
   }
 };
 

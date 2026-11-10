@@ -11,8 +11,11 @@ import {
   Alert,
   Image,
   Animated,
+  ToastAndroid,
+  Platform,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Haptics from 'expo-haptics';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
@@ -22,6 +25,9 @@ import {
   generateStressTestTransactions,
   deleteStressTestTransactions,
   getStressTestStatus,
+  isDeveloperModeUnlocked,
+  setDeveloperModeUnlocked,
+  runSqliteBenchmark,
 } from '../services/stressTestService';
 import { SupportAppModal } from '../components/modals/SupportAppModal';
 import { FeedbackScreen } from './FeedbackScreen';
@@ -108,43 +114,162 @@ export const MoreScreen = () => {
     openLogoutModal();
   };
 
-  // Developer Stress Test States & Handlers
+  // Developer Mode & Stress Test States
+  const [isDeveloperMode, setIsDeveloperMode] = useState(() => isDeveloperModeUnlocked());
+  const [devTapCount, setDevTapCount] = useState(0);
+  const [devToastMessage, setDevToastMessage] = useState(null);
+  const lastDevTapTime = useRef(0);
+  const devToastAnim = useRef(new Animated.Value(0)).current;
+  const devToastTimer = useRef(null);
+
   const [isStressGenerating, setIsStressGenerating] = useState(false);
   const [stressProgress, setStressProgress] = useState({ current: 0, total: 50000, percentage: 0 });
 
+  // Clean up developer toast timer on unmount
+  useEffect(() => {
+    return () => {
+      if (devToastTimer.current) clearTimeout(devToastTimer.current);
+    };
+  }, []);
+
+  const showDevToast = (message) => {
+    if (Platform.OS === 'android') {
+      try {
+        ToastAndroid.show(message, ToastAndroid.SHORT);
+      } catch (e) {}
+    }
+
+    if (devToastTimer.current) {
+      clearTimeout(devToastTimer.current);
+    }
+    setDevToastMessage(message);
+    Animated.spring(devToastAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 7,
+      tension: 50,
+    }).start();
+
+    devToastTimer.current = setTimeout(() => {
+      Animated.timing(devToastAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        setDevToastMessage(null);
+      });
+    }, 2200);
+  };
+
+  /**
+   * Secret 5-tap developer mode unlocker
+   */
+  const handleDeveloperTap = () => {
+    const now = Date.now();
+    let currentTaps = devTapCount;
+    // Reset tap sequence if more than 2.5 seconds elapsed between taps
+    if (now - lastDevTapTime.current > 2500) {
+      currentTaps = 0;
+    }
+    lastDevTapTime.current = now;
+
+    if (isDeveloperMode) {
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (e) {}
+      Alert.alert(
+        '👨‍💻 Developer Mode',
+        'Developer Mode & Stress Test tools are currently unlocked on this device.',
+        [
+          { text: 'Keep Unlocked', style: 'default' },
+          {
+            text: 'Lock & Hide Tools',
+            style: 'destructive',
+            onPress: () => {
+              setDeveloperModeUnlocked(false);
+              setIsDeveloperMode(false);
+              setDevTapCount(0);
+              showDevToast('🔒 Developer Mode locked and hidden.');
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    const nextTaps = currentTaps + 1;
+    if (nextTaps < 5) {
+      setDevTapCount(nextTaps);
+      try {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      } catch (e) {}
+      const remaining = 5 - nextTaps;
+      showDevToast(`You are now ${remaining} step${remaining === 1 ? '' : 's'} away from being a developer.`);
+    } else {
+      // 5th tap reached! Unlock Developer Mode!
+      setDevTapCount(0);
+      setDeveloperModeUnlocked(true);
+      setIsDeveloperMode(true);
+      try {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (e) {}
+      showDevToast('🎉 You are now a developer!');
+      Alert.alert(
+        '🎉 Developer Mode Unlocked!',
+        'You have unlocked Developer Stress Testing & Performance Benchmark tools!\n\nScroll down to the newly unlocked "👨‍💻 DEVELOPER STRESS TEST" section.',
+        [{ text: 'Awesome', style: 'default' }]
+      );
+    }
+  };
+
+  const startStressGeneration = async (targetCount) => {
+    setIsStressGenerating(true);
+    setStressProgress({ current: 0, total: targetCount, percentage: 0 });
+    try {
+      const startTime = Date.now();
+      const count = await generateStressTestTransactions({
+        targetCount,
+        chunkSize: Math.min(5000, targetCount),
+        onProgress: (p) => setStressProgress(p),
+      });
+      const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      setIsStressGenerating(false);
+      if (refreshAll) refreshAll();
+      Alert.alert(
+        '⚡ Stress Test Data Ready!',
+        `Successfully generated exactly ${count.toLocaleString('en-IN')} test transactions in ${durationSec}s.\n\nNow open the Transactions screen to test 60fps scrolling, search filtering, and pagination!`
+      );
+    } catch (err) {
+      setIsStressGenerating(false);
+      Alert.alert('Error', 'Failed to generate test data: ' + err.message);
+    }
+  };
+
   const handleGenerateStressData = () => {
     Alert.alert(
-      'Generate 50,000 Test Transactions',
-      'This will insert 50,000 realistic transactions spread across the past 365 days into your local SQLite database for stress testing. Your existing transactions will not be modified.\n\nDo you want to proceed?',
+      '⚡ Developer Stress Test Generator',
+      'Select the record volume to insert into local SQLite across the past 365 days.\n\nNote: Your real user transactions will remain 100% untouched and safe.',
       [
         { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Generate 50,000 Records',
-          onPress: async () => {
-            setIsStressGenerating(true);
-            setStressProgress({ current: 0, total: 50000, percentage: 0 });
-            try {
-              const startTime = Date.now();
-              const count = await generateStressTestTransactions({
-                targetCount: 50000,
-                chunkSize: 5000,
-                onProgress: (p) => setStressProgress(p),
-              });
-              const durationSec = ((Date.now() - startTime) / 1000).toFixed(1);
-              setIsStressGenerating(false);
-              if (refreshAll) refreshAll();
-              Alert.alert(
-                'Stress Test Data Ready!',
-                `Successfully created exactly ${count.toLocaleString('en-IN')} test transactions in ${durationSec}s.\n\nNow open the Transactions screen to test 60fps scrolling, pagination, and sticky dates!`
-              );
-            } catch (err) {
-              setIsStressGenerating(false);
-              Alert.alert('Error', 'Failed to generate test data: ' + err.message);
-            }
-          },
-        },
+        { text: '1,000 (Quick)', onPress: () => startStressGeneration(1000) },
+        { text: '10,000 (Medium)', onPress: () => startStressGeneration(10000) },
+        { text: '50,000 (Heavy)', onPress: () => startStressGeneration(50000) },
+        { text: '100,000 (Extreme)', onPress: () => startStressGeneration(100000) },
       ]
     );
+  };
+
+  const handleRunBenchmark = () => {
+    try {
+      const res = runSqliteBenchmark();
+      const isFast = res.elapsedMs < 60;
+      Alert.alert(
+        '🚀 SQLite Performance Benchmark',
+        `• Total Records Queried: ${res.totalRecords.toLocaleString('en-IN')}\n• Total Got Calculated: ₹${Math.round(res.totalGot).toLocaleString('en-IN')}\n• Total Gave Calculated: ₹${Math.round(res.totalGave).toLocaleString('en-IN')}\n• Monthly Periods Aggregated: ${res.monthsAnalyzed}\n• Paginated Feed Tested: ${res.paginatedRows} rows\n\n⏱️ Execution Time: ${res.elapsedMs} ms\nStatus: ${isFast ? '⚡ Ultra Fast (60 FPS Safe)' : '✅ Optimal Performance'}`
+      );
+    } catch (err) {
+      Alert.alert('Benchmark Error', err?.message || 'Failed to execute SQLite benchmark');
+    }
   };
 
   const handleCheckStressData = () => {
@@ -178,6 +303,26 @@ export const MoreScreen = () => {
             } catch (err) {
               Alert.alert('Error', 'Failed to delete test data: ' + err.message);
             }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleLockDeveloperMode = () => {
+    Alert.alert(
+      'Lock Developer Mode',
+      'This will hide the Developer Stress Test section. You can unlock it again anytime by tapping 5 times on the version number.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Lock & Hide',
+          style: 'destructive',
+          onPress: () => {
+            setDeveloperModeUnlocked(false);
+            setIsDeveloperMode(false);
+            setDevTapCount(0);
+            showDevToast('🔒 Developer Mode locked and hidden.');
           },
         },
       ]
@@ -523,8 +668,10 @@ export const MoreScreen = () => {
           {
             icon: 'information-circle-outline',
             label: 'About Expense & Khata',
-            sublabel: 'v1.0.0 (Expo SDK 54 Offline-First)',
+            sublabel: `v${BrandConfig.version} (Expo SDK 54 Offline-First)`,
+            rightText: isDeveloperMode ? '👨‍💻 Developer' : undefined,
             showChevron: false,
+            onPress: handleDeveloperTap,
           },
           {
             icon: 'shield-checkmark-outline',
@@ -545,42 +692,71 @@ export const MoreScreen = () => {
           },
         ])}
 
-        {/* Developer Stress Testing Section */}
-        {renderSection('DEVELOPER STRESS TEST', [
-          {
-            icon: 'flash-outline',
-            iconColor: '#7C3AED',
-            iconBg: '#F5F3FF',
-            label: 'Generate 50,000 Test Transactions',
-            sublabel: 'Stress-test Transaction History with 50,000 records',
-            onPress: handleGenerateStressData,
-          },
-          {
-            icon: 'analytics-outline',
-            iconColor: Colors.primary,
-            iconBg: Colors.surfaceSubtle,
-            label: 'Check Database Record Counts',
-            sublabel: 'View test vs real transaction counts',
-            onPress: handleCheckStressData,
-          },
-          {
-            icon: 'trash-outline',
-            iconColor: Colors.danger,
-            iconBg: '#FEF2F2',
-            isDestructive: true,
-            label: 'Delete 50,000 Test Transactions',
-            sublabel: 'Safely removes test records only (real data preserved)',
-            onPress: handleDeleteStressData,
-          },
-        ])}
+        {/* Developer Stress Testing Section (Hidden by default; unlocked via 5 taps) */}
+        {isDeveloperMode &&
+          renderSection('👨‍💻 DEVELOPER STRESS TEST', [
+            {
+              icon: 'flash-outline',
+              iconColor: '#7C3AED',
+              iconBg: '#F5F3FF',
+              label: 'Generate Stress Test Data',
+              sublabel: 'Insert 1k, 10k, 50k, or 100k transactions',
+              rightText: 'Run Test',
+              onPress: handleGenerateStressData,
+            },
+            {
+              icon: 'speedometer-outline',
+              iconColor: '#059669',
+              iconBg: '#ECFDF5',
+              label: 'Run SQLite Speed Benchmark',
+              sublabel: 'Measure query, aggregation & pagination speed (ms)',
+              rightText: 'Benchmark',
+              onPress: handleRunBenchmark,
+            },
+            {
+              icon: 'analytics-outline',
+              iconColor: Colors.primary,
+              iconBg: Colors.surfaceSubtle,
+              label: 'Check Database Record Counts',
+              sublabel: 'View test vs real transaction counts',
+              onPress: handleCheckStressData,
+            },
+            {
+              icon: 'trash-outline',
+              iconColor: Colors.danger,
+              iconBg: '#FEF2F2',
+              isDestructive: true,
+              label: 'Delete All Test Transactions',
+              sublabel: 'Safely removes test records only (real data preserved)',
+              onPress: handleDeleteStressData,
+            },
+            {
+              icon: 'lock-closed-outline',
+              iconColor: '#6B7280',
+              iconBg: '#F3F4F6',
+              label: 'Lock Developer Mode',
+              sublabel: 'Hide this stress test section from regular view',
+              onPress: handleLockDeveloperMode,
+            },
+          ])}
 
-        {/* App Branding Footer */}
-        <View style={styles.brandingFooter}>
+        {/* App Branding Footer (Tap 5 times to unlock Developer Mode) */}
+        <TouchableOpacity
+          activeOpacity={0.8}
+          onPress={handleDeveloperTap}
+          style={styles.brandingFooter}
+        >
           <Image source={AppImages.logo} style={styles.brandingLogo} resizeMode="contain" />
           <Text style={styles.brandingTitle}>{BrandConfig.appName}</Text>
           <Text style={styles.brandingVersion}>Version {BrandConfig.version}</Text>
           <Text style={styles.brandingTagline}>{BrandConfig.tagline}</Text>
-        </View>
+          {isDeveloperMode && (
+            <View style={styles.devModeUnlockedBadge}>
+              <Ionicons name="code-slash" size={13} color="#7C3AED" />
+              <Text style={styles.devModeUnlockedText}>Developer Mode Unlocked</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Stress Test Progress Modal */}
@@ -588,7 +764,9 @@ export const MoreScreen = () => {
         <View style={styles.stressModalBackdrop}>
           <View style={[styles.stressModalCard, Shadows.lg]}>
             <ActivityIndicator size="large" color="#7C3AED" />
-            <Text style={styles.stressModalTitle}>Generating 50,000 Records</Text>
+            <Text style={styles.stressModalTitle}>
+              Generating {stressProgress.total.toLocaleString('en-IN')} Records
+            </Text>
             <Text style={styles.stressModalSubtitle}>
               Inserting test records across 365 days into local SQLite...
             </Text>
@@ -601,6 +779,30 @@ export const MoreScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Floating Developer Mode Feedback Pill */}
+      {devToastMessage ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.devToastContainer,
+            {
+              opacity: devToastAnim,
+              transform: [
+                {
+                  translateY: devToastAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [24, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <Ionicons name="terminal-outline" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+          <Text style={styles.devToastText}>{devToastMessage}</Text>
+        </Animated.View>
+      ) : null}
 
       {/* Support App UPI Modal */}
       <SupportAppModal
@@ -931,6 +1133,43 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textSecondary,
     marginTop: 4,
+  },
+  devModeUnlockedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F5F3FF',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: BorderRadius.full,
+    marginTop: Spacing.sm + 2,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  devModeUnlockedText: {
+    fontSize: Typography.fontSizes.xs,
+    color: '#7C3AED',
+    fontWeight: Typography.fontWeights.semibold,
+    marginLeft: 6,
+  },
+  devToastContainer: {
+    position: 'absolute',
+    bottom: 24,
+    alignSelf: 'center',
+    backgroundColor: '#0F172A',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: BorderRadius.full,
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: '90%',
+    ...Shadows.lg,
+    zIndex: 9999,
+  },
+  devToastText: {
+    color: '#F8FAFC',
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.medium,
+    textAlign: 'center',
   },
   loginPromptTitle: {
     fontSize: Typography.fontSizes.sm + 1,
