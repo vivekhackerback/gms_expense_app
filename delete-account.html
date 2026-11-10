@@ -255,26 +255,26 @@
     <form id="deleteForm" onsubmit="handleDeleteRequest(event)">
       <div class="form-group">
         <label for="fullName">Full Name <span class="required">*</span></label>
-        <input type="text" id="fullName" placeholder="e.g. John Doe" required />
+        <input type="text" id="fullName" name="fullName" placeholder="e.g. John Doe" required />
       </div>
 
       <div class="form-group">
         <label for="phone">Mobile Number associated with your account <span class="required">*</span></label>
-        <input type="tel" id="phone" placeholder="e.g. +91 98765 43210" pattern="[0-9+ \-]{8,20}" required />
+        <input type="tel" id="phone" name="phone" placeholder="e.g. +91 98765 43210" pattern="[0-9+ \-]{8,20}" required />
       </div>
 
       <div class="form-group">
         <label for="platform">Platform Used</label>
-        <select id="platform">
-          <option value="android">Android (Google Play)</option>
-          <option value="ios">iOS (Apple App Store)</option>
-          <option value="other">Other / Beta</option>
+        <select id="platform" name="platform">
+          <option value="Android (Google Play)">Android (Google Play)</option>
+          <option value="iOS (Apple App Store)">iOS (Apple App Store)</option>
+          <option value="Other">Other / Beta</option>
         </select>
       </div>
 
       <div class="form-group">
         <label for="reason">Reason for deletion (Optional)</label>
-        <textarea id="reason" placeholder="Please let us know how we can improve or specific details regarding your deletion request..."></textarea>
+        <textarea id="reason" name="reason" placeholder="Please let us know how we can improve or specific details regarding your deletion request..."></textarea>
       </div>
 
       <div class="form-group">
@@ -284,7 +284,7 @@
         </label>
       </div>
 
-      <button type="submit" class="btn-submit">Submit Account &amp; Data Deletion Request</button>
+      <button type="submit" id="submitBtn" class="btn-submit">Submit Account &amp; Data Deletion Request</button>
     </form>
 
     <footer>
@@ -293,9 +293,12 @@
   </div>
 
   <script>
-    function handleDeleteRequest(e) {
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwWvdBrfTjvVfZ7CZcHJvaE7mE2Ta4aYHY2hjSSsgr3hxA6B551mTXPt-iEF4wPH210/exec";
+
+    async function handleDeleteRequest(e) {
       e.preventDefault();
       
+      const submitBtn = document.getElementById('submitBtn');
       const name = document.getElementById('fullName').value.trim();
       const phone = document.getElementById('phone').value.trim();
       const platform = document.getElementById('platform').value;
@@ -303,40 +306,82 @@
 
       if (!name || !phone) return;
 
-      // 1. Save locally to browser storage so records are not lost
-      const requestRecord = {
-        name,
-        phone,
-        platform,
-        reason: reason || 'N/A',
-        timestamp: new Date().toISOString()
-      };
-      
-      const existing = JSON.parse(localStorage.getItem('tplpro_deletion_requests') || '[]');
-      existing.push(requestRecord);
-      localStorage.setItem('tplpro_deletion_requests', JSON.stringify(existing));
+      // Update button state while submitting
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submitting request...';
 
-      // 2. Open pre-filled email client to support@tplpro.com so you receive an email notification
-      const subject = encodeURIComponent(`Account Deletion Request - ${phone}`);
-      const body = encodeURIComponent(
-        `Hello TPLPRO Funware Privacy Team,\n\n` +
-        `I am submitting an account and data deletion request for Expense Tracker.\n\n` +
-        `• Full Name: ${name}\n` +
-        `• Mobile Number: ${phone}\n` +
-        `• Platform: ${platform}\n` +
-        `• Reason: ${reason || 'N/A'}\n` +
-        `• Date: ${new Date().toLocaleString()}\n\n` +
-        `Please confirm once completed.`
-      );
+      const timestamp = new Date().toLocaleString();
 
-      // Open email client
-      window.location.href = `mailto:support@tplpro.com?subject=${subject}&body=${body}`;
+      // Build URL-encoded parameters matching your Apps Script e.parameter
+      const payload = new URLSearchParams();
+      payload.append('name', name);
+      payload.append('mobile', phone);
+      payload.append('email', 'N/A');
+      payload.append('message', `[Platform: ${platform}] - Reason: ${reason || 'N/A'}`);
 
-      // 3. Display immediate confirmation UI
+      try {
+        // Send request to Google Apps Script Web App
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: payload.toString()
+        });
+      } catch (err) {
+        console.warn('Direct fetch notice, using fallback submission:', err);
+      }
+
+      // Secondary guarantee: hidden iframe submission to bypass strict browser CORS completely
+      try {
+        const iframeName = 'hidden_submission_iframe';
+        let iframe = document.getElementById(iframeName);
+        if (!iframe) {
+          iframe = document.createElement('iframe');
+          iframe.id = iframeName;
+          iframe.name = iframeName;
+          iframe.style.display = 'none';
+          document.body.appendChild(iframe);
+        }
+
+        const hiddenForm = document.createElement('form');
+        hiddenForm.method = 'POST';
+        hiddenForm.action = GOOGLE_SCRIPT_URL;
+        hiddenForm.target = iframeName;
+
+        const fields = {
+          name: name,
+          mobile: phone,
+          email: 'N/A',
+          message: `[Platform: ${platform}] - Reason: ${reason || 'N/A'}`
+        };
+
+        for (const [key, val] of Object.entries(fields)) {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = key;
+          input.value = val;
+          hiddenForm.appendChild(input);
+        }
+
+        document.body.appendChild(hiddenForm);
+        hiddenForm.submit();
+        setTimeout(() => hiddenForm.remove(), 2000);
+      } catch (fallbackErr) {
+        console.warn('Iframe fallback error:', fallbackErr);
+      }
+
+      // Also cache locally in browser backup
+      try {
+        const existing = JSON.parse(localStorage.getItem('tplpro_deletion_requests') || '[]');
+        existing.push({ name, phone, platform, reason: reason || 'N/A', timestamp });
+        localStorage.setItem('tplpro_deletion_requests', JSON.stringify(existing));
+      } catch (e) {}
+
+      // Display immediate confirmation UI
       document.getElementById('deleteForm').style.display = 'none';
       document.getElementById('successNotice').style.display = 'block';
-
-      console.log('Deletion request saved:', requestRecord);
     }
   </script>
 
