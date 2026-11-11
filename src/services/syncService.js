@@ -1,4 +1,6 @@
 import * as Network from 'expo-network';
+import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import API_CONFIG from '../constants/api_config';
 import { toUnixTimestamp } from '../utils/formatters';
 import {
@@ -655,48 +657,69 @@ export const uploadPendingImages = async (customBatchLimit = 20) => {
           continue;
         }
 
-        // 2. Prepare FormData payload
+        // 2. Prepare upload payload
         const fileName = img.file_name || resolvedUri.split('/').pop() || `receipt_${Date.now()}.jpg`;
         const mimeType = getImageMimeType(resolvedUri, fileName);
-
-        const formData = new FormData();
-        formData.append('file', {
-          uri: resolvedUri,
-          name: fileName,
-          type: mimeType,
-        });
-
         const txUuid = img.transaction_uuid || `TXN_${img.transaction_id || Date.now()}`;
-        formData.append('transaction_uuid', txUuid);
-        if (img.transaction_id) {
-          formData.append('transaction_id', String(img.transaction_id));
+        const uploadFileUri = resolvedUri.startsWith('file://') ? resolvedUri : `file://${resolvedUri}`;
+
+        const uploadHeaders = {
+          'Accept': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+          ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
+        };
+
+        const uploadParams = {
+          transaction_uuid: txUuid,
+          ...(img.transaction_id ? { transaction_id: String(img.transaction_id) } : {}),
+          phone: String(userPhone),
+          user_id: String(userId),
+          file_name: fileName,
+        };
+
+        // 3. Send upload request to PHP backend using FileSystem.uploadAsync (Native multipart upload)
+        let rawText = '';
+        let statusCode = 0;
+
+        if (Platform.OS === 'web') {
+          const formData = new FormData();
+          const imgBlob = await (await fetch(uploadFileUri)).blob();
+          formData.append('file', imgBlob, fileName);
+          Object.entries(uploadParams).forEach(([k, v]) => formData.append(k, v));
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout per photo
+          const response = await fetch(API_CONFIG.IMAGE_UPLOAD_URL, {
+            method: 'POST',
+            headers: uploadHeaders,
+            body: formData,
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          statusCode = response.status;
+          rawText = await response.text();
+        } else {
+          const uploadRes = await FileSystem.uploadAsync(
+            API_CONFIG.IMAGE_UPLOAD_URL,
+            uploadFileUri,
+            {
+              httpMethod: 'POST',
+              uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+              fieldName: 'file',
+              mimeType: mimeType,
+              headers: uploadHeaders,
+              parameters: uploadParams,
+            }
+          );
+          statusCode = uploadRes.status;
+          rawText = uploadRes.body;
         }
-        formData.append('phone', String(userPhone));
-        formData.append('user_id', String(userId));
-        formData.append('file_name', fileName);
 
-        // 3. Send upload request to PHP backend
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout per photo
-
-        const response = await fetch(API_CONFIG.IMAGE_UPLOAD_URL, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'ngrok-skip-browser-warning': 'true',
-            ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
-          },
-          body: formData,
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        const rawText = await response.text();
-        if (!response.ok) {
-          console.error(`[ImageSync] Upload HTTP ${response.status} for ${fileName}:`, rawText);
+        if (statusCode !== 200) {
+          console.error(`[ImageSync] Upload HTTP ${statusCode} for ${fileName}:`, rawText);
           failedCount++;
           failedIds.push(img.id);
-          addBackupActivityLog('image_upload', 'failed', `Upload failed (HTTP ${response.status}): ${fileName}`);
+          addBackupActivityLog('image_upload', 'failed', `Upload failed (HTTP ${statusCode}): ${fileName}`);
           continue;
         }
 

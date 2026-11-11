@@ -1091,7 +1091,8 @@ export const getBackupSettings = () => {
     const backupIntervalMinutes = Math.max(5, parseInt(map['backup_interval_minutes'], 10) || 1440);
     const hideDetailedInfoMinutes = Math.max(1, parseInt(map['hide_detailed_info_minutes'], 10) || 60);
     const keepBackupsCount = Math.max(1, parseInt(map['keep_backups_count'], 10) || 7);
-    const backupLocation = map['backup_location'] || '';
+    const rawLoc = map['backup_location'] || '';
+    const backupLocation = rawLoc.includes('gmsexpense.tplpro.in') ? '' : rawLoc;
     const lastBackupStatus = map['last_backup_status'] || (map['last_full_backup'] || map['last_sync'] ? 'success' : 'idle');
     const lastSuccessfulBackup = map['last_successful_backup'] || map['last_full_backup'] || map['last_sync'] || null;
     const lastFailedBackup = map['last_failed_backup'] || map['last_failed_sync'] || null;

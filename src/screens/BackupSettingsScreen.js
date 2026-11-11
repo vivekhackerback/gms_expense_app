@@ -109,7 +109,11 @@ export const BackupSettingsScreen = () => {
       const matchRet = RETENTION_PRESETS.find((p) => p.count === keepVal);
       setSelectedRetentionPreset(matchRet ? keepVal : -1);
 
-      setBackupLocation(backupSettings.backupLocation || API_CONFIG.DATABASE_BACKUP_UPLOAD_URL);
+      let activeLoc = backupSettings.backupLocation || API_CONFIG.DATABASE_BACKUP_UPLOAD_URL;
+      if (activeLoc.includes('gmsexpense.tplpro.in')) {
+        activeLoc = API_CONFIG.DATABASE_BACKUP_UPLOAD_URL;
+      }
+      setBackupLocation(activeLoc);
       setTestResult(null);
     }
   }, [isBackupSettingsOpen, backupSettings]);

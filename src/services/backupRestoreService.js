@@ -202,100 +202,308 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
 
     onProgress?.({ step: 1, totalSteps: 2, title: 'Uploading SQLite Database File...', percent: 45 });
 
-    // 6. Upload SQLite .db file to Server using fetch & FormData
-    console.log('🚀 [BACKUP_STEP_6] Initiating multipart database upload via fetch/FormData...');
-    console.log('📤 [BACKUP_STEP_6] Method: fetch / FormData');
-    console.log('📤 [BACKUP_STEP_6] Database filename: expenses_khata.db');
-    console.log('📤 [BACKUP_STEP_6] Database MIME type: application/octet-stream');
-    console.log('📤 [BACKUP_STEP_6] Database size:', fileSize, 'bytes');
-    console.log('📤 [BACKUP_STEP_6] Target Upload URL:', API_CONFIG.DATABASE_BACKUP_UPLOAD_URL);
-    console.log('📤 [BACKUP_STEP_6] Upload Parameters:', {
-      phone: String(userPhone),
-      user_id: String(userId),
-      tx_count: String(txCount),
-      party_count: String(partyCount),
-      category_count: String(categoryCount),
-      image_count: String(imagesInDbCount),
-    });
+    // 6. Upload SQLite .db file to Server
+    console.log('🚀 [BACKUP_STEP_6] Initiating database upload...');
+    const savedLocation = getBackupSettings()?.backupLocation?.trim();
+    const targetUploadUrl = (savedLocation && savedLocation.startsWith('http') && !savedLocation.includes('gmsexpense.tplpro.in'))
+      ? savedLocation
+      : API_CONFIG.DATABASE_BACKUP_UPLOAD_URL;
 
-    const formData = new FormData();
-    formData.append('db_file', {
-      uri: dbPath,
-      name: 'expenses_khata.db',
-      type: 'application/octet-stream',
-    });
-    formData.append('phone', String(userPhone));
-    formData.append('user_id', String(userId));
-    formData.append('tx_count', String(txCount));
-    formData.append('party_count', String(partyCount));
-    formData.append('category_count', String(categoryCount));
-    formData.append('image_count', String(imagesInDbCount));
+    console.log('📤 [BACKUP_STEP_6] Database filename: expenses_khata.db');
+    console.log('📤 [BACKUP_STEP_6] Database size:', fileSize, 'bytes', `(${(fileSize / (1024 * 1024)).toFixed(2)} MB)`);
+    console.log('📤 [BACKUP_STEP_6] Target Upload URL:', targetUploadUrl);
 
     const uploadHeaders = {
       'Accept': 'application/json',
       'ngrok-skip-browser-warning': 'true',
       ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
     };
-    // Note: Do NOT set Content-Type header when using FormData; let React Native/fetch set multipart boundary automatically.
+
+    const uploadParameters = {
+      phone: String(userPhone),
+      user_id: String(userId),
+      tx_count: String(txCount),
+      party_count: String(partyCount),
+      category_count: String(categoryCount),
+      image_count: String(imagesInDbCount),
+    };
+
+    console.log('📤 [BACKUP_STEP_6] Upload Parameters:', uploadParameters);
 
     const uploadStartTime = Date.now();
-    let response = null;
+    let responseStatus = 0;
     let responseText = '';
+    let uploadMethodUsed = '';
+
     try {
-      response = await fetch(API_CONFIG.DATABASE_BACKUP_UPLOAD_URL, {
-        method: 'POST',
-        headers: uploadHeaders,
-        body: formData,
-      });
-      responseText = await response.text();
+      // ─── Strategy A (Primary): Direct native FileSystem.uploadAsync on the DB file ───
+      // OkHttp reads the file via streaming (file.asRequestBody()), which works on
+      // Android/POSIX even when SQLite holds the file open (no mandatory file locking).
+      // This avoids copying 20MB into JS memory or staging a temp file.
+      // NOTE: Do NOT use FileSystem.copyAsync on an open SQLite file — it throws
+      // java.io.IOException because the file is locked by the WAL journal.
+      if (Platform.OS !== 'web') {
+        try {
+          console.log('🔄 [BACKUP_STEP_6] Strategy A: Direct native FileSystem.uploadAsync on DB file...');
+          // Ensure the URI has the file:// prefix that uploadAsync expects
+          const uploadUri = dbPath.startsWith('file://') ? dbPath : `file://${dbPath}`;
+          console.log('📤 [BACKUP_STEP_6] Upload file URI:', uploadUri);
+
+          const uploadResult = await FileSystem.uploadAsync(
+            targetUploadUrl,
+            uploadUri,
+            {
+              httpMethod: 'POST',
+              uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+              fieldName: 'db_file',
+              mimeType: 'application/octet-stream',
+              headers: uploadHeaders,
+              parameters: uploadParameters,
+            }
+          );
+
+          responseStatus = uploadResult.status;
+          responseText = uploadResult.body;
+          uploadMethodUsed = 'direct_upload_async';
+          console.log(`✅ [BACKUP_STEP_6] Strategy A completed: HTTP ${responseStatus} in ${Date.now() - uploadStartTime}ms`);
+        } catch (stratAErr) {
+          console.warn('⚠️ [BACKUP_STEP_6] Strategy A failed:', {
+            error: stratAErr?.message,
+            code: stratAErr?.code,
+            stack: stratAErr?.stack,
+          });
+          console.log('🔄 [BACKUP_STEP_6] Falling back to Strategy B...');
+        }
+      }
+
+      // ─── Strategy B (Fallback): serializeSync → write temp file (base64) → uploadAsync ───
+      // This creates a clean in-memory snapshot of the database (bypassing file locks),
+      // writes it to a temporary cache file, then uploads that temp file via native OkHttp.
+      // Memory cost: ~27MB base64 string for a 20MB database (temporary).
+      if (!responseStatus || responseStatus < 200 || responseStatus >= 300) {
+        try {
+          console.log('🔄 [BACKUP_STEP_6] Strategy B: serializeSync → temp file → uploadAsync...');
+          const db = getDatabase();
+          const serializeStart = Date.now();
+          const dbBytes = typeof db.serializeSync === 'function'
+            ? db.serializeSync()
+            : (typeof db.serializeAsync === 'function' ? await db.serializeAsync() : null);
+
+          if (!dbBytes || dbBytes.length === 0) {
+            throw new Error('serializeSync returned empty/null — database may be corrupted');
+          }
+
+          console.log(`📦 [BACKUP_STEP_6] Serialized ${dbBytes.length} bytes in ${Date.now() - serializeStart}ms`);
+
+          // Convert Uint8Array to base64 string (for FileSystem.writeAsStringAsync)
+          const chunkSize = 32768; // Process in 32KB chunks to avoid call stack overflow
+          let base64Str = '';
+          for (let i = 0; i < dbBytes.length; i += chunkSize) {
+            const chunk = dbBytes.subarray(i, Math.min(i + chunkSize, dbBytes.length));
+            base64Str += String.fromCharCode.apply(null, chunk);
+          }
+          base64Str = btoa(base64Str);
+          console.log(`📦 [BACKUP_STEP_6] Base64 encoded: ${base64Str.length} chars`);
+
+          // Write to temporary cache file
+          const tempFile = `${FileSystem.cacheDirectory}db_backup_${Date.now()}.db`;
+          await FileSystem.writeAsStringAsync(tempFile, base64Str, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          // Verify temp file was written correctly
+          const tempInfo = await FileSystem.getInfoAsync(tempFile);
+          console.log(`📄 [BACKUP_STEP_6] Temp file written:`, {
+            path: tempFile,
+            exists: tempInfo.exists,
+            size: tempInfo.size,
+            expectedSize: dbBytes.length,
+            sizeMatch: tempInfo.size === dbBytes.length,
+          });
+
+          if (!tempInfo.exists || tempInfo.size === 0) {
+            throw new Error(`Temp file write failed: exists=${tempInfo.exists}, size=${tempInfo.size}`);
+          }
+
+          // Upload the temp file via native OkHttp multipart
+          if (Platform.OS !== 'web') {
+            const uploadResult = await FileSystem.uploadAsync(
+              targetUploadUrl,
+              tempFile,
+              {
+                httpMethod: 'POST',
+                uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+                fieldName: 'db_file',
+                mimeType: 'application/octet-stream',
+                headers: uploadHeaders,
+                parameters: uploadParameters,
+              }
+            );
+            responseStatus = uploadResult.status;
+            responseText = uploadResult.body;
+            uploadMethodUsed = 'serialize_temp_upload_async';
+          } else {
+            // Web fallback: read the temp file as blob
+            const fileContent = await FileSystem.readAsStringAsync(tempFile, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            const binaryStr = atob(fileContent);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
+            }
+            const dbBlob = new Blob([bytes], { type: 'application/octet-stream' });
+            const formData = new FormData();
+            formData.append('db_file', dbBlob, 'expenses_khata.db');
+            Object.entries(uploadParameters).forEach(([k, v]) => formData.append(k, v));
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000);
+            const fetchRes = await fetch(targetUploadUrl, {
+              method: 'POST',
+              headers: uploadHeaders,
+              body: formData,
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            responseStatus = fetchRes.status;
+            responseText = await fetchRes.text();
+            uploadMethodUsed = 'serialize_blob_fetch';
+          }
+
+          console.log(`✅ [BACKUP_STEP_6] Strategy B completed: HTTP ${responseStatus} in ${Date.now() - uploadStartTime}ms`);
+
+          // Cleanup temp file
+          try {
+            await FileSystem.deleteAsync(tempFile, { idempotent: true });
+          } catch (_) {}
+        } catch (stratBErr) {
+          console.warn('⚠️ [BACKUP_STEP_6] Strategy B failed:', {
+            error: stratBErr?.message,
+            code: stratBErr?.code,
+            stack: stratBErr?.stack,
+          });
+          console.log('🔄 [BACKUP_STEP_6] Falling back to Strategy C...');
+        }
+      }
+
+      // ─── Strategy C (Last Resort): serializeSync → Blob → FormData → fetch ───
+      // Pure JS approach. Works on all platforms. ~40MB JS memory for 20MB DB.
+      if (!responseStatus || responseStatus < 200 || responseStatus >= 300) {
+        console.log('🔄 [BACKUP_STEP_6] Strategy C: serializeSync → Blob → FormData → fetch...');
+        const db = getDatabase();
+        const dbBytes = typeof db.serializeSync === 'function'
+          ? db.serializeSync()
+          : (typeof db.serializeAsync === 'function' ? await db.serializeAsync() : null);
+
+        if (!dbBytes || dbBytes.length === 0) {
+          throw new Error('Cannot serialize database — all upload strategies exhausted');
+        }
+
+        const dbBlob = new Blob([dbBytes], { type: 'application/octet-stream' });
+        const formData = new FormData();
+        formData.append('db_file', dbBlob, 'expenses_khata.db');
+        Object.entries(uploadParameters).forEach(([k, v]) => formData.append(k, v));
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min timeout for large files
+        const fetchRes = await fetch(targetUploadUrl, {
+          method: 'POST',
+          headers: uploadHeaders,
+          body: formData,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        responseStatus = fetchRes.status;
+        responseText = await fetchRes.text();
+        uploadMethodUsed = 'serialize_blob_fetch_direct';
+        console.log(`✅ [BACKUP_STEP_6] Strategy C completed: HTTP ${responseStatus} in ${Date.now() - uploadStartTime}ms`);
+      }
     } catch (uploadReqErr) {
       const uploadDuration = Date.now() - uploadStartTime;
-      console.error('❌ [BACKUP_FAILED] Database File Upload Network / Request Exception:', {
-        url: API_CONFIG.DATABASE_BACKUP_UPLOAD_URL,
+
+      // Classify the error: filesystem vs network vs timeout
+      const errMsg = uploadReqErr?.message || '';
+      const isFilesystemError = errMsg.includes('IOException') || errMsg.includes('copyAsync')
+        || errMsg.includes('ERR_UNEXPECTED') || errMsg.includes('permission')
+        || errMsg.includes('ENOENT') || errMsg.includes('No such file');
+      const isTimeoutError = uploadReqErr?.name === 'AbortError' || errMsg.includes('aborted')
+        || errMsg.includes('timeout');
+      const isNetworkError = errMsg.includes('Network') || errMsg.includes('network')
+        || errMsg.includes('ECONNREFUSED') || errMsg.includes('ETIMEDOUT');
+
+      let errorCategory = 'unknown';
+      let userMessage = '';
+      if (isFilesystemError) {
+        errorCategory = 'filesystem';
+        userMessage = `Database file error: ${errMsg}`;
+      } else if (isTimeoutError) {
+        errorCategory = 'timeout';
+        userMessage = `Upload timed out after ${Math.round(uploadDuration / 1000)}s. Try on a faster connection.`;
+      } else if (isNetworkError) {
+        errorCategory = 'network';
+        userMessage = `Network error during upload: ${errMsg}`;
+      } else {
+        errorCategory = 'upload_error';
+        userMessage = `Database upload failed: ${errMsg || 'Connection failed'}`;
+      }
+
+      console.error(`❌ [BACKUP_FAILED] Database Upload Exception [${errorCategory}]:`, {
+        url: targetUploadUrl,
         dbPath,
         fileSize,
         durationMs: uploadDuration,
+        errorCategory,
         errorName: uploadReqErr?.name,
-        errorMessage: uploadReqErr?.message,
+        errorMessage: errMsg,
+        errorCode: uploadReqErr?.code,
         errorStack: uploadReqErr?.stack,
-        error: uploadReqErr,
       });
-      const failMsg = `Network error during database upload: ${uploadReqErr?.message || 'Connection failed'}`;
-      addBackupActivityLog('db_backup_upload', 'failed', failMsg);
+
+      addBackupActivityLog('db_backup_upload', 'failed', userMessage);
       return {
         success: false,
-        message: failMsg,
-        stage: 'upload_request_exception',
+        message: userMessage,
+        stage: `upload_${errorCategory}`,
         errorDetails: {
-          message: uploadReqErr?.message,
+          category: errorCategory,
+          message: errMsg,
           name: uploadReqErr?.name,
-          url: API_CONFIG.DATABASE_BACKUP_UPLOAD_URL,
+          url: targetUploadUrl,
+          durationMs: uploadDuration,
         },
       };
     }
 
     const uploadDuration = Date.now() - uploadStartTime;
-    console.log(`📥 [BACKUP_STEP_6] Server response received in ${uploadDuration}ms:`, {
-      httpStatus: response?.status,
+    console.log(`📥 [BACKUP_STEP_6] Server response received via [${uploadMethodUsed}] in ${uploadDuration}ms:`, {
+      httpStatus: responseStatus,
       bodyPreview: responseText?.substring ? responseText.substring(0, 300) : responseText,
     });
 
-    if (response.status !== 200) {
+    if (responseStatus !== 200) {
       console.error('❌ [BACKUP_FAILED] Database Upload Server Error (Non-200 HTTP Status):', {
-        httpStatus: response.status,
+        httpStatus: responseStatus,
         responseBody: responseText,
-        targetUrl: API_CONFIG.DATABASE_BACKUP_UPLOAD_URL,
+        targetUrl: targetUploadUrl,
         dbPath,
         fileSize,
       });
 
-      const errMsg = `Server returned HTTP ${response.status}: ${responseText.substring(0, 120) || 'Unknown error'}`;
-      addBackupActivityLog('db_backup_upload', 'failed', `Database upload failed (HTTP ${response.status})`);
+      let serverMsg = '';
+      try {
+        const j = JSON.parse(responseText);
+        serverMsg = j?.message;
+      } catch (e) {}
+
+      const errMsg = serverMsg || `Server returned HTTP ${responseStatus}: ${responseText.substring(0, 100) || 'Unknown error'}`;
+      addBackupActivityLog('db_backup_upload', 'failed', `Database upload failed: ${errMsg}`);
       return {
         success: false,
-        message: `Database upload failed: HTTP ${response.status}`,
+        message: `Database upload failed (HTTP ${responseStatus}): ${errMsg}`,
         stage: 'http_error_status',
-        httpStatus: response.status,
+        httpStatus: responseStatus,
         responseBody: responseText,
       };
     }
