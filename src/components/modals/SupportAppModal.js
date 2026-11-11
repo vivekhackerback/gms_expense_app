@@ -46,14 +46,9 @@ export const SupportAppModal = ({ visible, onClose }) => {
 
   // Mode: 'FORM' | 'CONFIRMATION' | 'THANK_YOU' | 'CANCELLED'
   const [modalStep, setModalStep] = useState('FORM');
-  const [selectedAmount, setSelectedAmount] = useState(SUPPORT_UPI_CONFIG.defaultAmount);
-  const [isCustomAmount, setIsCustomAmount] = useState(false);
-  const [customAmountText, setCustomAmountText] = useState('');
   const [isLaunching, setIsLaunching] = useState(false);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const scrollViewRef = useRef(null);
-  const customInputRef = useRef(null);
 
   // Dynamic UPI Info & upi_update state
   const [currentUpiId, setCurrentUpiId] = useState(() => getLocalUpiRecord().upiId);
@@ -90,34 +85,11 @@ export const SupportAppModal = ({ visible, onClose }) => {
     return () => pulse.stop();
   }, [modalHeartScale]);
 
-  // Track keyboard visibility for tap-outside dismiss
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, () => {
-      setIsKeyboardVisible(true);
-    });
-
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setIsKeyboardVisible(false);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-
   // Reset state and check for upi_update changes whenever modal is opened
   useEffect(() => {
     if (visible) {
       setModalStep('FORM');
-      setSelectedAmount(SUPPORT_UPI_CONFIG.defaultAmount);
-      setIsCustomAmount(false);
-      setCustomAmountText('');
       setIsLaunching(false);
-      setIsKeyboardVisible(false);
       awaitingUpiReturnRef.current = false;
 
       // 1. Read last successfully cached UPI record from local storage
@@ -184,67 +156,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
     };
   }, []);
 
-  const getEffectiveAmount = () => {
-    if (isCustomAmount) {
-      const parsed = parseFloat(customAmountText);
-      return isNaN(parsed) ? 0 : parsed;
-    }
-    return selectedAmount;
-  };
-
-  const handleSelectPreset = (amount) => {
-    Keyboard.dismiss();
-    triggerHaptic('selection');
-    setIsCustomAmount(false);
-    setSelectedAmount(amount);
-  };
-
-  const handleSelectCustom = () => {
-    triggerHaptic('selection');
-    setIsCustomAmount(true);
-    if (!customAmountText) {
-      setCustomAmountText(String(selectedAmount));
-    }
-    setTimeout(() => {
-      if (customInputRef.current) {
-        customInputRef.current.focus();
-      }
-      if (scrollViewRef.current) {
-        scrollViewRef.current.scrollTo({ y: 130, animated: true });
-      }
-    }, 100);
-  };
-
-  const handleCustomTextChange = (text) => {
-    // Only allow whole digits
-    const cleaned = text.replace(/[^0-9]/g, '');
-    setCustomAmountText(cleaned);
-  };
-
   const handlePayViaUpi = async () => {
-    Keyboard.dismiss();
-    const amount = getEffectiveAmount();
-
-    if (amount <= 0) {
-      triggerHaptic('warning');
-      Alert.alert(
-        'Invalid Amount',
-        'Please enter a valid donation amount in INR (minimum ₹1).',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
-    if (amount > 100000) {
-      triggerHaptic('warning');
-      Alert.alert(
-        'Amount Exceeds Limit',
-        'Single UPI donation cannot exceed ₹1,00,000. Please enter a lower amount.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
     triggerHaptic('selection');
     setIsLaunching(true);
 
@@ -277,9 +189,9 @@ export const SupportAppModal = ({ visible, onClose }) => {
     // Set flag before launching intent
     awaitingUpiReturnRef.current = true;
 
+    // Launch UPI intent without fixed amount and transaction note,
+    // so user can enter any amount and message in their UPI app
     const result = await launchUpiPayment({
-      amount,
-      note: SUPPORT_UPI_CONFIG.defaultNote,
       upiId: activeUpi,
     });
 
@@ -290,7 +202,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
       Alert.alert(
         'No Compatible UPI App Found',
         'We could not find any installed UPI payment application (such as Google Pay, PhonePe, Paytm, or BHIM) on this device.\n\nRecipient UPI ID: ' +
-          configRes.upiId,
+          activeUpi,
         [{ text: 'OK' }]
       );
     }
@@ -320,8 +232,6 @@ export const SupportAppModal = ({ visible, onClose }) => {
 
   if (!visible) return null;
 
-  const currentAmount = getEffectiveAmount();
-
   return (
     <Modal
       visible={visible}
@@ -329,20 +239,11 @@ export const SupportAppModal = ({ visible, onClose }) => {
       animationType="none"
       onRequestClose={handleClose}
     >
-      <KeyboardAvoidingView
-        style={styles.backdrop}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <View style={styles.backdrop}>
         <TouchableOpacity
           style={styles.backdropPressArea}
           activeOpacity={1}
-          onPress={() => {
-            if (isKeyboardVisible) {
-              Keyboard.dismiss();
-            } else {
-              handleClose();
-            }
-          }}
+          onPress={handleClose}
         />
 
         <Animated.View
@@ -423,118 +324,12 @@ export const SupportAppModal = ({ visible, onClose }) => {
                   </View>
                 </View>
 
-                {/* Suggested Amounts */}
-                <View style={styles.amountSection}>
-                  <Text style={styles.sectionLabel}>CHOOSE CONTRIBUTION AMOUNT</Text>
-                  <View style={styles.amountChipsRow}>
-                    {SUPPORT_UPI_CONFIG.suggestedAmounts.map((amt) => {
-                      const isSelected = !isCustomAmount && selectedAmount === amt;
-                      return (
-                        <TouchableOpacity
-                          key={amt}
-                          style={[
-                            styles.amountChip,
-                            isSelected && styles.amountChipSelected,
-                          ]}
-                          onPress={() => handleSelectPreset(amt)}
-                          activeOpacity={0.7}
-                        >
-                          <Text
-                            style={[
-                              styles.amountChipText,
-                              isSelected && styles.amountChipTextSelected,
-                            ]}
-                          >
-                            ₹{amt}
-                          </Text>
-                          {isSelected && (
-                            <View style={styles.chipCheckmark}>
-                              <Ionicons name="checkmark" size={12} color="#FFFFFF" />
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-
-                    {/* Custom Amount Button */}
-                    <TouchableOpacity
-                      style={[
-                        styles.amountChip,
-                        isCustomAmount && styles.amountChipSelected,
-                      ]}
-                      onPress={handleSelectCustom}
-                      activeOpacity={0.7}
-                    >
-                      <Text
-                        style={[
-                          styles.amountChipText,
-                          isCustomAmount && styles.amountChipTextSelected,
-                        ]}
-                      >
-                        Custom
-                      </Text>
-                      {isCustomAmount && (
-                        <View style={styles.chipCheckmark}>
-                          <Ionicons name="checkmark" size={12} color="#FFFFFF" />
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Custom Amount Input Box */}
-                  {isCustomAmount && (
-                    <View style={styles.customInputBox}>
-                      <View style={styles.customInputHeader}>
-                        <Text style={styles.customInputLabel}>Enter Custom Amount (INR)</Text>
-                        <TouchableOpacity
-                          onPress={() => Keyboard.dismiss()}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <Text style={styles.hideKeyboardText}>Hide Keyboard</Text>
-                        </TouchableOpacity>
-                      </View>
-                      <View style={styles.customInputRow}>
-                        <Text style={styles.currencySymbol}>₹</Text>
-                        <TextInput
-                          ref={customInputRef}
-                          style={styles.customTextInput}
-                          value={customAmountText}
-                          onChangeText={handleCustomTextChange}
-                          placeholder="e.g. 250"
-                          placeholderTextColor={Colors.textMuted}
-                          keyboardType="numeric"
-                          returnKeyType="done"
-                          onSubmitEditing={() => Keyboard.dismiss()}
-                          onFocus={() => {
-                            setTimeout(() => {
-                              if (scrollViewRef.current) {
-                                scrollViewRef.current.scrollTo({ y: 130, animated: true });
-                              }
-                            }, 80);
-                          }}
-                          maxLength={6}
-                          autoFocus
-                          selectTextOnFocus
-                        />
-                        {customAmountText.length > 0 && (
-                          <TouchableOpacity
-                            onPress={() => setCustomAmountText('')}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            style={{ marginRight: 8 }}
-                          >
-                            <Ionicons name="close-circle" size={20} color={Colors.textMuted} />
-                          </TouchableOpacity>
-                        )}
-                        <TouchableOpacity
-                          onPress={() => Keyboard.dismiss()}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          style={styles.doneInputBtn}
-                        >
-                          <Ionicons name="checkmark-circle" size={24} color="#4F46E5" />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
+                {/* Info Note about user-entered amount */}
+                <View style={styles.infoCard}>
+                  <Ionicons name="information-circle-outline" size={20} color="#4F46E5" style={{ marginRight: 8, marginTop: 1 }} />
+                  <Text style={styles.infoCardText}>
+                    You can enter your desired contribution amount and personal message directly inside your UPI app.
+                  </Text>
                 </View>
 
                 {/* Supported Apps Logos / Subtext */}
@@ -554,9 +349,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
                 >
                   <Ionicons name="heart" size={20} color="#FF6B81" style={{ marginRight: 8 }} />
                   <Text style={styles.payButtonText}>
-                    {currentAmount > 0
-                      ? `Contribute ₹${currentAmount.toLocaleString('en-IN')} via UPI`
-                      : 'Enter Valid Amount'}
+                    {isLaunching ? 'Opening UPI App...' : 'Pay via Any UPI App'}
                   </Text>
                   <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={{ marginLeft: 6 }} />
                 </TouchableOpacity>
@@ -576,8 +369,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
                 </View>
                 <Text style={styles.feedbackTitle}>Did your payment go through?</Text>
                 <Text style={styles.feedbackSubtitle}>
-                  We opened your UPI app for a contribution of ₹{currentAmount.toLocaleString('en-IN')}.
-                  Please confirm whether the payment was completed successfully.
+                  We opened your UPI app. Please confirm whether the payment was completed successfully.
                 </Text>
 
                 <View style={styles.confirmationBtnGroup}>
@@ -610,8 +402,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
                 </View>
                 <Text style={[styles.feedbackTitle, { color: '#065F46' }]}>Thank You So Much! ❤️</Text>
                 <Text style={styles.feedbackSubtitle}>
-                  Your generous contribution of ₹{currentAmount.toLocaleString('en-IN')} directly supports
-                  ongoing development, performance tuning, and new features for Expense & Khata.
+                  Your generous contribution directly supports ongoing development, performance tuning, and new features for Expense & Khata.
                 </Text>
 
                 <View style={styles.badgeContainer}>
@@ -666,7 +457,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
             )}
           </ScrollView>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 };
@@ -814,108 +605,22 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     color: Colors.textMuted,
   },
-  amountSection: {
-    gap: Spacing.xs + 2,
-  },
-  sectionLabel: {
-    fontSize: Typography.fontSizes.xs,
-    fontWeight: Typography.fontWeights.bold,
-    color: Colors.textSecondary,
-    letterSpacing: 0.6,
-  },
-  amountChipsRow: {
+  infoCard: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 4,
-  },
-  amountChip: {
-    flex: 1,
-    paddingVertical: 10,
-    backgroundColor: Colors.surfaceSubtle,
-    borderRadius: BorderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-    position: 'relative',
-  },
-  amountChipSelected: {
+    alignItems: 'flex-start',
     backgroundColor: '#EEF2FF',
-    borderColor: '#4F46E5',
-  },
-  amountChipText: {
-    fontSize: Typography.fontSizes.sm,
-    fontWeight: Typography.fontWeights.bold,
-    color: Colors.textPrimary,
-  },
-  amountChipTextSelected: {
-    color: '#4F46E5',
-  },
-  chipCheckmark: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    backgroundColor: '#4F46E5',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  customInputBox: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#6366F1',
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.sm + 2,
-    marginTop: 8,
-  },
-  customInputHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  customInputLabel: {
-    fontSize: 11,
-    fontWeight: Typography.fontWeights.bold,
-    color: '#4F46E5',
-    letterSpacing: 0.5,
-  },
-  hideKeyboardText: {
-    fontSize: 11,
-    fontWeight: Typography.fontWeights.medium,
-    color: Colors.textSecondary,
-    textDecorationLine: 'underline',
-  },
-  customInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
-    height: 48,
+    paddingVertical: Spacing.sm + 2,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
   },
-  currencySymbol: {
-    fontSize: Typography.fontSizes.lg,
-    fontWeight: Typography.fontWeights.bold,
-    color: '#4F46E5',
-    marginRight: 6,
-  },
-  customTextInput: {
+  infoCardText: {
     flex: 1,
-    height: 44,
-    fontSize: Typography.fontSizes.md + 1,
-    fontWeight: Typography.fontWeights.bold,
-    color: Colors.textPrimary,
-    paddingVertical: 0,
-  },
-  doneInputBtn: {
-    paddingLeft: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.medium,
+    color: '#3730A3',
+    lineHeight: 18,
   },
   supportedAppsRow: {
     flexDirection: 'row',

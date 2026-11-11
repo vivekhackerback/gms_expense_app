@@ -118,40 +118,50 @@ export const syncAndGetLatestUpiConfig = async () => {
 };
 
 /**
- * Builds a validated standard UPI URI string:
- * upi://pay?pa=<UPI_ID>&pn=<NAME>&tn=<NOTE>&am=<AMOUNT>&cu=INR
+ * Builds a validated standard UPI URI string.
+ * When amount or note are omitted or falsy, they are not appended,
+ * allowing the user to enter their own amount and note inside their UPI app.
+ *
+ * e.g. upi://pay?pa=<UPI_ID>&pn=<NAME>&cu=INR
  */
 export const buildUpiUrl = ({
   amount,
-  note = SUPPORT_UPI_CONFIG.defaultNote,
+  note,
   upiId,
   payeeName = SUPPORT_UPI_CONFIG.payeeName,
 }) => {
-  const numAmount = parseFloat(amount);
-  if (isNaN(numAmount) || numAmount <= 0) {
-    throw new Error('Please enter a valid amount greater than 0');
-  }
-
   if (!upiId || !isValidUpiId(upiId)) {
     throw new Error('Invalid or missing recipient UPI ID');
   }
 
-  const formattedAmount = numAmount.toFixed(2);
   const encodedUpiId = encodeURIComponent(upiId.trim());
-  const encodedName = encodeURIComponent(payeeName.trim());
-  const encodedNote = encodeURIComponent(note.trim());
+  const encodedName = encodeURIComponent((payeeName || SUPPORT_UPI_CONFIG.payeeName).trim());
 
-  return `upi://pay?pa=${encodedUpiId}&pn=${encodedName}&tn=${encodedNote}&am=${formattedAmount}&cu=INR`;
+  let uri = `upi://pay?pa=${encodedUpiId}&pn=${encodedName}&cu=INR`;
+
+  if (note && typeof note === 'string' && note.trim().length > 0) {
+    uri += `&tn=${encodeURIComponent(note.trim())}`;
+  }
+
+  if (amount !== undefined && amount !== null && amount !== '') {
+    const numAmount = parseFloat(amount);
+    if (!isNaN(numAmount) && numAmount > 0) {
+      uri += `&am=${numAmount.toFixed(2)}`;
+    }
+  }
+
+  return uri;
 };
 
 /**
  * Launches native UPI intent using verified latest server-side UPI configuration.
+ * Opens UPI app with recipient details pre-filled, while amount and note can be entered by the user.
  */
 export const launchUpiPayment = async ({
   amount,
-  note = SUPPORT_UPI_CONFIG.defaultNote,
+  note,
   upiId,
-}) => {
+} = {}) => {
   let activeUpiId = upiId;
 
   // If no validated UPI ID was passed in, run version check immediately
