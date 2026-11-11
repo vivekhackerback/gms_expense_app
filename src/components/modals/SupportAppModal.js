@@ -8,6 +8,7 @@ import {
   TextInput,
   Alert,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ScrollView,
   AppState,
@@ -49,6 +50,10 @@ export const SupportAppModal = ({ visible, onClose }) => {
   const [isCustomAmount, setIsCustomAmount] = useState(false);
   const [customAmountText, setCustomAmountText] = useState('');
   const [isLaunching, setIsLaunching] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  const scrollViewRef = useRef(null);
+  const customInputRef = useRef(null);
 
   // Dynamic UPI Info & upi_update state
   const [currentUpiId, setCurrentUpiId] = useState(() => getLocalUpiRecord().upiId);
@@ -85,6 +90,25 @@ export const SupportAppModal = ({ visible, onClose }) => {
     return () => pulse.stop();
   }, [modalHeartScale]);
 
+  // Track keyboard visibility for tap-outside dismiss
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, () => {
+      setIsKeyboardVisible(true);
+    });
+
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
   // Reset state and check for upi_update changes whenever modal is opened
   useEffect(() => {
     if (visible) {
@@ -93,6 +117,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
       setIsCustomAmount(false);
       setCustomAmountText('');
       setIsLaunching(false);
+      setIsKeyboardVisible(false);
       awaitingUpiReturnRef.current = false;
 
       // 1. Read last successfully cached UPI record from local storage
@@ -168,6 +193,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
   };
 
   const handleSelectPreset = (amount) => {
+    Keyboard.dismiss();
     triggerHaptic('selection');
     setIsCustomAmount(false);
     setSelectedAmount(amount);
@@ -179,6 +205,14 @@ export const SupportAppModal = ({ visible, onClose }) => {
     if (!customAmountText) {
       setCustomAmountText(String(selectedAmount));
     }
+    setTimeout(() => {
+      if (customInputRef.current) {
+        customInputRef.current.focus();
+      }
+      if (scrollViewRef.current) {
+        scrollViewRef.current.scrollTo({ y: 130, animated: true });
+      }
+    }, 100);
   };
 
   const handleCustomTextChange = (text) => {
@@ -188,6 +222,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
   };
 
   const handlePayViaUpi = async () => {
+    Keyboard.dismiss();
     const amount = getEffectiveAmount();
 
     if (amount <= 0) {
@@ -272,6 +307,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
   };
 
   const handleClose = () => {
+    Keyboard.dismiss();
     triggerHaptic('selection');
     Animated.timing(modalOpacity, {
       toValue: 0,
@@ -300,7 +336,13 @@ export const SupportAppModal = ({ visible, onClose }) => {
         <TouchableOpacity
           style={styles.backdropPressArea}
           activeOpacity={1}
-          onPress={handleClose}
+          onPress={() => {
+            if (isKeyboardVisible) {
+              Keyboard.dismiss();
+            } else {
+              handleClose();
+            }
+          }}
         />
 
         <Animated.View
@@ -309,7 +351,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
             {
               opacity: modalOpacity,
               transform: [{ scale: modalScale }],
-              paddingBottom: Math.max(insets.bottom, 20),
+              paddingBottom: Math.max(insets.bottom, 18),
             },
           ]}
         >
@@ -343,6 +385,7 @@ export const SupportAppModal = ({ visible, onClose }) => {
           </View>
 
           <ScrollView
+            ref={scrollViewRef}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollBody}
             keyboardShouldPersistTaps="handled"
@@ -352,14 +395,10 @@ export const SupportAppModal = ({ visible, onClose }) => {
               <>
                 {/* Heartfelt Thank You Message Banner */}
                 <View style={styles.thankYouBanner}>
-                  <Ionicons name="sparkles" size={20} color="#D97706" style={{ marginTop: 2 }} />
+                  <Ionicons name="sparkles" size={18} color="#D97706" style={{ marginTop: 2 }} />
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={styles.bannerHeadline}>
-                      Your support helps us improve and maintain this app. Thank you!
-                    </Text>
-                    <Text style={styles.bannerSubtext}>
-                      Expense & Khata is 100% free, offline-first, and private. Your voluntary
-                      contribution directly fuels regular updates, new features, and cloud backups.
+                      Your voluntary support keeps Expense & Khata 100% free & offline-first!
                     </Text>
                   </View>
                 </View>
@@ -434,31 +473,66 @@ export const SupportAppModal = ({ visible, onClose }) => {
                       >
                         Custom
                       </Text>
+                      {isCustomAmount && (
+                        <View style={styles.chipCheckmark}>
+                          <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                        </View>
+                      )}
                     </TouchableOpacity>
                   </View>
 
-                  {/* Custom Amount Input Field */}
+                  {/* Custom Amount Input Box */}
                   {isCustomAmount && (
-                    <View style={styles.customInputContainer}>
-                      <Text style={styles.currencySymbol}>₹</Text>
-                      <TextInput
-                        style={styles.customTextInput}
-                        value={customAmountText}
-                        onChangeText={handleCustomTextChange}
-                        placeholder="Enter amount"
-                        placeholderTextColor={Colors.textMuted}
-                        keyboardType="numeric"
-                        maxLength={6}
-                        autoFocus
-                      />
-                      {customAmountText.length > 0 && (
+                    <View style={styles.customInputBox}>
+                      <View style={styles.customInputHeader}>
+                        <Text style={styles.customInputLabel}>Enter Custom Amount (INR)</Text>
                         <TouchableOpacity
-                          onPress={() => setCustomAmountText('')}
+                          onPress={() => Keyboard.dismiss()}
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                          <Ionicons name="close-circle" size={18} color={Colors.textMuted} />
+                          <Text style={styles.hideKeyboardText}>Hide Keyboard</Text>
                         </TouchableOpacity>
-                      )}
+                      </View>
+                      <View style={styles.customInputRow}>
+                        <Text style={styles.currencySymbol}>₹</Text>
+                        <TextInput
+                          ref={customInputRef}
+                          style={styles.customTextInput}
+                          value={customAmountText}
+                          onChangeText={handleCustomTextChange}
+                          placeholder="e.g. 250"
+                          placeholderTextColor={Colors.textMuted}
+                          keyboardType="numeric"
+                          returnKeyType="done"
+                          onSubmitEditing={() => Keyboard.dismiss()}
+                          onFocus={() => {
+                            setTimeout(() => {
+                              if (scrollViewRef.current) {
+                                scrollViewRef.current.scrollTo({ y: 130, animated: true });
+                              }
+                            }, 80);
+                          }}
+                          maxLength={6}
+                          autoFocus
+                          selectTextOnFocus
+                        />
+                        {customAmountText.length > 0 && (
+                          <TouchableOpacity
+                            onPress={() => setCustomAmountText('')}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={{ marginRight: 8 }}
+                          >
+                            <Ionicons name="close-circle" size={20} color={Colors.textMuted} />
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                          onPress={() => Keyboard.dismiss()}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          style={styles.doneInputBtn}
+                        >
+                          <Ionicons name="checkmark-circle" size={24} color="#4F46E5" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   )}
                 </View>
@@ -668,27 +742,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scrollBody: {
-    paddingVertical: Spacing.md,
-    gap: Spacing.md,
+    paddingVertical: Spacing.sm,
+    paddingBottom: Spacing.lg,
+    gap: Spacing.sm,
   },
   thankYouBanner: {
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#FFFBEB',
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
     borderWidth: 1,
     borderColor: '#FDE68A',
   },
   bannerHeadline: {
-    fontSize: Typography.fontSizes.sm,
-    fontWeight: Typography.fontWeights.bold,
+    fontSize: Typography.fontSizes.xs + 1,
+    fontWeight: Typography.fontWeights.medium,
     color: '#92400E',
-    lineHeight: 18,
-  },
-  bannerSubtext: {
-    fontSize: Typography.fontSizes.xs,
-    color: '#B45309',
-    marginTop: 4,
     lineHeight: 16,
   },
   recipientCard: {
@@ -791,16 +862,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  customInputContainer: {
+  customInputBox: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#6366F1',
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.sm + 2,
+    marginTop: 8,
+  },
+  customInputHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  customInputLabel: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#4F46E5',
+    letterSpacing: 0.5,
+  },
+  hideKeyboardText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.medium,
+    color: Colors.textSecondary,
+    textDecorationLine: 'underline',
+  },
+  customInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#4F46E5',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
     borderRadius: BorderRadius.md,
     paddingHorizontal: Spacing.md,
-    paddingVertical: 8,
-    marginTop: 6,
+    height: 48,
   },
   currencySymbol: {
     fontSize: Typography.fontSizes.lg,
@@ -810,10 +906,16 @@ const styles = StyleSheet.create({
   },
   customTextInput: {
     flex: 1,
-    fontSize: Typography.fontSizes.md,
+    height: 44,
+    fontSize: Typography.fontSizes.md + 1,
     fontWeight: Typography.fontWeights.bold,
     color: Colors.textPrimary,
-    padding: 0,
+    paddingVertical: 0,
+  },
+  doneInputBtn: {
+    paddingLeft: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   supportedAppsRow: {
     flexDirection: 'row',
