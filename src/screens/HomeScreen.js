@@ -45,7 +45,7 @@ export const HomeScreen = () => {
   useEffect(() => {
     const timer = setInterval(() => {
       setTick((t) => t + 1);
-    }, 3000);
+    }, 30000);
     return () => clearInterval(timer);
   }, []);
 

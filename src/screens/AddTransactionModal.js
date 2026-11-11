@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -53,9 +53,22 @@ export const AddTransactionModal = () => {
   const [tempMonth, setTempMonth] = useState(String(new Date().getMonth() + 1));
   const [tempDay, setTempDay] = useState(String(new Date().getDate()));
 
-  // Sync state with open defaults or editing item
+  // Track previous modal open state and editing ID so the form is ONLY initialized when freshly opened
+  const wasOpenRef = useRef(false);
+  const editingTxIdRef = useRef(null);
+
+  // Sync state with open defaults or editing item ONLY when modal freshly opens
   useEffect(() => {
-    if (isAddTransactionOpen) {
+    const isOpening = !wasOpenRef.current && isAddTransactionOpen;
+    const isSwitchingEditingItem =
+      isAddTransactionOpen &&
+      editingTransaction &&
+      editingTransaction.id !== editingTxIdRef.current;
+
+    wasOpenRef.current = isAddTransactionOpen;
+    editingTxIdRef.current = editingTransaction?.id || null;
+
+    if (isOpening || isSwitchingEditingItem) {
       if (editingTransaction) {
         const raw = String(editingTransaction.amount || '');
         setDisplayAmount(formatInputWithCommas(raw));
@@ -69,11 +82,11 @@ export const AddTransactionModal = () => {
         setImages(editingTransaction.images || []);
       } else {
         setDisplayAmount('');
-        setType(addTransactionDefaults.type || 'got');
-        setPaymentMode(addTransactionDefaults.paymentMode || 'cash');
+        setType(addTransactionDefaults?.type || 'got');
+        setPaymentMode(addTransactionDefaults?.paymentMode || 'cash');
         setSelectedDate(getCurrentTimestamp());
-        setSelectedCategoryId(categories[0]?.id || null);
-        setSelectedPartyId(addTransactionDefaults.partyId || null);
+        setSelectedCategoryId(addTransactionDefaults?.categoryId || categories?.[0]?.id || null);
+        setSelectedPartyId(addTransactionDefaults?.partyId || null);
         setNote('');
         setImages([]);
       }
@@ -81,7 +94,14 @@ export const AddTransactionModal = () => {
       setInlinePartyName('');
       setIsDatePickerOpen(false);
     }
-  }, [isAddTransactionOpen, editingTransaction, addTransactionDefaults, categories]);
+  }, [isAddTransactionOpen, editingTransaction?.id]);
+
+  // Set default category only if none was selected and categories become available later
+  useEffect(() => {
+    if (isAddTransactionOpen && selectedCategoryId === null && categories && categories.length > 0) {
+      setSelectedCategoryId(categories[0].id);
+    }
+  }, [isAddTransactionOpen, selectedCategoryId, categories]);
 
   if (!isAddTransactionOpen) return null;
 
