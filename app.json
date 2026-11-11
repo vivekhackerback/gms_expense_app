@@ -2,7 +2,7 @@
   "expo": {
     "name": "gms_expense_app",
     "slug": "gms_expense_app",
-    "version": "3.0.0",
+    "version": "3.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.tplpro.expenseapp",
-      "versionCode": 3
+      "versionCode": 4
     },
     "web": {
       "favicon": "./assets/favicon.png"
