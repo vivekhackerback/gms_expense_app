@@ -29,9 +29,7 @@ import {
   setDeveloperModeUnlocked,
   runSqliteBenchmark,
 } from '../services/stressTestService';
-import { SupportAppModal } from '../components/modals/SupportAppModal';
 import { FeedbackScreen } from './FeedbackScreen';
-import { syncAndGetLatestUpiConfig } from '../services/upiPaymentService';
 
 export const MoreScreen = () => {
   const {
@@ -56,30 +54,7 @@ export const MoreScreen = () => {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
-
-  // Heartbeat pulse animation to attract user attention
-  const heartScale = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(heartScale, {
-          toValue: 1.22,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-        Animated.timing(heartScale, {
-          toValue: 1,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    pulse.start();
-    return () => pulse.stop();
-  }, [heartScale]);
 
   const handleOpenEditProfile = () => {
     setEditName(currentUser?.name || '');
@@ -434,41 +409,6 @@ export const MoreScreen = () => {
           </TouchableOpacity>
         )}
 
-        {/* Support the App Button */}
-        <TouchableOpacity
-          style={[styles.supportAppCard, Shadows.sm]}
-          onPress={() => {
-            // Trigger background upi_update check on every click without delaying modal open
-            syncAndGetLatestUpiConfig().catch(() => {});
-            setIsSupportModalOpen(true);
-          }}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityLabel="Support the App, Love this app? Support its development."
-        >
-          <View style={styles.supportAppLeft}>
-            <View style={styles.supportIconWrap}>
-              <Animated.View style={{ transform: [{ scale: heartScale }] }}>
-                <Ionicons name="heart" size={22} color="#E11D48" />
-              </Animated.View>
-            </View>
-            <View style={styles.supportTextWrap}>
-              <View style={styles.supportTitleRow}>
-                <Text style={styles.supportAppTitle}>Support the App</Text>
-                <View style={styles.upiBadge}>
-                  <Text style={styles.upiBadgeText}>UPI</Text>
-                </View>
-              </View>
-              <Text style={styles.supportAppSubtitle}>
-                Love this app? Support its development.
-              </Text>
-            </View>
-          </View>
-          <View style={styles.supportChevronWrap}>
-            <Ionicons name="chevron-forward" size={18} color="#4F46E5" />
-          </View>
-        </TouchableOpacity>
-
         {/* Feedback on WhatsApp Button */}
         <TouchableOpacity
           style={[styles.feedbackAppCard, Shadows.sm]}
@@ -803,12 +743,6 @@ export const MoreScreen = () => {
           <Text style={styles.devToastText}>{devToastMessage}</Text>
         </Animated.View>
       ) : null}
-
-      {/* Support App UPI Modal */}
-      <SupportAppModal
-        visible={isSupportModalOpen}
-        onClose={() => setIsSupportModalOpen(false)}
-      />
 
       {/* Direct WhatsApp Feedback Modal */}
       <FeedbackScreen
