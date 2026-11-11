@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -49,6 +49,50 @@ export const LoginModal = () => {
 
   const successOpacity = useRef(new Animated.Value(0)).current;
   const successScale = useRef(new Animated.Value(0.4)).current;
+
+  // Smooth animated color shift between dark purple and pink for "Create Account" text
+  const glowAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    let animation;
+    if (isLoginModalOpen) {
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowAnim, {
+            toValue: 1,
+            duration: 1400,
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnim, {
+            toValue: 0,
+            duration: 1400,
+            useNativeDriver: false,
+          }),
+        ])
+      );
+      animation.start();
+    }
+    return () => {
+      if (animation) animation.stop();
+    };
+  }, [isLoginModalOpen, glowAnim]);
+
+  // Transitions smoothly across spectrum: Dark Purple -> Vibrant Purple -> Magenta -> Deep Pink -> Radiant Pink
+  const glowTextColor = glowAnim.interpolate({
+    inputRange: [0, 0.25, 0.5, 0.75, 1],
+    outputRange: [
+      '#581C87', // Deep Dark Purple
+      '#7E22CE', // Royal Purple
+      '#A21CAF', // Vivid Magenta
+      '#DB2777', // Deep Pink
+      '#EC4899', // Radiant Pink
+    ],
+  });
+
+  const textGlowOpacity = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.85, 1],
+  });
 
   if (!isLoginModalOpen) return null;
 
@@ -255,12 +299,27 @@ export const LoginModal = () => {
                   <Ionicons
                     name="person-add-outline"
                     size={16}
-                    color={isRegister ? Colors.primaryDark : Colors.textMuted}
+                    color={isRegister ? Colors.primaryDark : '#7E22CE'}
                     style={{ marginRight: 6 }}
                   />
-                  <Text style={[styles.tabBtnText, isRegister && styles.tabBtnTextActive]}>
-                    Create Account
-                  </Text>
+                  {isRegister ? (
+                    <Text style={[styles.tabBtnText, styles.tabBtnTextActive]}>
+                      Create Account
+                    </Text>
+                  ) : (
+                    <Animated.Text
+                      style={[
+                        styles.tabBtnText,
+                        {
+                          color: glowTextColor,
+                          opacity: textGlowOpacity,
+                          fontWeight: 'bold',
+                        },
+                      ]}
+                    >
+                      Create Account ✨
+                    </Animated.Text>
+                  )}
                 </TouchableOpacity>
               </View>
 
@@ -426,9 +485,18 @@ export const LoginModal = () => {
             >
               <Text style={styles.switchModeText}>
                 {isRegister ? 'Already have an account? ' : "Don't have an account? "}
-                <Text style={styles.switchModeHighlight}>
-                  {isRegister ? 'Sign In' : 'Create Account'}
-                </Text>
+                {!isRegister ? (
+                  <Animated.Text
+                    style={[
+                      styles.switchModeHighlight,
+                      { color: glowTextColor, opacity: textGlowOpacity },
+                    ]}
+                  >
+                    Create Account ✨
+                  </Animated.Text>
+                ) : (
+                  <Text style={styles.switchModeHighlight}>Sign In</Text>
+                )}
               </Text>
             </TouchableOpacity>
 
