@@ -1522,15 +1522,25 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
 
     onProgress?.({ step: 3, totalSteps: 3, title: 'Data Restoration Completed!', percent: 100 });
 
-    const txCount = finalTxCount > 0 ? finalTxCount : (stagingTransactions.length || info.stats?.transactions || 0);
-    const partyCount = finalPartyCount > 0 ? finalPartyCount : (stagingParties.length || info.stats?.parties || 0);
+    const targetSnapshotTxCount = selectedBackupFile?.transactions_count !== undefined
+      ? selectedBackupFile.transactions_count
+      : (info.stats?.transactions || 0);
+
+    const txCount = finalTxCount > 0
+      ? finalTxCount
+      : (stagingTransactions.length > 0 ? stagingTransactions.length : targetSnapshotTxCount);
+
+    const partyCount = finalPartyCount > 0
+      ? finalPartyCount
+      : (stagingParties.length > 0 ? stagingParties.length : (selectedBackupFile?.parties_count ?? (info.stats?.parties || 0)));
+
     const restoreMsg = photosFailedCount > 0
       ? `Restored ${txCount} transactions & ${photosRestoredCount} photos (${photosFailedCount} missing on server)`
       : `Restored ${txCount} transactions & all ${photosRestoredCount} photos from server ✓`;
 
     console.log('\n========================================');
     console.log('🎉 [RESTORE_SUCCESS] Full database & photos restoration completed!');
-    console.log(`📊 Summary: ${txCount} transactions, ${partyCount} parties, ${photosRestoredCount} photos restored (${photosFailedCount} failed).`);
+    console.log(`📊 Summary: ${txCount} transactions, ${partyCount} parties, ${photosRestoredCount} photos restored from ${selectedBackupFile?.file_name || 'selected backup'} (${photosFailedCount} failed).`);
     console.log('========================================\n');
 
     addBackupActivityLog('cloud_restore', photosFailedCount > 0 ? 'pending' : 'success', restoreMsg);
@@ -1539,9 +1549,9 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       success: true,
       message: restoreMsg,
       stats: {
-        ...info.stats,
-        transactions: txCount,
+        categories: stagingCategories.length || info.stats?.categories || 11,
         parties: partyCount,
+        transactions: txCount,
         images: photosRestoredCount,
       },
       photosRestored: photosRestoredCount,

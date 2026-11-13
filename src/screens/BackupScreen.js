@@ -451,9 +451,16 @@ export const BackupScreen = () => {
 
     if (res.success) {
       console.log('🎉 [BackupScreen] Restore succeeded:', res);
+      const restoredTxnCount = res.stats?.transactions !== undefined
+        ? res.stats.transactions
+        : (selectedBackupFile?.transactions_count || 0);
+      const restoredPartyCount = res.stats?.parties !== undefined
+        ? res.stats.parties
+        : (selectedBackupFile?.parties_count || 0);
+
       Alert.alert(
         'Data Restored Successfully ✓',
-        `Successfully restored ${res.stats?.transactions || 0} transactions, ${res.stats?.parties || 0} parties, and ${res.photosRestored || 0} photos from ${selectedBackupFile?.label || selectedBackupFile?.file_name || 'cloud database'}.`
+        `Successfully restored ${restoredTxnCount} transactions, ${restoredPartyCount} parties, and ${res.photosRestored || 0} photos from ${selectedBackupFile?.label || selectedBackupFile?.file_name || 'cloud database'}.`
       );
     } else {
       console.error('❌ [BackupScreen] Restore failed:', res);
