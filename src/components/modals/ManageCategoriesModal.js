@@ -56,7 +56,7 @@ const ICON_OPTIONS = [
   'stats-chart-outline',
   'pie-chart-outline',
   'bar-chart-outline',
-  'vault-outline',
+  'lock-closed-outline',
   'save-outline',
 
   // Home & Utilities
