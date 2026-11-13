@@ -1660,6 +1660,115 @@ export const setMonthlyBudget = (amount) => {
   }
 };
 
+export const getCategoryBudgets = () => {
+  try {
+    const raw = getSetting('category_budgets', '{}');
+    return JSON.parse(raw) || {};
+  } catch (e) {
+    return {};
+  }
+};
+
+export const setCategoryBudget = (categoryId, amount) => {
+  try {
+    const budgets = getCategoryBudgets();
+    const num = Math.max(0, Number(amount) || 0);
+    if (num <= 0) {
+      delete budgets[categoryId];
+    } else {
+      budgets[categoryId] = num;
+    }
+    updateSetting('category_budgets', JSON.stringify(budgets));
+
+    // Also update total overall monthly budget to match sum of category budgets if set
+    const total = Object.values(budgets).reduce((acc, curr) => acc + (Number(curr) || 0), 0);
+    if (total > 0) {
+      updateSetting('monthly_budget', String(total));
+    }
+
+    return budgets;
+  } catch (e) {
+    console.error('Error saving category budget:', e);
+    return {};
+  }
+};
+
+export const getMonthlyCategorySpendReport = () => {
+  try {
+    const db = getDatabase();
+    const now = new Date();
+    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+    const startTs = Math.floor(startMonth.getTime() / 1000);
+    const endMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const endTs = Math.floor(endMonth.getTime() / 1000);
+    const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const budgets = getCategoryBudgets();
+
+    const rows = db.getAllSync(`
+      SELECT 
+        c.id,
+        c.name,
+        c.icon,
+        c.color,
+        COALESCE(c.sort_order, c.id) as sortOrder,
+        COALESCE(SUM(CASE WHEN t.type = 'gave' AND ((t.transaction_date >= ? AND t.transaction_date <= ?) OR t.transaction_date LIKE ?) THEN t.amount ELSE 0 END), 0) as spent,
+        COUNT(CASE WHEN t.type = 'gave' AND ((t.transaction_date >= ? AND t.transaction_date <= ?) OR t.transaction_date LIKE ?) THEN 1 END) as txCount
+      FROM categories c
+      LEFT JOIN transactions t ON c.id = t.category_id
+      WHERE COALESCE(c.is_deleted, 0) = 0
+      GROUP BY c.id
+      ORDER BY spent DESC, sortOrder ASC;
+    `, [
+      startTs, endTs, `${monthPrefix}%`,
+      startTs, endTs, `${monthPrefix}%`,
+    ]);
+
+    let totalSpent = 0;
+    let totalBudget = 0;
+
+    const items = rows.map((r) => {
+      const spent = Number(r.spent) || 0;
+      const budget = Number(budgets[r.id]) || 0;
+      totalSpent += spent;
+      totalBudget += budget;
+
+      const remaining = budget > 0 ? budget - spent : 0;
+      const percent = budget > 0 ? (spent / budget) * 100 : 0;
+      const isOverBudget = budget > 0 && spent > budget;
+
+      return {
+        id: r.id,
+        name: r.name,
+        icon: r.icon,
+        color: r.color,
+        sortOrder: r.sortOrder,
+        spent,
+        txCount: Number(r.txCount) || 0,
+        budget,
+        remaining,
+        percent,
+        isOverBudget,
+      };
+    });
+
+    // If totalBudget is 0, fall back to global monthly_budget setting
+    if (totalBudget === 0) {
+      totalBudget = getMonthlyBudget();
+    }
+
+    return {
+      items,
+      totalSpent,
+      totalBudget,
+      monthName: now.toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+    };
+  } catch (e) {
+    console.error('Error fetching monthly category spend report:', e);
+    return { items: [], totalSpent: 0, totalBudget: 0, monthName: '' };
+  }
+};
+
 
 
 

@@ -35,7 +35,12 @@ import { MonthlyBudgetModal } from '../components/modals/MonthlyBudgetModal';
 import { EmiCalculatorModal } from '../components/modals/EmiCalculatorModal';
 import { ExportPdfModal } from '../components/transaction/ExportPdfModal';
 import { formatCurrency } from '../utils/formatters';
-import { getThisMonthSpend, getMonthlyBudget, setMonthlyBudget } from '../database/queries';
+import {
+  getThisMonthSpend,
+  getMonthlyBudget,
+  setMonthlyBudget,
+  getMonthlyCategorySpendReport,
+} from '../database/queries';
 
 export const MoreScreen = () => {
   const {
@@ -63,13 +68,21 @@ export const MoreScreen = () => {
   // Budget & Spend States
   const [monthlyBudget, setMonthlyBudgetState] = useState(() => getMonthlyBudget());
   const [monthSpend, setMonthSpend] = useState(() => getThisMonthSpend());
+  const [categoryReport, setCategoryReport] = useState(() => getMonthlyCategorySpendReport());
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [isEmiModalOpen, setIsEmiModalOpen] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
 
+  useEffect(() => {
+    setMonthSpend(getThisMonthSpend());
+    setMonthlyBudgetState(getMonthlyBudget());
+    setCategoryReport(getMonthlyCategorySpendReport());
+  }, [recentTransactions, balances]);
+
   const handleSaveBudget = (amount) => {
     const updated = setMonthlyBudget(amount);
     setMonthlyBudgetState(updated);
+    setCategoryReport(getMonthlyCategorySpendReport());
   };
 
   const budgetSpentPercent = monthlyBudget > 0 ? Math.min(100, (monthSpend.spent / monthlyBudget) * 100) : 0;
@@ -559,6 +572,30 @@ export const MoreScreen = () => {
               </View>
             </View>
           )}
+
+          {/* Top Category Spending Preview */}
+          {categoryReport.items && categoryReport.items.filter((i) => i.spent > 0).length > 0 && (
+            <View style={styles.topCatSpendContainer}>
+              <View style={styles.topCatHeaderRow}>
+                <Text style={styles.topCatSpendTitle}>CATEGORY SPENDING</Text>
+                <Text style={styles.topCatViewAllText}>View All &rarr;</Text>
+              </View>
+              <View style={styles.topCatSpendChipsRow}>
+                {categoryReport.items
+                  .filter((i) => i.spent > 0)
+                  .slice(0, 3)
+                  .map((cat) => (
+                    <View key={cat.id} style={styles.topCatSpendChip}>
+                      <View
+                        style={[styles.topCatDot, { backgroundColor: cat.color || Colors.primary }]}
+                      />
+                      <Text style={styles.topCatChipName}>{cat.name}</Text>
+                      <Text style={styles.topCatChipAmount}>{formatCurrency(cat.spent)}</Text>
+                    </View>
+                  ))}
+              </View>
+            </View>
+          )}
         </TouchableOpacity>
 
         {/* Preferences */}
@@ -824,10 +861,12 @@ export const MoreScreen = () => {
       <MonthlyBudgetModal
         visible={isBudgetModalOpen}
         onClose={() => setIsBudgetModalOpen(false)}
-        currentBudget={monthlyBudget}
-        onSaveBudget={handleSaveBudget}
-        currentSpent={monthSpend.spent}
         currency={currency}
+        onBudgetUpdated={() => {
+          setCategoryReport(getMonthlyCategorySpendReport());
+          setMonthSpend(getThisMonthSpend());
+          setMonthlyBudgetState(getMonthlyBudget());
+        }}
       />
 
       {/* EMI & Loan Calculator Modal */}
