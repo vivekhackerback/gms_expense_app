@@ -31,7 +31,7 @@ export const AppImages = {
 export const BrandConfig = {
   appName: 'Expense & Khata',
   tagline: 'Smart Offline-First Business & Personal Ledger',
-  version: '3.5.0',
+  version: '3.6.0',
   brandColor: '#ffc900', // Primary Brand Yellow
   brandColorDark: '#000000', // Brand Accent Black
   splashBackground: '#ffffff', // Clean contrast background
