@@ -199,6 +199,7 @@ export const initDatabase = () => {
         is_deleted INTEGER DEFAULT 0,
         is_default INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1,
+        sort_order INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         sync_status TEXT DEFAULT 'pending'
@@ -336,6 +337,10 @@ export const initDatabase = () => {
       if (!catCols.some((col) => col.name === 'is_deleted')) {
         dbInstance.execSync('ALTER TABLE categories ADD COLUMN is_deleted INTEGER DEFAULT 0;');
       }
+      if (!catCols.some((col) => col.name === 'sort_order')) {
+        dbInstance.execSync('ALTER TABLE categories ADD COLUMN sort_order INTEGER DEFAULT 0;');
+        dbInstance.execSync('UPDATE categories SET sort_order = id WHERE sort_order = 0 OR sort_order IS NULL;');
+      }
     } catch (migErr) {
       console.warn('Migration error for categories columns:', migErr);
     }
@@ -457,12 +462,12 @@ const seedDefaultCategories = (db) => {
   const result = db.getAllSync('SELECT COUNT(*) as count FROM categories;');
   if (result[0]?.count === 0) {
     const now = getCurrentTimestamp();
-    for (const cat of DEFAULT_CATEGORIES) {
+    DEFAULT_CATEGORIES.forEach((cat, index) => {
       db.runSync(
-        `INSERT INTO categories (name, icon, color, is_custom, is_deleted, is_default, is_active, created_at, updated_at, sync_status)
-         VALUES (?, ?, ?, 0, 0, 1, 1, ?, ?, 'synced');`,
-        [cat.name, cat.icon, cat.color, now, now]
+        `INSERT INTO categories (name, icon, color, is_custom, is_deleted, is_default, is_active, sort_order, created_at, updated_at, sync_status)
+         VALUES (?, ?, ?, 0, 0, 1, 1, ?, ?, ?, 'synced');`,
+        [cat.name, cat.icon, cat.color, index + 1, now, now]
       );
-    }
+    });
   }
 };

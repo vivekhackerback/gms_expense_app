@@ -11,9 +11,11 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ToastAndroid,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Haptics from 'expo-haptics';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
@@ -33,6 +35,8 @@ export const AddTransactionModal = () => {
     saveParty,
     openFullScreenImage,
     currency,
+    moveCategoryToFirst,
+    setIsManageCategoriesOpen,
   } = useApp();
 
   const [displayAmount, setDisplayAmount] = useState('');
@@ -189,6 +193,35 @@ export const AddTransactionModal = () => {
   yesterday.setDate(yesterday.getDate() - 1);
   const isYesterday = selectedD.toDateString() === yesterday.toDateString();
   const dateLabel = isToday ? 'Today' : isYesterday ? 'Yesterday' : formattedDate;
+
+  const handleLongPressCategory = (cat) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (e) {}
+
+    Alert.alert(
+      `Category: ${cat.name}`,
+      `Move "${cat.name}" to first place so it always appears at the beginning?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Manage & Reorder',
+          onPress: () => setIsManageCategoriesOpen(true),
+        },
+        {
+          text: 'Move to First ⚡',
+          style: 'default',
+          onPress: () => {
+            moveCategoryToFirst(cat.id);
+            setSelectedCategoryId(cat.id);
+            if (Platform.OS === 'android') {
+              ToastAndroid.show(`"${cat.name}" moved to first position!`, ToastAndroid.SHORT);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const handleSave = () => {
     const cleanNumStr = displayAmount.replace(/,/g, '');
@@ -410,7 +443,18 @@ export const AddTransactionModal = () => {
 
             {/* 2. Category Section */}
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>CATEGORY</Text>
+              <View style={styles.categorySectionHeader}>
+                <Text style={styles.sectionLabel}>CATEGORY</Text>
+                <TouchableOpacity
+                  style={styles.reorderCategoryBtn}
+                  onPress={() => setIsManageCategoriesOpen(true)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="swap-vertical" size={12} color="#2563EB" style={{ marginRight: 3 }} />
+                  <Text style={styles.reorderCategoryBtnText}>Reorder</Text>
+                </TouchableOpacity>
+              </View>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -426,6 +470,8 @@ export const AddTransactionModal = () => {
                         isSelected && [styles.selectedCategoryChip, { borderColor: cat.color || Colors.primary }],
                       ]}
                       onPress={() => setSelectedCategoryId(cat.id)}
+                      onLongPress={() => handleLongPressCategory(cat)}
+                      delayLongPress={350}
                       activeOpacity={0.7}
                     >
                       <View
@@ -877,6 +923,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  categorySectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  reorderCategoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#EFF6FF',
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  reorderCategoryBtnText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#2563EB',
   },
   sectionLabel: {
     fontSize: Typography.fontSizes.xs,

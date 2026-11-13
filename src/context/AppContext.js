@@ -25,6 +25,7 @@ import {
   updateCategory as dbUpdateCategory,
   deleteCategory as dbDeleteCategory,
   resetCategoriesToDefault as dbResetCategories,
+  updateCategoriesOrder,
   getBackupSettings,
   updateBackupSettings,
   DEFAULT_BACKUP_SETTINGS,
@@ -666,6 +667,35 @@ export const AppProvider = ({ children }) => {
     refreshAll();
   }, [refreshAll]);
 
+  const reorderCategories = useCallback((orderedIds) => {
+    try {
+      updateCategoriesOrder(orderedIds);
+      const updated = getCategories();
+      setCategories(updated);
+      return true;
+    } catch (e) {
+      console.error('Failed to reorder categories:', e);
+      return false;
+    }
+  }, []);
+
+  const moveCategoryToFirst = useCallback((categoryId) => {
+    try {
+      const current = getCategories();
+      const target = current.find((c) => c.id === categoryId);
+      if (!target) return false;
+      const rest = current.filter((c) => c.id !== categoryId);
+      const newOrder = [target.id, ...rest.map((c) => c.id)];
+      updateCategoriesOrder(newOrder);
+      const updated = getCategories();
+      setCategories(updated);
+      return true;
+    } catch (e) {
+      console.error('Failed to move category to first:', e);
+      return false;
+    }
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -757,6 +787,8 @@ export const AppProvider = ({ children }) => {
         saveCategory,
         deleteCategoryItem,
         resetCategories,
+        reorderCategories,
+        moveCategoryToFirst,
       }}
     >
       {children}

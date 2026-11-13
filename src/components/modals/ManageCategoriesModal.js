@@ -9,9 +9,12 @@ import {
   TextInput,
   Alert,
   ScrollView,
+  Platform,
+  ToastAndroid,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as Haptics from 'expo-haptics';
 import { useApp } from '../../context/AppContext';
 import { Colors } from '../../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
@@ -184,6 +187,8 @@ export const ManageCategoriesModal = () => {
     saveCategory,
     deleteCategoryItem,
     resetCategories,
+    reorderCategories,
+    moveCategoryToFirst,
   } = useApp();
 
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -193,6 +198,46 @@ export const ManageCategoriesModal = () => {
   const [selectedColor, setSelectedColor] = useState('#3B82F6');
 
   if (!isManageCategoriesOpen) return null;
+
+  const handleMoveUp = (index) => {
+    if (index <= 0 || !categories || index >= categories.length) return;
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {}
+
+    const list = [...categories];
+    const temp = list[index];
+    list[index] = list[index - 1];
+    list[index - 1] = temp;
+
+    const orderedIds = list.map((c) => c.id);
+    reorderCategories(orderedIds);
+  };
+
+  const handleMoveDown = (index) => {
+    if (!categories || index < 0 || index >= categories.length - 1) return;
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {}
+
+    const list = [...categories];
+    const temp = list[index];
+    list[index] = list[index + 1];
+    list[index + 1] = temp;
+
+    const orderedIds = list.map((c) => c.id);
+    reorderCategories(orderedIds);
+  };
+
+  const handleMoveToTop = (id, name) => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (e) {}
+    moveCategoryToFirst(id);
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(`"${name}" moved to first position!`, ToastAndroid.SHORT);
+    }
+  };
 
   const openCreateForm = () => {
     setEditingCategoryId(null);
@@ -418,8 +463,21 @@ export const ManageCategoriesModal = () => {
               data={categories}
               keyExtractor={(item) => String(item.id)}
               contentContainerStyle={styles.list}
-              renderItem={({ item }) => (
+              ListHeaderComponent={
+                <View style={styles.tipBanner}>
+                  <Ionicons name="swap-vertical" size={15} color="#2563EB" style={{ marginRight: 6 }} />
+                  <Text style={styles.tipText}>
+                    Tap <Text style={styles.tipBold}>▲</Text> / <Text style={styles.tipBold}>▼</Text> or <Text style={styles.tipBold}>Top</Text> to reorder. Top categories appear first when adding expenses.
+                  </Text>
+                </View>
+              }
+              renderItem={({ item, index }) => (
                 <View style={styles.categoryRow}>
+                  {/* Rank Position */}
+                  <View style={styles.rankBadge}>
+                    <Text style={styles.rankText}>#{index + 1}</Text>
+                  </View>
+
                   <View
                     style={[
                       styles.catIconContainer,
@@ -438,21 +496,63 @@ export const ManageCategoriesModal = () => {
                       {item.isCustom ? 'Custom Category' : 'Default Category'}
                     </Text>
                   </View>
-                  
+
+                  {/* Reorder Buttons: Up, Down, Top */}
+                  <View style={styles.reorderControls}>
+                    <TouchableOpacity
+                      style={[styles.moveBtn, index === 0 && styles.moveBtnDisabled]}
+                      disabled={index === 0}
+                      onPress={() => handleMoveUp(index)}
+                      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                    >
+                      <Ionicons
+                        name="chevron-up"
+                        size={18}
+                        color={index === 0 ? Colors.border : Colors.textPrimary}
+                      />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.moveBtn, index === categories.length - 1 && styles.moveBtnDisabled]}
+                      disabled={index === categories.length - 1}
+                      onPress={() => handleMoveDown(index)}
+                      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                    >
+                      <Ionicons
+                        name="chevron-down"
+                        size={18}
+                        color={index === categories.length - 1 ? Colors.border : Colors.textPrimary}
+                      />
+                    </TouchableOpacity>
+
+                    {index > 0 && (
+                      <TouchableOpacity
+                        style={styles.topBtn}
+                        onPress={() => handleMoveToTop(item.id, item.name)}
+                        hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                      >
+                        <Ionicons name="flash" size={11} color="#D97706" style={{ marginRight: 2 }} />
+                        <Text style={styles.topBtnText}>Top</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
                   {/* Actions: Edit & Delete */}
                   <View style={styles.rowActions}>
                     <TouchableOpacity
                       style={styles.actionIconButton}
                       onPress={() => openEditForm(item)}
+                      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                     >
-                      <Ionicons name="create-outline" size={19} color={Colors.primary} />
+                      <Ionicons name="create-outline" size={18} color={Colors.primary} />
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       style={styles.actionIconButton}
                       onPress={() => handleDelete(item.id, item.name)}
+                      hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                     >
-                      <Ionicons name="trash-outline" size={19} color={Colors.danger} />
+                      <Ionicons name="trash-outline" size={18} color={Colors.danger} />
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -546,6 +646,78 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.borderLight,
     ...Shadows.sm,
+  },
+  tipBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 10,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    marginBottom: Spacing.sm,
+  },
+  tipText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#1E40AF',
+    lineHeight: 16,
+  },
+  tipBold: {
+    fontWeight: Typography.fontWeights.bold,
+    color: '#1E3A8A',
+  },
+  rankBadge: {
+    minWidth: 26,
+    height: 22,
+    borderRadius: 6,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    marginRight: 8,
+  },
+  rankText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textSecondary,
+  },
+  reorderControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginRight: 6,
+  },
+  moveBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: BorderRadius.sm,
+    backgroundColor: Colors.surfaceSubtle,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  moveBtnDisabled: {
+    opacity: 0.35,
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  topBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    height: 30,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  topBtnText: {
+    fontSize: 10,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#B45309',
   },
   catIconContainer: {
     width: 42,

@@ -641,6 +641,7 @@ export const getCategories = ({ includeDeleted = false } = {}) => {
       c.is_custom as isCustom,
       COALESCE(c.is_deleted, 0) as isDeleted,
       c.created_at as createdAt,
+      COALESCE(c.sort_order, c.id) as sortOrder,
       COUNT(t.id) as usageCount
     FROM categories c
     LEFT JOIN transactions t ON c.id = t.category_id
@@ -650,8 +651,23 @@ export const getCategories = ({ includeDeleted = false } = {}) => {
     sql += ` WHERE COALESCE(c.is_deleted, 0) = 0`;
   }
 
-  sql += ` GROUP BY c.id ORDER BY c.is_custom ASC, c.id ASC;`;
+  sql += ` GROUP BY c.id ORDER BY COALESCE(c.sort_order, c.id) ASC, c.id ASC;`;
   return db.getAllSync(sql);
+};
+
+export const updateCategoriesOrder = (orderedIds = []) => {
+  if (!orderedIds || !orderedIds.length) return true;
+  const db = getDatabase();
+  const now = getCurrentTimestamp();
+  db.withTransactionSync(() => {
+    orderedIds.forEach((id, index) => {
+      db.runSync(
+        'UPDATE categories SET sort_order = ?, updated_at = ? WHERE id = ?;',
+        [index + 1, now, id]
+      );
+    });
+  });
+  return true;
 };
 
 export const addCategory = ({ name, icon = 'grid-outline', color = '#64748B' }) => {
@@ -669,9 +685,12 @@ export const addCategory = ({ name, icon = 'grid-outline', color = '#64748B' }) 
     return db.getFirstSync('SELECT * FROM categories WHERE id = ?;', [existing.id]);
   }
 
+  const maxOrder = db.getFirstSync('SELECT MAX(COALESCE(sort_order, id)) as maxOrder FROM categories;')?.maxOrder || 0;
+  const newOrder = Number(maxOrder) + 1;
+
   const res = db.runSync(
-    `INSERT INTO categories (name, icon, color, is_custom, is_deleted, created_at, updated_at) VALUES (?, ?, ?, 1, 0, ?, ?);`,
-    [cleanName, icon, color, now, now]
+    `INSERT INTO categories (name, icon, color, is_custom, is_deleted, sort_order, created_at, updated_at) VALUES (?, ?, ?, 1, 0, ?, ?, ?);`,
+    [cleanName, icon, color, newOrder, now, now]
   );
   return db.getFirstSync('SELECT * FROM categories WHERE id = ?;', [res.lastInsertRowId]);
 };
@@ -703,7 +722,7 @@ export const resetCategoriesToDefault = () => {
 
   db.withTransactionSync(() => {
     // 1. For each default category from DEFAULT_CATEGORIES
-    for (const def of DEFAULT_CATEGORIES) {
+    DEFAULT_CATEGORIES.forEach((def, index) => {
       const existing = db.getFirstSync(
         'SELECT id FROM categories WHERE id = ? OR LOWER(name) = LOWER(?);',
         [def.id, def.name]
@@ -719,18 +738,19 @@ export const resetCategoriesToDefault = () => {
             is_deleted = 0, 
             is_default = 1, 
             is_active = 1, 
+            sort_order = ?,
             updated_at = ? 
            WHERE id = ?;`,
-          [def.name, def.icon, def.color, now, existing.id]
+          [def.name, def.icon, def.color, index + 1, now, existing.id]
         );
       } else {
         db.runSync(
-          `INSERT INTO categories (id, name, icon, color, is_custom, is_deleted, is_default, is_active, created_at, updated_at, sync_status)
-           VALUES (?, ?, ?, ?, 0, 0, 1, 1, ?, ?, 'synced');`,
-          [def.id, def.name, def.icon, def.color, now, now]
+          `INSERT INTO categories (id, name, icon, color, is_custom, is_deleted, is_default, is_active, sort_order, created_at, updated_at, sync_status)
+           VALUES (?, ?, ?, ?, 0, 0, 1, 1, ?, ?, ?, 'synced');`,
+          [def.id, def.name, def.icon, def.color, index + 1, now, now]
         );
       }
-    }
+    });
   });
 
   return getCategories();
