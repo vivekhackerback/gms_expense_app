@@ -94,6 +94,7 @@ export const AppProvider = ({ children }) => {
   const [networkStatus, setNetworkStatus] = useState({ isConnected: true, type: 'UNKNOWN', isWifi: false });
   const [isSyncing, setIsSyncing] = useState(false);
   const [isImageSyncing, setIsImageSyncing] = useState(false);
+  const [lastTxEvent, setLastTxEvent] = useState(null);
 
   // Modal / Navigation Overlay States
   const [isAddTransactionOpen, setIsAddTransactionOpen] = useState(false);
@@ -327,8 +328,19 @@ export const AppProvider = ({ children }) => {
     let result;
     if (editingTransaction && editingTransaction.id) {
       result = dbUpdateTransaction(editingTransaction.id, data);
+      setLastTxEvent({
+        type: 'updated',
+        id: editingTransaction.id,
+        tx: result,
+        timestamp: Date.now(),
+      });
     } else {
       result = dbAddTransaction(data);
+      setLastTxEvent({
+        type: 'created',
+        tx: result,
+        timestamp: Date.now(),
+      });
     }
     refreshAll();
 
@@ -342,6 +354,11 @@ export const AppProvider = ({ children }) => {
 
   const deleteTransactionItem = (id) => {
     const success = dbDeleteTransaction(id);
+    setLastTxEvent({
+      type: 'deleted',
+      id,
+      timestamp: Date.now(),
+    });
     refreshAll();
 
     setTimeout(() => {
@@ -479,6 +496,7 @@ export const AppProvider = ({ children }) => {
     }
     const res = await importCloudDataAndRestore(onProgress, selectedBackupFile);
     refreshAll();
+    setLastTxEvent({ type: 'full_reload', timestamp: Date.now() });
     return res;
   };
 
@@ -491,6 +509,7 @@ export const AppProvider = ({ children }) => {
   const eraseLocalDeviceData = () => {
     const success = eraseLocalDeviceDataOnly();
     refreshAll();
+    setLastTxEvent({ type: 'full_reload', timestamp: Date.now() });
     return success;
   };
 
@@ -717,6 +736,7 @@ export const AppProvider = ({ children }) => {
         networkStatus,
         isSyncing,
         isImageSyncing,
+        lastTxEvent,
         refreshAll,
         triggerSync,
         triggerImageSync,

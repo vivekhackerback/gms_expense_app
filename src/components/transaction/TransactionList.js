@@ -183,6 +183,7 @@ const DateHeader = React.memo(({ section }) => {
 export const TransactionList = ({
   transactions = [],
   onTransactionPress,
+  focusedDateKey = null,
   refreshing = false,
   onRefresh,
   onEndReached,
@@ -270,27 +271,74 @@ export const TransactionList = ({
 
   const [activeDate, setActiveDate] = useState(null);
   const lastKeyRef = useRef(null);
+  const sectionsRef = useRef(sections);
 
-  // Sync initial top section whenever sections change
   useEffect(() => {
-    if (sections && sections.length > 0) {
-      const topSec = sections[0];
-      lastKeyRef.current = topSec.key;
-      setActiveDate({
-        key: topSec.key,
-        primaryLabel: topSec.primaryLabel,
-        fullDate: topSec.fullDate,
-        isToday: topSec.isToday,
-        isYesterday: topSec.isYesterday,
-        totalGot: topSec.totalGot,
-        totalGave: topSec.totalGave,
-        count: topSec.count,
-      });
-    } else {
+    sectionsRef.current = sections;
+  }, [sections]);
+
+  // Sync active section whenever sections change or focusedDateKey changes
+  useEffect(() => {
+    if (!sections || sections.length === 0) {
       lastKeyRef.current = null;
       setActiveDate(null);
+      return;
     }
-  }, [sections]);
+
+    // 1. If explicit focused date key provided (e.g. transaction selected/edited)
+    if (focusedDateKey) {
+      const cleanKey = focusedDateKey.replace('sec_', '');
+      const matched = sections.find(
+        (s) => s.key === focusedDateKey || s.key.includes(cleanKey)
+      );
+      if (matched) {
+        lastKeyRef.current = matched.key;
+        setActiveDate({
+          key: matched.key,
+          primaryLabel: matched.primaryLabel,
+          fullDate: matched.fullDate,
+          isToday: matched.isToday,
+          isYesterday: matched.isYesterday,
+          totalGot: matched.totalGot,
+          totalGave: matched.totalGave,
+          count: matched.count,
+        });
+        return;
+      }
+    }
+
+    // 2. Preserve current activeDate section if it still exists in sections
+    if (lastKeyRef.current) {
+      const existing = sections.find((s) => s.key === lastKeyRef.current);
+      if (existing) {
+        setActiveDate({
+          key: existing.key,
+          primaryLabel: existing.primaryLabel,
+          fullDate: existing.fullDate,
+          isToday: existing.isToday,
+          isYesterday: existing.isYesterday,
+          totalGot: existing.totalGot,
+          totalGave: existing.totalGave,
+          count: existing.count,
+        });
+        return;
+      }
+    }
+
+    // 3. Fallback to top section on initial load
+    const topSec = sections[0];
+    lastKeyRef.current = topSec.key;
+    setActiveDate({
+      key: topSec.key,
+      primaryLabel: topSec.primaryLabel,
+      fullDate: topSec.fullDate,
+      isToday: topSec.isToday,
+      isYesterday: topSec.isYesterday,
+      totalGot: topSec.totalGot,
+      totalGave: topSec.totalGave,
+      count: topSec.count,
+    });
+  }, [sections, focusedDateKey]);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 10,
@@ -303,9 +351,10 @@ export const TransactionList = ({
     const first = viewableItems[0];
     let sec = first.section;
     if (!sec && first.item) {
-      const rawDate = first.item.txDateOnly || first.item.transactionDate;
+      const rawDate = first.item.txDateOnly || first.item.transactionDate || first.item.createdAt;
       if (rawDate) {
-        sec = sections.find((s) => s.key && s.key.includes(String(rawDate)));
+        const datePart = String(rawDate).slice(0, 10);
+        sec = sectionsRef.current?.find((s) => s.key && s.key.includes(datePart));
       }
     }
 
@@ -324,13 +373,44 @@ export const TransactionList = ({
     }
   }).current;
 
+  const handleItemPress = useCallback(
+    (item) => {
+      let dateKey = item.txDateOnly;
+      if (!dateKey) {
+        const rawDate = item.transactionDate || item.createdAt;
+        const dateObj = parseToDate(rawDate);
+        dateKey = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${String(dateObj.getDate()).padStart(2, '0')}`;
+      }
+      const secKey = `sec_${dateKey}`;
+      const matchedSec = sections.find((s) => s.key === secKey || s.key.includes(dateKey));
+      if (matchedSec) {
+        lastKeyRef.current = matchedSec.key;
+        setActiveDate({
+          key: matchedSec.key,
+          primaryLabel: matchedSec.primaryLabel,
+          fullDate: matchedSec.fullDate,
+          isToday: matchedSec.isToday,
+          isYesterday: matchedSec.isYesterday,
+          totalGot: matchedSec.totalGot,
+          totalGave: matchedSec.totalGave,
+          count: matchedSec.count,
+        });
+      }
+      if (onTransactionPress) {
+        onTransactionPress(item);
+      }
+    },
+    [sections, onTransactionPress]
+  );
+
   const renderSectionHeader = useCallback(({ section }) => (
     <DateHeader section={section} />
   ), []);
 
-  const renderItem = useCallback(({ item }) => (
-    <TransactionRow item={item} onPress={onTransactionPress} />
-  ), [onTransactionPress]);
+  const renderItem = useCallback(
+    ({ item }) => <TransactionRow item={item} onPress={handleItemPress} />,
+    [handleItemPress]
+  );
 
   const keyExtractor = useCallback((item, index) => {
     return `tx_${item.id != null ? item.id : (item.uuid || index)}`;

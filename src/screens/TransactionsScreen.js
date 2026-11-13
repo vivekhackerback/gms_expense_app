@@ -41,7 +41,7 @@ const DATE_FILTERS = [
 ];
 
 export const TransactionsScreen = () => {
-  const { openTransactionDetails, isAddTransactionOpen, viewingTransactionId, recentTransactions } = useApp();
+  const { openTransactionDetails, lastTxEvent } = useApp();
 
   const PAGE_SIZE = 40;
 
@@ -50,14 +50,13 @@ export const TransactionsScreen = () => {
   const [selectedFilter, setSelectedFilter] = useState('all');
   const [selectedDateFilter, setSelectedDateFilter] = useState('all');
   const [transactions, setTransactions] = useState([]);
+  const [selectedTxDateKey, setSelectedTxDateKey] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
   const isFetchingMoreRef = useRef(false);
-  const prevAddOpen = useRef(isAddTransactionOpen);
-  const prevViewingId = useRef(viewingTransactionId);
 
   // Custom Date Range Modal State
   const [isCustomModalOpen, setIsCustomModalOpen] = useState(false);
@@ -216,24 +215,45 @@ export const TransactionsScreen = () => {
     }
   }, [fetchBatch, selectedFilter, selectedDateFilter, customStartDate, customEndDate, debouncedSearch]);
 
-  // Load when filters, search, or recentTransactions change (e.g. after restore)
+  // Load when filters or search change (and on initial mount)
   useEffect(() => {
     loadInitialTransactions();
-  }, [loadInitialTransactions, recentTransactions]);
+  }, [loadInitialTransactions]);
 
-  // Reload when Add or Detail modals close to display new/updated transactions
+  // Handle fine-grained transaction changes while preserving scroll position and date card
   useEffect(() => {
-    if (prevAddOpen.current && !isAddTransactionOpen) {
+    if (!lastTxEvent) return;
+
+    if (lastTxEvent.type === 'updated') {
+      const updatedTx = lastTxEvent.tx;
+      setTransactions((prev) => {
+        const index = prev.findIndex((t) => t.id === lastTxEvent.id);
+        if (index === -1) return prev;
+        const copy = [...prev];
+        copy[index] = { ...copy[index], ...updatedTx };
+        return copy;
+      });
+
+      if (updatedTx) {
+        const rawDate = updatedTx.txDateOnly || updatedTx.transactionDate || updatedTx.createdAt;
+        if (rawDate) {
+          const datePart = String(rawDate).slice(0, 10);
+          setSelectedTxDateKey(`sec_${datePart}`);
+        }
+      }
+    } else if (lastTxEvent.type === 'deleted') {
+      setTransactions((prev) => prev.filter((t) => t.id !== lastTxEvent.id));
+    } else if (lastTxEvent.type === 'created' || lastTxEvent.type === 'full_reload') {
       loadInitialTransactions();
     }
-    if (prevViewingId.current && !viewingTransactionId) {
-      loadInitialTransactions();
-    }
-    prevAddOpen.current = isAddTransactionOpen;
-    prevViewingId.current = viewingTransactionId;
-  }, [isAddTransactionOpen, viewingTransactionId, loadInitialTransactions]);
+  }, [lastTxEvent, loadInitialTransactions]);
 
   const handleTransactionPress = useCallback((tx) => {
+    const rawDate = tx.txDateOnly || tx.transactionDate || tx.createdAt;
+    if (rawDate) {
+      const datePart = String(rawDate).slice(0, 10);
+      setSelectedTxDateKey(`sec_${datePart}`);
+    }
     openTransactionDetails(tx.id);
   }, [openTransactionDetails]);
 
@@ -404,6 +424,7 @@ export const TransactionsScreen = () => {
       {/* Transaction List */}
       <TransactionList
         transactions={transactions}
+        focusedDateKey={selectedTxDateKey}
         onTransactionPress={handleTransactionPress}
         refreshing={refreshing}
         onRefresh={handleRefresh}
