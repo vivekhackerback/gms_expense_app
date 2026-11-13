@@ -78,7 +78,7 @@ export const MonthlyBudgetModal = ({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {}
 
-    setCategoryBudget(selectedCategory.id, cleanAmount);
+    setCategoryBudget(selectedCategory.id, cleanAmount, selectedCategory.name);
     loadReport();
     if (onBudgetUpdated) onBudgetUpdated();
 
@@ -101,7 +101,7 @@ export const MonthlyBudgetModal = ({
       Haptics.selectionAsync();
     } catch (e) {}
 
-    setCategoryBudget(selectedCategory.id, 0);
+    setCategoryBudget(selectedCategory.id, 0, selectedCategory.name);
     loadReport();
     if (onBudgetUpdated) onBudgetUpdated();
 

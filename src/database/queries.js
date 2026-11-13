@@ -709,6 +709,10 @@ export const updateCategory = (id, { name, icon, color }) => {
 export const deleteCategory = (id) => {
   const db = getDatabase();
   db.runSync('UPDATE categories SET is_deleted = 1 WHERE id = ?;', [id]);
+  // Also remove any budget associated with this deleted category so total budget updates
+  try {
+    setCategoryBudget(id, 0);
+  } catch (e) {}
   return true;
 };
 
@@ -1669,22 +1673,41 @@ export const getCategoryBudgets = () => {
   }
 };
 
-export const setCategoryBudget = (categoryId, amount) => {
+export const setCategoryBudget = (categoryId, amount, categoryName = null) => {
   try {
+    const db = getDatabase();
     const budgets = getCategoryBudgets();
     const num = Math.max(0, Number(amount) || 0);
+    const keyStr = String(categoryId);
+    const keyNum = Number(categoryId);
+
     if (num <= 0) {
-      delete budgets[categoryId];
+      delete budgets[keyStr];
+      if (!isNaN(keyNum)) delete budgets[keyNum];
+      if (categoryName) delete budgets[categoryName];
     } else {
-      budgets[categoryId] = num;
+      budgets[keyStr] = num;
+      if (categoryName && categoryName !== keyStr) {
+        delete budgets[categoryName];
+      }
     }
+
+    // Prune any budgets belonging to deleted categories
+    try {
+      const activeCats = db.getAllSync('SELECT id, name FROM categories WHERE COALESCE(is_deleted, 0) = 0;');
+      const activeKeys = new Set(activeCats.map((c) => String(c.id)));
+      for (const k of Object.keys(budgets)) {
+        if (!activeKeys.has(String(k))) {
+          delete budgets[k];
+        }
+      }
+    } catch (err) {}
+
     updateSetting('category_budgets', JSON.stringify(budgets));
 
-    // Also update total overall monthly budget to match sum of category budgets if set
+    // Calculate total of active category budgets and always sync monthly_budget setting
     const total = Object.values(budgets).reduce((acc, curr) => acc + (Number(curr) || 0), 0);
-    if (total > 0) {
-      updateSetting('monthly_budget', String(total));
-    }
+    updateSetting('monthly_budget', String(total));
 
     return budgets;
   } catch (e) {
@@ -1729,7 +1752,7 @@ export const getMonthlyCategorySpendReport = () => {
 
     const items = rows.map((r) => {
       const spent = Number(r.spent) || 0;
-      const budget = Number(budgets[r.id]) || 0;
+      const budget = Number(budgets[r.id]) || Number(budgets[String(r.id)]) || Number(budgets[r.name]) || 0;
       totalSpent += spent;
       totalBudget += budget;
 
@@ -1752,8 +1775,9 @@ export const getMonthlyCategorySpendReport = () => {
       };
     });
 
-    // If totalBudget is 0, fall back to global monthly_budget setting
-    if (totalBudget === 0) {
+    const hasCategoryBudgets = Object.keys(budgets).length > 0;
+    // Only fall back to global monthly_budget if no category budgets have ever been defined
+    if (totalBudget === 0 && !hasCategoryBudgets) {
       totalBudget = getMonthlyBudget();
     }
 
