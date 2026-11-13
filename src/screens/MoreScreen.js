@@ -61,6 +61,8 @@ export const MoreScreen = () => {
     refreshAll,
     currency,
     changeCurrency,
+    recentTransactions,
+    balances,
   } = useApp();
 
   const [isCurrencyModalOpen, setIsCurrencyModalOpen] = useState(false);
@@ -1030,6 +1032,60 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: Typography.fontWeights.bold,
     color: '#FFFFFF',
+  },
+  topCatSpendContainer: {
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  topCatHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  topCatSpendTitle: {
+    fontSize: 10,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textMuted,
+    letterSpacing: 0.6,
+  },
+  topCatViewAllText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.semibold,
+    color: '#059669',
+  },
+  topCatSpendChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  topCatSpendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 5,
+  },
+  topCatDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  topCatChipName: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.text,
+  },
+  topCatChipAmount: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.textPrimary,
   },
   section: {
     gap: Spacing.xs,
