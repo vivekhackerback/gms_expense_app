@@ -94,6 +94,70 @@ if ($isCheckOnly) {
     ], 200);
 }
 
+// Support exporting full database records as structured JSON
+$isJsonExport = (isset($_GET['format']) && strtolower(trim($_GET['format'])) === 'json') ||
+                (isset($_GET['export']) && strtolower(trim($_GET['export'])) === 'json');
+if ($isJsonExport && file_exists($userDbFile) && class_exists('SQLite3')) {
+    try {
+        $sq = new SQLite3($userDbFile, SQLITE3_OPEN_READONLY);
+        
+        $cats = [];
+        $resCat = $sq->query("SELECT * FROM categories");
+        if ($resCat) {
+            while ($r = $resCat->fetchArray(SQLITE3_ASSOC)) $cats[] = $r;
+        }
+
+        $parties = [];
+        $resParty = $sq->query("SELECT * FROM parties");
+        if ($resParty) {
+            while ($r = $resParty->fetchArray(SQLITE3_ASSOC)) $parties[] = $r;
+        }
+
+        $txs = [];
+        $resTx = $sq->query("SELECT * FROM transactions");
+        if ($resTx) {
+            while ($r = $resTx->fetchArray(SQLITE3_ASSOC)) $txs[] = $r;
+        }
+
+        $imgs = [];
+        $resImg = $sq->query("SELECT * FROM transaction_images");
+        if ($resImg) {
+            while ($r = $resImg->fetchArray(SQLITE3_ASSOC)) $imgs[] = $r;
+        }
+
+        $upi = [];
+        try {
+            $resUpi = $sq->query("SELECT * FROM upi_info");
+            if ($resUpi) {
+                while ($r = $resUpi->fetchArray(SQLITE3_ASSOC)) $upi[] = $r;
+            }
+        } catch (Exception $e) {}
+
+        $sq->close();
+
+        sendJsonResponse([
+            'success'       => true,
+            'phone'         => $cleanPhone,
+            'file_name'     => $requestedFile,
+            'file_size'     => filesize($userDbFile),
+            'backup_time'   => filemtime($userDbFile),
+            'categories'    => $cats,
+            'parties'       => $parties,
+            'transactions'  => $txs,
+            'images'        => $imgs,
+            'upi'           => $upi,
+            'stats'         => [
+                'transactions' => count($txs),
+                'parties'      => count($parties),
+                'categories'   => count($cats),
+                'images'       => count($imgs),
+            ],
+        ], 200);
+    } catch (Exception $e) {
+        // Fall back to binary file stream if JSON export fails
+    }
+}
+
 if (!file_exists($userDbFile)) {
     sendJsonResponse([
         'success' => false,
