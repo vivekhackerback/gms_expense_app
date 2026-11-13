@@ -31,6 +31,11 @@ import {
 } from '../services/stressTestService';
 import { FeedbackScreen } from './FeedbackScreen';
 import { CurrencySelectModal } from '../components/modals/CurrencySelectModal';
+import { MonthlyBudgetModal } from '../components/modals/MonthlyBudgetModal';
+import { EmiCalculatorModal } from '../components/modals/EmiCalculatorModal';
+import { ExportPdfModal } from '../components/transaction/ExportPdfModal';
+import { formatCurrency } from '../utils/formatters';
+import { getThisMonthSpend, getMonthlyBudget, setMonthlyBudget } from '../database/queries';
 
 export const MoreScreen = () => {
   const {
@@ -54,6 +59,22 @@ export const MoreScreen = () => {
   } = useApp();
 
   const [isCurrencyModalOpen, setIsCurrencyModalOpen] = useState(false);
+
+  // Budget & Spend States
+  const [monthlyBudget, setMonthlyBudgetState] = useState(() => getMonthlyBudget());
+  const [monthSpend, setMonthSpend] = useState(() => getThisMonthSpend());
+  const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+  const [isEmiModalOpen, setIsEmiModalOpen] = useState(false);
+  const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
+
+  const handleSaveBudget = (amount) => {
+    const updated = setMonthlyBudget(amount);
+    setMonthlyBudgetState(updated);
+  };
+
+  const budgetSpentPercent = monthlyBudget > 0 ? Math.min(100, (monthSpend.spent / monthlyBudget) * 100) : 0;
+  const isOverBudget = monthlyBudget > 0 && monthSpend.spent > monthlyBudget;
+  const currentMonthName = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [editName, setEditName] = useState('');
@@ -444,109 +465,101 @@ export const MoreScreen = () => {
           </View>
         </TouchableOpacity>
 
-        {/* Sync Status Banner */}
-        {isLoggedIn ? (
-          <TouchableOpacity
-            style={[styles.syncStatusCard, Shadows.sm]}
-            onPress={openBackupReport}
-            activeOpacity={0.85}
-          >
-            <View style={styles.syncStatusHeader}>
-              <View style={styles.syncIconContainer}>
-                <Ionicons
-                  name={
-                    (syncStats.pendingCount > 0 || (syncStats.pendingImagesCount || 0) > 0)
-                      ? 'cloud-upload-outline'
-                      : 'checkmark-circle-outline'
-                  }
-                  size={28}
-                  color={
-                    (syncStats.pendingCount > 0 || (syncStats.pendingImagesCount || 0) > 0)
-                      ? '#B45309'
-                      : Colors.got
-                  }
+        {/* Monthly Budget Spending Tracker Card */}
+        <TouchableOpacity
+          style={[styles.budgetTrackerCard, Shadows.sm]}
+          onPress={() => setIsBudgetModalOpen(true)}
+          activeOpacity={0.85}
+        >
+          <View style={styles.budgetCardHeader}>
+            <View style={styles.budgetCardHeaderLeft}>
+              <View style={styles.budgetIconWrap}>
+                <Ionicons name="pie-chart" size={20} color="#059669" />
+              </View>
+              <View>
+                <Text style={styles.budgetCardTitle}>Monthly Budget</Text>
+                <Text style={styles.budgetCardMonth}>{currentMonthName}</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.budgetEditPill}
+              onPress={() => setIsBudgetModalOpen(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name={monthlyBudget > 0 ? 'create-outline' : 'add'}
+                size={14}
+                color="#059669"
+                style={{ marginRight: 3 }}
+              />
+              <Text style={styles.budgetEditPillText}>
+                {monthlyBudget > 0 ? 'Adjust' : 'Set Target'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {monthlyBudget > 0 ? (
+            <View style={styles.budgetActiveContent}>
+              <View style={styles.budgetFiguresRow}>
+                <View>
+                  <Text style={styles.budgetSublabel}>Spent This Month</Text>
+                  <Text style={[styles.budgetSpentAmount, isOverBudget && { color: '#DC2626' }]}>
+                    {formatCurrency(monthSpend.spent)}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.budgetSublabel}>Monthly Target</Text>
+                  <Text style={styles.budgetTargetAmount}>
+                    {formatCurrency(monthlyBudget)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Progress Bar */}
+              <View style={styles.budgetProgressBarBg}>
+                <View
+                  style={[
+                    styles.budgetProgressBarFill,
+                    {
+                      width: `${budgetSpentPercent}%`,
+                      backgroundColor: isOverBudget
+                        ? '#EF4444'
+                        : budgetSpentPercent > 80
+                        ? '#F59E0B'
+                        : '#10B981',
+                    },
+                  ]}
                 />
               </View>
-              <View style={styles.syncTextContainer}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={styles.syncStateHeading}>
-                    {syncStats.pendingCount > 0 && (syncStats.pendingImagesCount || 0) > 0
-                      ? `${syncStats.pendingCount} txs & ${syncStats.pendingImagesCount} photos pending`
-                      : syncStats.pendingCount > 0
-                      ? `${syncStats.pendingCount} transactions pending`
-                      : (syncStats.pendingImagesCount || 0) > 0
-                      ? `${syncStats.pendingImagesCount} receipt photos pending`
-                      : 'All data is saved & synchronized'}
+
+              <View style={styles.budgetFooterRow}>
+                <Text style={[styles.budgetStatusText, isOverBudget && styles.budgetStatusOverText]}>
+                  {isOverBudget
+                    ? `⚠️ Over budget by ${formatCurrency(monthSpend.spent - monthlyBudget)}`
+                    : `✓ ${formatCurrency(monthlyBudget - monthSpend.spent)} remaining (${Math.round(budgetSpentPercent)}% spent)`}
+                </Text>
+                <Ionicons name="chevron-forward" size={14} color={Colors.textMuted} />
+              </View>
+            </View>
+          ) : (
+            <View style={styles.budgetEmptyContent}>
+              <View style={styles.budgetEmptyRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.budgetEmptySpent}>
+                    Spent this month: <Text style={{ fontWeight: 'bold', color: Colors.text }}>{formatCurrency(monthSpend.spent)}</Text>
                   </Text>
-                  <View style={styles.activePill}>
-                    <Text style={styles.activePillText}>Enabled ✓</Text>
-                  </View>
-                </View>
-                <Text style={styles.syncStateSub}>
-                  Network: {networkStatus.isConnected ? 'Connected' : 'Offline'} · Tap for Dashboard &rarr;
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.syncCardActionRow}>
-              <TouchableOpacity
-                style={[styles.syncTriggerBtn, isSyncing && { opacity: 0.7 }]}
-                onPress={handleManualSync}
-                disabled={isSyncing}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="refresh-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.syncTriggerBtnText}>
-                  {isSyncing ? 'Syncing...' : 'Sync Now'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.viewReportBtn}
-                onPress={openBackupReport}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.viewReportBtnText}>View Dashboard</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[styles.syncStatusCard, styles.syncDisabledCard, Shadows.sm]}
-            onPress={openLoginModal}
-            activeOpacity={0.85}
-          >
-            <View style={styles.syncStatusHeader}>
-              <View style={[styles.syncIconContainer, styles.lockIconContainer]}>
-                <Ionicons name="lock-closed" size={26} color="#D97706" />
-              </View>
-              <View style={styles.syncTextContainer}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.syncStateHeading, { color: '#92400E' }]}>
-                    Cloud Backup is Disabled
+                  <Text style={styles.budgetEmptyHint}>
+                    Set a target to keep your spending in check
                   </Text>
-                  <View style={styles.disabledPill}>
-                    <Text style={styles.disabledPillText}>Disabled</Text>
-                  </View>
                 </View>
-                <Text style={styles.syncStateSub}>
-                  Offline local storage only. Sign in to enable secure cloud backup &amp; multi-device sync.
-                </Text>
+                <View style={styles.setBudgetBtn}>
+                  <Text style={styles.setBudgetBtnText}>Set Target &rarr;</Text>
+                </View>
               </View>
             </View>
-
-            <View style={styles.syncCardActionRow}>
-              <TouchableOpacity
-                style={[styles.loginToBackupBtn, { flex: 1 }]}
-                onPress={openLoginModal}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="log-in-outline" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                <Text style={styles.loginToBackupBtnText}>Log In to Enable Cloud Backup</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        )}
+          )}
+        </TouchableOpacity>
 
         {/* Preferences */}
         {renderSection('PREFERENCES', [
@@ -558,6 +571,37 @@ export const MoreScreen = () => {
             sublabel: `${currency?.name || 'India'} (${currency?.code || 'INR'} - ${currency?.symbol || '₹'})`,
             rightText: `${currency?.flag || '🇮🇳'} ${currency?.symbol || '₹'}`,
             onPress: () => setIsCurrencyModalOpen(true),
+          },
+        ])}
+
+        {/* Tools & Utilities */}
+        {renderSection('TOOLS & UTILITIES', [
+          {
+            icon: 'pie-chart-outline',
+            iconColor: '#059669',
+            iconBg: '#ECFDF5',
+            label: 'Monthly Budget Goal',
+            sublabel: monthlyBudget > 0
+              ? `Limit: ${formatCurrency(monthlyBudget)} • ${isOverBudget ? 'Over budget' : `${formatCurrency(Math.max(0, monthlyBudget - monthSpend.spent))} left`}`
+              : 'Set monthly spending limit to manage expenses',
+            rightText: monthlyBudget > 0 ? formatCurrency(monthlyBudget) : 'Set',
+            onPress: () => setIsBudgetModalOpen(true),
+          },
+          {
+            icon: 'calculator-outline',
+            iconColor: '#2563EB',
+            iconBg: '#EFF6FF',
+            label: 'EMI & Loan Calculator',
+            sublabel: 'Calculate monthly loan installments & interest',
+            onPress: () => setIsEmiModalOpen(true),
+          },
+          {
+            icon: 'document-text-outline',
+            iconColor: '#7C3AED',
+            iconBg: '#F5F3FF',
+            label: 'Export Statement (PDF & CSV)',
+            sublabel: 'Download or share full transactions statement',
+            onPress: () => setIsExportPdfOpen(true),
           },
         ])}
 
@@ -775,6 +819,29 @@ export const MoreScreen = () => {
         currentCurrency={currency}
         onSelectCurrency={changeCurrency}
       />
+
+      {/* Monthly Budget Target Modal */}
+      <MonthlyBudgetModal
+        visible={isBudgetModalOpen}
+        onClose={() => setIsBudgetModalOpen(false)}
+        currentBudget={monthlyBudget}
+        onSaveBudget={handleSaveBudget}
+        currentSpent={monthSpend.spent}
+        currency={currency}
+      />
+
+      {/* EMI & Loan Calculator Modal */}
+      <EmiCalculatorModal
+        visible={isEmiModalOpen}
+        onClose={() => setIsEmiModalOpen(false)}
+        currency={currency}
+      />
+
+      {/* Export Statement PDF Modal */}
+      <ExportPdfModal
+        visible={isExportPdfOpen}
+        onClose={() => setIsExportPdfOpen(false)}
+      />
     </View>
   );
 };
@@ -792,114 +859,138 @@ const styles = StyleSheet.create({
     paddingBottom: 140,
     gap: Spacing.lg,
   },
-  syncStatusCard: {
-    backgroundColor: Colors.surface,
+  budgetTrackerCard: {
+    backgroundColor: '#FFFFFF',
     borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     borderWidth: 1,
-    borderColor: Colors.borderLight,
+    borderColor: '#E2E8F0',
   },
-  syncDisabledCard: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
-  },
-  syncStatusHeader: {
+  budgetCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    justifyContent: 'space-between',
+    marginBottom: Spacing.sm,
   },
-  syncIconContainer: {
-    marginRight: Spacing.md,
+  budgetCardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
   },
-  lockIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FEF3C7',
+  budgetIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#ECFDF5',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  activePill: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
-  },
-  activePillText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#15803D',
-  },
-  disabledPill: {
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
-  },
-  disabledPillText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#B91C1C',
-  },
-  syncTextContainer: {
-    flex: 1,
-  },
-  syncStateHeading: {
-    fontSize: Typography.fontSizes.md,
+  budgetCardTitle: {
+    fontSize: Typography.fontSizes.sm,
     fontWeight: Typography.fontWeights.bold,
-    color: Colors.textPrimary,
+    color: Colors.text,
   },
-  syncStateSub: {
+  budgetCardMonth: {
     fontSize: Typography.fontSizes.xs,
+    color: Colors.textSecondary,
+    marginTop: 1,
+  },
+  budgetEditPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  budgetEditPillText: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.bold,
+    color: '#059669',
+  },
+  budgetActiveContent: {
+    marginTop: Spacing.xs,
+    gap: 8,
+  },
+  budgetFiguresRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginBottom: 4,
+  },
+  budgetSublabel: {
+    fontSize: 11,
+    fontWeight: Typography.fontWeights.semibold,
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+  },
+  budgetSpentAmount: {
+    fontSize: 20,
+    fontWeight: Typography.fontWeights.bold,
+    color: Colors.text,
+    marginTop: 2,
+  },
+  budgetTargetAmount: {
+    fontSize: 16,
+    fontWeight: Typography.fontWeights.bold,
     color: Colors.textSecondary,
     marginTop: 2,
   },
-  syncCardActionRow: {
-    flexDirection: 'row',
-    gap: 8,
+  budgetProgressBarBg: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#F1F5F9',
+    overflow: 'hidden',
   },
-  syncTriggerBtn: {
-    flex: 1.2,
+  budgetProgressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  budgetFooterRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.primary,
-    paddingVertical: Spacing.sm + 2,
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  budgetStatusText: {
+    fontSize: 12,
+    fontWeight: Typography.fontWeights.semibold,
+    color: '#059669',
+  },
+  budgetStatusOverText: {
+    color: '#DC2626',
+    fontWeight: Typography.fontWeights.bold,
+  },
+  budgetEmptyContent: {
+    marginTop: Spacing.xs,
+    paddingTop: Spacing.xs,
+  },
+  budgetEmptyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  budgetEmptySpent: {
+    fontSize: Typography.fontSizes.sm,
+    color: Colors.textSecondary,
+  },
+  budgetEmptyHint: {
+    fontSize: Typography.fontSizes.xs,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+  setBudgetBtn: {
+    backgroundColor: '#059669',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: BorderRadius.md,
   },
-  syncTriggerBtnText: {
+  setBudgetBtnText: {
+    fontSize: 12,
+    fontWeight: Typography.fontWeights.bold,
     color: '#FFFFFF',
-    fontSize: Typography.fontSizes.xs + 1,
-    fontWeight: Typography.fontWeights.bold,
-  },
-  loginToBackupBtn: {
-    flex: 1.4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#D97706',
-    paddingVertical: Spacing.sm + 2,
-    borderRadius: BorderRadius.md,
-  },
-  loginToBackupBtnText: {
-    color: '#FFFFFF',
-    fontSize: Typography.fontSizes.xs + 1,
-    fontWeight: Typography.fontWeights.bold,
-  },
-  viewReportBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.surfaceSubtle,
-    paddingVertical: Spacing.sm + 2,
-    borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  viewReportBtnText: {
-    color: Colors.textPrimary,
-    fontSize: Typography.fontSizes.xs + 1,
-    fontWeight: Typography.fontWeights.bold,
   },
   section: {
     gap: Spacing.xs,

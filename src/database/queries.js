@@ -1603,5 +1603,63 @@ export const insertUpiInfo = (upiId, upiUpdate = 1, updatedAt = null) => {
   return saveLocalUpiRecord(upiId, upiUpdate, updatedAt);
 };
 
+// -------------------------------------------------------------
+// Monthly Budget & Spend Tracking Queries
+// -------------------------------------------------------------
+
+export const getThisMonthSpend = () => {
+  try {
+    const db = getDatabase();
+    const now = new Date();
+    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+    const startTs = Math.floor(startMonth.getTime() / 1000);
+    const endMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const endTs = Math.floor(endMonth.getTime() / 1000);
+    const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const row = db.getFirstSync(`
+      SELECT
+        COALESCE(SUM(CASE WHEN type = 'gave' AND ((transaction_date >= ? AND transaction_date <= ?) OR transaction_date LIKE ?) THEN amount ELSE 0 END), 0) as total_spent,
+        COALESCE(SUM(CASE WHEN type = 'got' AND ((transaction_date >= ? AND transaction_date <= ?) OR transaction_date LIKE ?) THEN amount ELSE 0 END), 0) as total_income,
+        COUNT(CASE WHEN ((transaction_date >= ? AND transaction_date <= ?) OR transaction_date LIKE ?) THEN 1 END) as tx_count
+      FROM transactions;
+    `, [
+      startTs, endTs, `${monthPrefix}%`,
+      startTs, endTs, `${monthPrefix}%`,
+      startTs, endTs, `${monthPrefix}%`,
+    ]);
+
+    return {
+      spent: Number(row?.total_spent || 0),
+      income: Number(row?.total_income || 0),
+      count: Number(row?.tx_count || 0),
+    };
+  } catch (e) {
+    console.warn('Error querying monthly spend:', e);
+    return { spent: 0, income: 0, count: 0 };
+  }
+};
+
+export const getMonthlyBudget = () => {
+  try {
+    const val = getSetting('monthly_budget', '0');
+    return Number(val) || 0;
+  } catch (e) {
+    return 0;
+  }
+};
+
+export const setMonthlyBudget = (amount) => {
+  try {
+    const num = Math.max(0, Number(amount) || 0);
+    updateSetting('monthly_budget', String(num));
+    return num;
+  } catch (e) {
+    console.error('Error saving monthly budget:', e);
+    return 0;
+  }
+};
+
+
 
 
