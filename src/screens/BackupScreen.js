@@ -396,14 +396,35 @@ export const BackupScreen = () => {
     setCloudBackupInfo(info);
     const availableFiles = info.backup_files || [];
     if (availableFiles.length > 0) {
-      setSelectedBackupFile(availableFiles[0]);
+      // Prioritize selecting a backup file that actually has transactions > 0
+      const best = availableFiles.find((f) => (f.transactions_count || 0) > 0) || availableFiles[0];
+      setSelectedBackupFile(best);
     } else {
       setSelectedBackupFile(null);
     }
     setIsImportConfirmModalOpen(true);
   };
 
-  const handleExecuteImport = async () => {
+  const handleExecuteImport = () => {
+    if (selectedBackupFile && selectedBackupFile.transactions_count === 0) {
+      Alert.alert(
+        'Empty Snapshot Warning ⚠️',
+        'The selected backup file contains 0 transactions. Restoring it will result in an empty ledger.\n\nPlease select a backup file that contains your transactions.',
+        [
+          { text: 'Choose Another', style: 'cancel' },
+          {
+            text: 'Restore Empty File',
+            style: 'destructive',
+            onPress: () => performRestore(),
+          },
+        ]
+      );
+      return;
+    }
+    performRestore();
+  };
+
+  const performRestore = async () => {
     setIsImportConfirmModalOpen(false);
     setIsRestoring(true);
 
@@ -1464,11 +1485,32 @@ export const BackupScreen = () => {
                             >
                               {file.label || file.file_name}
                             </Text>
-                            {file.is_latest && (
-                              <View style={styles.latestBadge}>
-                                <Text style={styles.latestBadgeText}>Latest</Text>
-                              </View>
-                            )}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                              {file.transactions_count !== undefined && (
+                                <View
+                                  style={[
+                                    styles.txCountBadge,
+                                    file.transactions_count === 0 && styles.emptyBadge,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.txCountBadgeText,
+                                      file.transactions_count === 0 && styles.emptyBadgeText,
+                                    ]}
+                                  >
+                                    {file.transactions_count > 0
+                                      ? `${file.transactions_count} Txns`
+                                      : '0 Txns (Empty)'}
+                                  </Text>
+                                </View>
+                              )}
+                              {file.is_latest && (
+                                <View style={styles.latestBadge}>
+                                  <Text style={styles.latestBadgeText}>Active</Text>
+                                </View>
+                              )}
+                            </View>
                           </View>
                           <View style={styles.backupItemMetaRow}>
                             <Text style={styles.backupItemMeta}>
@@ -1511,9 +1553,22 @@ export const BackupScreen = () => {
               </View>
 
               <View style={styles.importStatsRow}>
-                <Text style={styles.importStatsLabel}>Total Transactions:</Text>
-                <Text style={[styles.importStatsValue, { color: Colors.primary }]}>
-                  {cloudBackupInfo?.stats?.transactions || 0}
+                <Text style={styles.importStatsLabel}>Transactions in File:</Text>
+                <Text
+                  style={[
+                    styles.importStatsValue,
+                    {
+                      color:
+                        selectedBackupFile?.transactions_count === 0
+                          ? '#DC2626'
+                          : Colors.primary,
+                      fontWeight: Typography.fontWeights.bold,
+                    },
+                  ]}
+                >
+                  {selectedBackupFile?.transactions_count !== undefined
+                    ? `${selectedBackupFile.transactions_count} transactions`
+                    : `${cloudBackupInfo?.stats?.transactions || 0} transactions`}
                 </Text>
               </View>
 
@@ -2635,6 +2690,26 @@ const styles = StyleSheet.create({
   },
   latestBadgeText: {
     color: '#15803D',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  txCountBadge: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 4,
+  },
+  txCountBadgeText: {
+    color: '#2563EB',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  emptyBadge: {
+    backgroundColor: '#FEF2F2',
+  },
+  emptyBadgeText: {
+    color: '#DC2626',
     fontSize: 10,
     fontWeight: '700',
   },

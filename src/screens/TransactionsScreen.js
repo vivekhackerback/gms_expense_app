@@ -41,7 +41,7 @@ const DATE_FILTERS = [
 ];
 
 export const TransactionsScreen = () => {
-  const { openTransactionDetails, isAddTransactionOpen, viewingTransactionId } = useApp();
+  const { openTransactionDetails, isAddTransactionOpen, viewingTransactionId, recentTransactions } = useApp();
 
   const PAGE_SIZE = 40;
 
@@ -216,10 +216,10 @@ export const TransactionsScreen = () => {
     }
   }, [fetchBatch, selectedFilter, selectedDateFilter, customStartDate, customEndDate, debouncedSearch]);
 
-  // Load when filters or search change
+  // Load when filters, search, or recentTransactions change (e.g. after restore)
   useEffect(() => {
     loadInitialTransactions();
-  }, [loadInitialTransactions]);
+  }, [loadInitialTransactions, recentTransactions]);
 
   // Reload when Add or Detail modals close to display new/updated transactions
   useEffect(() => {

@@ -49,7 +49,26 @@ if (is_dir($userDbDir)) {
                 $parsedTime = intval($m[1]);
             }
 
-            $label = $isLatest ? 'Latest Cloud Backup' : 'Cloud Snapshot (' . date('d M Y, h:i A', $parsedTime) . ')';
+            // Inspect actual row counts inside the SQLite database
+            $txCount = 0;
+            $partyCount = 0;
+            if (class_exists('SQLite3')) {
+                try {
+                    $sq = new SQLite3($fullFilePath, SQLITE3_OPEN_READONLY);
+                    $sqRes = $sq->querySingle("SELECT COUNT(*) FROM transactions");
+                    if ($sqRes !== false && $sqRes !== null) {
+                        $txCount = intval($sqRes);
+                    }
+                    $sqResP = $sq->querySingle("SELECT COUNT(*) FROM parties");
+                    if ($sqResP !== false && $sqResP !== null) {
+                        $partyCount = intval($sqResP);
+                    }
+                    $sq->close();
+                } catch (Exception $e) {}
+            }
+
+            $dateStr = date('d M Y, h:i A', $parsedTime);
+            $label = $isLatest ? 'Latest Cloud Backup' : 'Cloud Snapshot (' . $dateStr . ')';
 
             $backupFiles[] = [
                 'file_name'          => $df,
@@ -57,14 +76,20 @@ if (is_dir($userDbDir)) {
                 'file_size'          => $fSize,
                 'file_size_formatted'=> ($fSize >= 1048576) ? round($fSize / 1048576, 2) . ' MB' : round($fSize / 1024, 1) . ' KB',
                 'backup_time'        => $parsedTime,
-                'formatted_time'     => date('d M Y, h:i A', $parsedTime),
+                'formatted_time'     => $dateStr,
                 'is_latest'          => $isLatest,
+                'transactions_count' => $txCount,
+                'parties_count'      => $partyCount,
             ];
         }
     }
 
-    // Sort backups: latest active first, then other snapshots by backup_time descending
+    // Sort backups: backups with transactions first (newest to oldest), then empty backups
     usort($backupFiles, function ($a, $b) {
+        $aHasTx = ($a['transactions_count'] > 0);
+        $bHasTx = ($b['transactions_count'] > 0);
+        if ($aHasTx && !$bHasTx) return -1;
+        if (!$aHasTx && $bHasTx) return 1;
         if ($a['is_latest'] && !$b['is_latest']) return -1;
         if (!$a['is_latest'] && $b['is_latest']) return 1;
         return $b['backup_time'] - $a['backup_time'];

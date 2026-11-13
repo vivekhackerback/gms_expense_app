@@ -924,8 +924,9 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       }
     }
 
-    // 3. Download the database to a temporary staging file first to prevent corruption
-    const tempStagingDb = `${FileSystem.cacheDirectory}staging_cloud_db_${Date.now()}.db`;
+    // 3. Download database to temporary staging file in document directory
+    const stagingFileName = `staging_cloud_db_${Date.now()}.db`;
+    const tempStagingDb = `${FileSystem.documentDirectory}${stagingFileName}`;
     let downloadUrl = `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}`;
     if (selectedBackupFile) {
       if (selectedBackupFile.download_url) {
@@ -971,89 +972,227 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       return { success: false, message: failMsg };
     }
 
-    // 4. Safely replace local SQLite database with downloaded verified snapshot
-    console.log('🔒 [RESTORE_STEP_4] Restoring SQLite database from staging file...');
+    // 4. Safely inspect and transfer database tables
+    console.log('🔒 [RESTORE_STEP_4] Restoring SQLite database from verified staging file...');
     checkpointDatabase();
 
-    let restoredSuccessfully = false;
+    const rawDocDir = (FileSystem.documentDirectory || '').replace(/^file:\/\//, '').replace(/\/+$/, '');
+    let stagingDb = null;
+    let stagingTransactions = [];
+    let stagingParties = [];
+    let stagingCategories = [];
+    let stagingImages = [];
+    let stagingUpi = [];
 
-    // Strategy 1 (Primary): Use Expo SQLite's native online backup API
-    // Clones the database page-by-page directly within the SQLite engine.
-    // This avoids filesystem locks and scoped sandbox errors (e.g. "Location isn't deletable").
     try {
-      const rawCacheDir = (FileSystem.cacheDirectory || '').replace(/^file:\/\//, '').replace(/\/+$/, '');
-      const stagingFileName = tempStagingDb.substring(tempStagingDb.lastIndexOf('/') + 1);
+      console.log(`🔄 [RESTORE_STEP_4] Opening staging DB instance: ${rawDocDir}/${stagingFileName}`);
+      stagingDb = SQLite.openDatabaseSync(stagingFileName, {}, rawDocDir);
 
-      console.log(`🔄 [RESTORE_STEP_4] Opening staging DB from: ${rawCacheDir}/${stagingFileName}`);
-      const stagingDb = SQLite.openDatabaseSync(stagingFileName, {}, rawCacheDir);
-      const activeDb = getDatabase();
-
-      if (typeof SQLite.backupDatabaseAsync === 'function') {
-        console.log('🔄 [RESTORE_STEP_4] Executing SQLite.backupDatabaseAsync...');
-        await SQLite.backupDatabaseAsync({
-          sourceDatabase: stagingDb,
-          destDatabase: activeDb,
-        });
-        restoredSuccessfully = true;
-      } else if (typeof SQLite.backupDatabaseSync === 'function') {
-        console.log('🔄 [RESTORE_STEP_4] Executing SQLite.backupDatabaseSync...');
-        SQLite.backupDatabaseSync({
-          sourceDatabase: stagingDb,
-          destDatabase: activeDb,
-        });
-        restoredSuccessfully = true;
+      try {
+        stagingTransactions = stagingDb.getAllSync('SELECT * FROM transactions;');
+      } catch (e) {
+        console.warn('⚠️ Could not read transactions from staging DB:', e?.message);
       }
 
+      try {
+        stagingParties = stagingDb.getAllSync('SELECT * FROM parties;');
+      } catch (e) {}
+
+      try {
+        stagingCategories = stagingDb.getAllSync('SELECT * FROM categories;');
+      } catch (e) {}
+
+      try {
+        stagingImages = stagingDb.getAllSync('SELECT * FROM transaction_images;');
+      } catch (e) {}
+
+      try {
+        stagingUpi = stagingDb.getAllSync('SELECT * FROM upi_info;');
+      } catch (e) {}
+
+      console.log(`📊 [RESTORE_STEP_4] Verified staging DB rows: ${stagingTransactions.length} transactions, ${stagingParties.length} parties, ${stagingCategories.length} categories, ${stagingImages.length} images.`);
+    } catch (stagingOpenErr) {
+      console.warn('⚠️ [RESTORE_STEP_4] Error opening staging DB:', stagingOpenErr?.message);
+    }
+
+    const activeDb = getDatabase();
+
+    // Strategy A: Native SQLite Online Backup API
+    let restoredViaBackupApi = false;
+    if (stagingDb) {
+      try {
+        if (typeof SQLite.backupDatabaseAsync === 'function') {
+          console.log('🔄 [RESTORE_STEP_4] Attempting SQLite.backupDatabaseAsync...');
+          await SQLite.backupDatabaseAsync({
+            sourceDatabase: stagingDb,
+            destDatabase: activeDb,
+          });
+          restoredViaBackupApi = true;
+        } else if (typeof SQLite.backupDatabaseSync === 'function') {
+          console.log('🔄 [RESTORE_STEP_4] Attempting SQLite.backupDatabaseSync...');
+          SQLite.backupDatabaseSync({
+            sourceDatabase: stagingDb,
+            destDatabase: activeDb,
+          });
+          restoredViaBackupApi = true;
+        }
+      } catch (nativeBackupErr) {
+        console.warn('⚠️ [RESTORE_STEP_4] Native SQLite backup API error:', nativeBackupErr?.message);
+      }
+    }
+
+    // Verify if activeDb contains the expected transactions after backup API
+    let activeTxCount = 0;
+    try {
+      const checkRow = activeDb.getFirstSync('SELECT COUNT(*) as count FROM transactions;');
+      activeTxCount = checkRow?.count || 0;
+    } catch (e) {}
+
+    // Strategy B: If activeDb is still empty but staging had transactions, transfer via atomic SQL
+    if (activeTxCount === 0 && stagingTransactions.length > 0) {
+      console.log(`🔄 [RESTORE_STEP_4] Transferring ${stagingTransactions.length} transactions via atomic SQL transaction...`);
+      try {
+        activeDb.execSync('PRAGMA foreign_keys = OFF;');
+        activeDb.execSync('BEGIN TRANSACTION;');
+
+        // 1. Categories
+        if (stagingCategories.length > 0) {
+          try {
+            activeDb.execSync('DELETE FROM categories;');
+            const stmtCat = activeDb.prepareSync(
+              'INSERT OR REPLACE INTO categories (id, name, icon, color, is_custom, is_deleted, is_default, is_active, created_at, updated_at, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);'
+            );
+            for (const c of stagingCategories) {
+              stmtCat.executeSync([
+                c.id,
+                c.name,
+                c.icon,
+                c.color,
+                c.is_custom ?? 0,
+                c.is_deleted ?? 0,
+                c.is_default ?? 0,
+                c.is_active ?? 1,
+                c.created_at || Date.now(),
+                c.updated_at || Date.now(),
+                c.sync_status || 'synced',
+              ]);
+            }
+            stmtCat.finalizeSync();
+          } catch (catErr) {
+            console.warn('Category transfer warning:', catErr?.message);
+          }
+        }
+
+        // 2. Parties
+        if (stagingParties.length > 0) {
+          try {
+            activeDb.execSync('DELETE FROM parties;');
+            const stmtParty = activeDb.prepareSync(
+              'INSERT OR REPLACE INTO parties (id, name, phone, address, credit_limit, opening_balance, current_balance, is_active, created_at, updated_at, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);'
+            );
+            for (const p of stagingParties) {
+              stmtParty.executeSync([
+                p.id,
+                p.name,
+                p.phone || '',
+                p.address || '',
+                p.credit_limit || 0,
+                p.opening_balance || 0,
+                p.current_balance || 0,
+                p.is_active ?? 1,
+                p.created_at || Date.now(),
+                p.updated_at || Date.now(),
+                p.sync_status || 'synced',
+              ]);
+            }
+            stmtParty.finalizeSync();
+          } catch (partyErr) {
+            console.warn('Party transfer warning:', partyErr?.message);
+          }
+        }
+
+        // 3. Transactions
+        activeDb.execSync('DELETE FROM transactions;');
+        const stmtTx = activeDb.prepareSync(
+          'INSERT OR REPLACE INTO transactions (id, uuid, type, payment_mode, amount, category_id, party_id, note, transaction_date, created_at, updated_at, sync_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);'
+        );
+        for (const t of stagingTransactions) {
+          stmtTx.executeSync([
+            t.id,
+            t.uuid,
+            t.type,
+            t.payment_mode,
+            t.amount,
+            t.category_id,
+            t.party_id,
+            t.note || '',
+            String(t.transaction_date),
+            t.created_at,
+            t.updated_at || t.created_at,
+            t.sync_status || 'synced',
+          ]);
+        }
+        stmtTx.finalizeSync();
+
+        // 4. Transaction Images
+        if (stagingImages.length > 0) {
+          try {
+            activeDb.execSync('DELETE FROM transaction_images;');
+            const stmtImg = activeDb.prepareSync(
+              'INSERT OR REPLACE INTO transaction_images (id, transaction_id, transaction_uuid, local_uri, server_url, server_id, server_synced_at, file_name, original_file_name, upload_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);'
+            );
+            for (const img of stagingImages) {
+              stmtImg.executeSync([
+                img.id,
+                img.transaction_id,
+                img.transaction_uuid,
+                img.local_uri || '',
+                img.server_url || '',
+                img.server_id || null,
+                img.server_synced_at || null,
+                img.file_name || '',
+                img.original_file_name || '',
+                img.upload_status || 'uploaded',
+                img.created_at || Date.now(),
+              ]);
+            }
+            stmtImg.finalizeSync();
+          } catch (imgErr) {
+            console.warn('Image table transfer warning:', imgErr?.message);
+          }
+        }
+
+        // 5. UPI Info
+        if (stagingUpi.length > 0) {
+          try {
+            activeDb.execSync('DELETE FROM upi_info;');
+            const stmtUpi = activeDb.prepareSync(
+              'INSERT OR REPLACE INTO upi_info (id, upi_id, upi_update, updated_at) VALUES (?, ?, ?, ?);'
+            );
+            for (const u of stagingUpi) {
+              stmtUpi.executeSync([u.id, u.upi_id, u.upi_update ?? 1, u.updated_at || '']);
+            }
+            stmtUpi.finalizeSync();
+          } catch (upiErr) {}
+        }
+
+        activeDb.execSync('COMMIT;');
+        activeDb.execSync('PRAGMA foreign_keys = ON;');
+        console.log('✅ [RESTORE_STEP_4] Atomic SQL transfer completed successfully!');
+      } catch (sqlTransferErr) {
+        console.error('❌ [RESTORE_STEP_4] SQL transfer error:', sqlTransferErr);
+        try { activeDb.execSync('ROLLBACK;'); } catch (e) {}
+      }
+    }
+
+    // Close staging DB and delete temporary downloaded staging database file
+    if (stagingDb) {
       try { stagingDb.closeSync(); } catch (e) {}
-      if (restoredSuccessfully) {
-        console.log('✅ [RESTORE_STEP_4] Database content cloned successfully via Native SQLite Backup API');
-      }
-    } catch (nativeBackupErr) {
-      console.warn('⚠️ [RESTORE_STEP_4] Native SQLite backup API error (trying file replacement fallback):', nativeBackupErr);
     }
-
-    // Strategy 2 (Fallback): Direct file replacement if native clone didn't run
-    if (!restoredSuccessfully) {
-      console.log('🔒 [RESTORE_STEP_4] Executing file replacement fallback...');
-      closeDatabase();
-
-      try {
-        SQLite.deleteDatabaseSync('expenses_khata.db');
-      } catch (delErr) {
-        console.warn('⚠️ [RESTORE_STEP_4] SQLite.deleteDatabaseSync fallback warning:', delErr);
-      }
-
-      const targetDbWal = `${targetDbPath}-wal`;
-      const targetDbShm = `${targetDbPath}-shm`;
-
-      try {
-        const walInfo = await FileSystem.getInfoAsync(targetDbWal);
-        if (walInfo.exists) await FileSystem.deleteAsync(targetDbWal, { idempotent: true });
-        const shmInfo = await FileSystem.getInfoAsync(targetDbShm);
-        if (shmInfo.exists) await FileSystem.deleteAsync(targetDbShm, { idempotent: true });
-        const currentDbInfo = await FileSystem.getInfoAsync(targetDbPath);
-        if (currentDbInfo.exists) await FileSystem.deleteAsync(targetDbPath, { idempotent: true });
-      } catch (cleanErr) {
-        console.warn('⚠️ [RESTORE_STEP_4] FileSystem cleanup warning (non-fatal):', cleanErr);
-      }
-
-      try {
-        await FileSystem.copyAsync({
-          from: tempStagingDb,
-          to: targetDbPath,
-        });
-        restoredSuccessfully = true;
-        console.log('✅ [RESTORE_STEP_4] Verified database moved to target destination via FileSystem.copyAsync');
-      } catch (fileCopyErr) {
-        console.warn('⚠️ [RESTORE_STEP_4] FileSystem.copyAsync fallback failed:', fileCopyErr);
-      }
-    }
-
-    // Always safely delete temporary downloaded staging database file
     try {
       await FileSystem.deleteAsync(tempStagingDb, { idempotent: true });
     } catch (cleanErr) {
-      console.warn('⚠️ [RESTORE_STEP_4] Staging file cleanup warning:', cleanErr);
+      console.warn('⚠️ [RESTORE_STEP_4] Staging file cleanup warning:', cleanErr?.message);
     }
 
     onProgress?.({ step: 2, totalSteps: 3, title: 'Restoring Local Ledger...', percent: 70 });
@@ -1062,6 +1201,16 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
     console.log('🔄 [RESTORE_STEP_5] Re-opening and verifying SQLite database...');
     closeDatabase();
     const db = initDatabase();
+
+    // Verify actual row count in live database
+    let finalTxCount = 0;
+    try {
+      const vRow = db.getFirstSync('SELECT COUNT(*) as count FROM transactions;');
+      finalTxCount = vRow?.count || 0;
+      console.log(`✅ [RESTORE_STEP_5] Verified: Live SQLite database now contains ${finalTxCount} transactions.`);
+    } catch (vErr) {
+      console.warn('Verification query warning:', vErr?.message);
+    }
 
     // 6. Download and restore all transaction receipt photos
     onProgress?.({ step: 3, totalSteps: 3, title: 'Restoring Receipt Photos...', percent: 75 });
@@ -1141,14 +1290,14 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
 
     onProgress?.({ step: 3, totalSteps: 3, title: 'Data Restoration Completed!', percent: 100 });
 
-    const txCount = info.stats?.transactions || 0;
+    const txCount = finalTxCount > 0 ? finalTxCount : (info.stats?.transactions || 0);
     const restoreMsg = photosFailedCount > 0
       ? `Restored ${txCount} transactions & ${photosRestoredCount} photos (${photosFailedCount} missing on server)`
       : `Restored ${txCount} transactions & all ${photosRestoredCount} photos from server ✓`;
 
     console.log('\n========================================');
     console.log('🎉 [RESTORE_SUCCESS] Full database & photos restoration completed!');
-    console.log(`📊 Summary: ${txCount} transactions, ${photosRestoredCount} photos restored (${photosFailedCount} failed).`);
+    console.log(`📊 Summary: ${txCount} transactions verified in SQLite, ${photosRestoredCount} photos restored (${photosFailedCount} failed).`);
     console.log('========================================\n');
 
     addBackupActivityLog('cloud_restore', photosFailedCount > 0 ? 'pending' : 'success', restoreMsg);
@@ -1158,6 +1307,7 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       message: restoreMsg,
       stats: {
         ...info.stats,
+        transactions: txCount,
         images: photosRestoredCount,
       },
       photosRestored: photosRestoredCount,
