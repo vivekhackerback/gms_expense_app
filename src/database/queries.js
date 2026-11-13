@@ -1,7 +1,7 @@
 import { getDatabase } from './db';
 import { getCurrentTimestamp, toUnixTimestamp } from '../utils/formatters';
 import { DEFAULT_CATEGORIES } from '../constants/categories';
-import { DEFAULT_CURRENCY } from '../constants/currencies';
+import { DEFAULT_CURRENCY, findCurrencyByCodeOrNo } from '../constants/currencies';
 
 // Helper for generating UUID fallback
 export const generateUUID = () => {
@@ -1101,7 +1101,8 @@ export const getAppCurrency = () => {
     const raw = getSetting('app_currency');
     if (!raw) return DEFAULT_CURRENCY;
     const parsed = JSON.parse(raw);
-    return parsed && parsed.symbol ? parsed : DEFAULT_CURRENCY;
+    if (!parsed || !parsed.symbol) return DEFAULT_CURRENCY;
+    return findCurrencyByCodeOrNo(parsed.code || parsed.name || parsed.no);
   } catch (e) {
     return DEFAULT_CURRENCY;
   }
@@ -1110,8 +1111,15 @@ export const getAppCurrency = () => {
 export const updateAppCurrency = (currency) => {
   try {
     if (!currency || !currency.symbol) return DEFAULT_CURRENCY;
-    updateSetting('app_currency', JSON.stringify(currency));
-    return currency;
+    const clean = {
+      no: currency.no,
+      name: currency.name,
+      code: currency.code,
+      symbol: currency.symbol,
+      flag: currency.flag,
+    };
+    updateSetting('app_currency', JSON.stringify(clean));
+    return clean;
   } catch (e) {
     console.error('Failed to update app currency setting:', e);
     return DEFAULT_CURRENCY;

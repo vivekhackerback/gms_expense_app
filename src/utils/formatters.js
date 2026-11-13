@@ -1,4 +1,4 @@
-import { DEFAULT_CURRENCY } from '../constants/currencies';
+import { DEFAULT_CURRENCY } from '../constants/currencies.js';
 
 let currentCurrency = { ...DEFAULT_CURRENCY };
 
@@ -16,12 +16,12 @@ export const formatCurrency = (amount, options = {}) => {
   const isNegative = rawNum < 0;
   const num = Math.abs(rawNum);
 
-  const symbol = options.symbol !== undefined ? options.symbol : currentCurrency.symbol;
-  const locale = options.locale || currentCurrency.locale || 'en-IN';
+  const symbol = options.symbol !== undefined ? options.symbol : (currentCurrency?.symbol || '₹');
 
+  // Always use standard normal English numerals (0-9) so the font never changes
   let formatted = '';
   try {
-    formatted = num.toLocaleString(locale, {
+    formatted = num.toLocaleString('en-IN', {
       maximumFractionDigits: 2,
       minimumFractionDigits: 0,
     });
@@ -32,10 +32,14 @@ export const formatCurrency = (amount, options = {}) => {
     });
   }
 
+  // Add small separation if symbol is multi-character or alphabetical/script (e.g. Rs 500, CHF 500)
+  const needsSpace = symbol && /[a-zA-Z\u0600-\u06FF\u0900-\u097F]/.test(symbol.slice(-1));
+  const space = needsSpace ? ' ' : '';
+
   if (isNegative) {
-    return `-${symbol}${formatted}`;
+    return `-${symbol}${space}${formatted}`;
   }
-  return `${symbol}${formatted}`;
+  return `${symbol}${space}${formatted}`;
 };
 
 // -------------------------------------------------------------
