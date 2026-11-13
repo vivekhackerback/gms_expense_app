@@ -183,11 +183,29 @@ foreach ($backupFiles as &$bf) {
 }
 unset($bf);
 
-$manifestStats = isset($manifest['stats']) && is_array($manifest['stats']) ? $manifest['stats'] : [
+$manifestStats = isset($manifest['stats']) ? $manifest['stats'] : [
     'transactions' => 0,
     'parties'      => 0,
     'categories'   => 0,
+    'images'       => 0,
 ];
+
+// Detect best backup file with transactions
+$bestBackup = null;
+foreach ($backupFiles as $bf) {
+    if (isset($bf['transactions_count']) && $bf['transactions_count'] > 0) {
+        $bestBackup = $bf;
+        break;
+    }
+}
+
+if ($bestBackup) {
+    $dbDownloadUrl = $bestBackup['download_url'];
+    $dbSize = $bestBackup['file_size'];
+    $backupTime = $bestBackup['backup_time'];
+    $manifestStats['transactions'] = $bestBackup['transactions_count'];
+    $manifestStats['parties'] = $bestBackup['parties_count'];
+}
 $manifestStats['images'] = count($imageList);
 
 sendJsonResponse([

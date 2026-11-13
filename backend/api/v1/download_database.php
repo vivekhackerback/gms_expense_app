@@ -41,6 +41,39 @@ if (!file_exists($userDbFile)) {
     $requestedFile = 'expenses_khata.db';
 }
 
+// If default expenses_khata.db is requested but happens to be empty (0 transactions),
+// automatically serve the latest snapshot that actually contains transactions
+if ($requestedFile === 'expenses_khata.db' && class_exists('SQLite3') && file_exists($userDbFile)) {
+    try {
+        $sq = new SQLite3($userDbFile, SQLITE3_OPEN_READONLY);
+        $txCnt = $sq->querySingle("SELECT COUNT(*) FROM transactions");
+        $sq->close();
+        if ($txCnt === 0 || $txCnt === false) {
+            $candFiles = scandir($userDbDir);
+            $bestCandidate = null;
+            $bestTime = 0;
+            foreach ($candFiles as $cf) {
+                if ($cf !== '.' && $cf !== '..' && $cf !== 'expenses_khata.db' && strtolower(substr($cf, -3)) === '.db') {
+                    $cPath = $userDbDir . '/' . $cf;
+                    try {
+                        $sq2 = new SQLite3($cPath, SQLITE3_OPEN_READONLY);
+                        $cTx = $sq2->querySingle("SELECT COUNT(*) FROM transactions");
+                        $sq2->close();
+                        if ($cTx > 0 && filemtime($cPath) > $bestTime) {
+                            $bestCandidate = $cf;
+                            $bestTime = filemtime($cPath);
+                        }
+                    } catch (Exception $e2) {}
+                }
+            }
+            if ($bestCandidate) {
+                $userDbFile = $userDbDir . '/' . $bestCandidate;
+                $requestedFile = $bestCandidate;
+            }
+        }
+    } catch (Exception $e) {}
+}
+
 // Support health check / readiness verification without streaming binary bytes
 $isCheckOnly = isset($_GET['check']) || isset($_GET['health']) || $_SERVER['REQUEST_METHOD'] === 'HEAD';
 if ($isCheckOnly) {

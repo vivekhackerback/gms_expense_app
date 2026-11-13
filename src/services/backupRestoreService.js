@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import * as SQLite from 'expo-sqlite';
 import { Platform } from 'react-native';
 import API_CONFIG from '../constants/api_config';
 import { checkNetworkConnectivity, uploadPendingImages } from './syncService';
@@ -18,6 +19,40 @@ import {
   updateBackupSettings,
   getDetailedBackupReportStats,
 } from '../database/queries';
+
+const b64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const b64Lookup = new Uint8Array(256);
+for (let i = 0; i < b64Chars.length; i++) {
+  b64Lookup[b64Chars.charCodeAt(i)] = i;
+}
+
+const base64ToUint8Array = (base64) => {
+  if (!base64 || typeof base64 !== 'string') return new Uint8Array(0);
+  const cleanB64 = base64.replace(/[^A-Za-z0-9+/=]/g, '');
+  const len = cleanB64.length;
+  if (len === 0) return new Uint8Array(0);
+  let bufferLength = Math.floor(len * 0.75);
+  if (cleanB64[len - 1] === '=') {
+    bufferLength--;
+    if (cleanB64[len - 2] === '=') bufferLength--;
+  }
+  const bytes = new Uint8Array(bufferLength);
+  let p = 0;
+  for (let i = 0; i < len; i += 4) {
+    const enc1 = b64Lookup[cleanB64.charCodeAt(i)];
+    const enc2 = b64Lookup[cleanB64.charCodeAt(i + 1)];
+    const enc3 = b64Lookup[cleanB64.charCodeAt(i + 2)];
+    const enc4 = b64Lookup[cleanB64.charCodeAt(i + 3)];
+    bytes[p++] = (enc1 << 2) | (enc2 >> 4);
+    if (enc3 !== undefined && enc3 !== 64) {
+      bytes[p++] = ((enc2 & 15) << 4) | (enc3 >> 2);
+    }
+    if (enc4 !== undefined && enc4 !== 64) {
+      bytes[p++] = ((enc3 & 3) << 6) | (enc4 & 63);
+    }
+  }
+  return bytes;
+};
 
 const getImagesDir = () => {
   if (Platform.OS === 'web' || !FileSystem.documentDirectory) return null;
@@ -903,116 +938,157 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
 
     onProgress?.({ step: 1, totalSteps: 3, title: 'Downloading SQLite Database...', percent: 30 });
 
-    // 2. Resolve Target Database Path and Ensure Directory Exists
-    let targetDbPath = await getDatabaseFilePath();
-    if (!targetDbPath) {
-      targetDbPath = `${FileSystem.documentDirectory || ''}SQLite/expenses_khata.db`;
-    }
-    console.log('📁 [RESTORE_STEP_2] Target DB restore path:', targetDbPath);
-
-    const lastSlash = targetDbPath.lastIndexOf('/');
-    if (lastSlash > 0) {
-      const parentDir = targetDbPath.substring(0, lastSlash + 1);
-      try {
-        const parentInfo = await FileSystem.getInfoAsync(parentDir);
-        if (!parentInfo.exists) {
-          console.log('📁 [RESTORE_STEP_2] Creating database parent directory:', parentDir);
-          await FileSystem.makeDirectoryAsync(parentDir, { intermediates: true });
-        }
-      } catch (dirErr) {
-        console.warn('⚠️ [RESTORE_STEP_2] Error creating DB parent directory (ignored):', dirErr);
-      }
-    }
-
-    // 3. Download database to temporary staging file in document directory
-    const stagingFileName = `staging_cloud_db_${Date.now()}.db`;
-    const tempStagingDb = `${FileSystem.documentDirectory}${stagingFileName}`;
-    let downloadUrl = `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}`;
+    // 2. Resolve target backup download URL
+    let downloadUrl = info.db_download_url || `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}`;
     if (selectedBackupFile) {
       if (selectedBackupFile.download_url) {
         downloadUrl = selectedBackupFile.download_url;
       } else if (selectedBackupFile.file_name) {
         downloadUrl = `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}&file=${encodeURIComponent(selectedBackupFile.file_name)}`;
       }
+    } else if (Array.isArray(info.backup_files) && info.backup_files.length > 0) {
+      const best = info.backup_files.find((b) => (b.transactions_count || 0) > 0) || info.backup_files[0];
+      if (best?.download_url) {
+        downloadUrl = best.download_url;
+      }
     }
-    console.log('🚀 [RESTORE_STEP_3] Downloading database file from:', downloadUrl, 'to staging:', tempStagingDb);
+    console.log('🚀 [RESTORE_STEP_3] Downloading database file from:', downloadUrl);
 
-    const downloadRes = await FileSystem.downloadAsync(
-      downloadUrl,
-      tempStagingDb,
-      {
+    let dbBytes = null;
+
+    // Strategy 1: Direct fetch with arrayBuffer (pure in-memory, immune to Android file system permissions)
+    try {
+      console.log('🌐 [RESTORE_STEP_3] Fetching database binary via fetch arrayBuffer...');
+      const fetchResp = await fetch(downloadUrl, {
         headers: {
           'ngrok-skip-browser-warning': 'true',
           ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
         },
+      });
+      if (fetchResp.ok) {
+        const ab = await fetchResp.arrayBuffer();
+        if (ab && ab.byteLength > 100) {
+          dbBytes = new Uint8Array(ab);
+          console.log(`📦 [RESTORE_STEP_3] Direct fetch succeeded! Downloaded ${dbBytes.length} bytes.`);
+        }
+      } else {
+        console.warn(`⚠️ [RESTORE_STEP_3] Direct fetch returned status ${fetchResp.status}`);
       }
-    );
-    console.log('📥 [RESTORE_STEP_3] Download response:', downloadRes);
+    } catch (fetchErr) {
+      console.warn('⚠️ [RESTORE_STEP_3] Direct fetch failed, trying FileSystem fallback:', fetchErr?.message);
+    }
 
-    if (downloadRes.status !== 200) {
-      console.error('❌ [RESTORE_FAILED] Database Download Failed (HTTP Status non-200):', downloadRes);
+    // Strategy 2: FileSystem.downloadAsync + Base64 fallback
+    if (!dbBytes || dbBytes.length < 100) {
+      const stagingFileName = `staging_cloud_db_${Date.now()}.db`;
+      const tempStagingDb = `${FileSystem.documentDirectory}${stagingFileName}`;
+      console.log('📁 [RESTORE_STEP_3] Fallback: downloading via FileSystem to:', tempStagingDb);
+
+      const downloadRes = await FileSystem.downloadAsync(
+        downloadUrl,
+        tempStagingDb,
+        {
+          headers: {
+            'ngrok-skip-browser-warning': 'true',
+            ...(auth.token ? { 'Authorization': `Bearer ${auth.token}` } : {}),
+          },
+        }
+      );
+
+      if (downloadRes.status !== 200) {
+        try { await FileSystem.deleteAsync(tempStagingDb, { idempotent: true }); } catch (e) {}
+        initDatabase();
+        const failMsg = downloadRes.status === 404
+          ? 'No cloud database backup found on server for this mobile number.'
+          : `Failed to download database file (HTTP ${downloadRes.status}).`;
+        addBackupActivityLog('cloud_restore', 'failed', failMsg);
+        return { success: false, message: failMsg };
+      }
+
+      const b64 = await FileSystem.readAsStringAsync(tempStagingDb, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      dbBytes = base64ToUint8Array(b64);
       try { await FileSystem.deleteAsync(tempStagingDb, { idempotent: true }); } catch (e) {}
+    }
+
+    // Validate SQLite Header bytes: first 16 bytes "SQLite format 3\0"
+    if (!dbBytes || dbBytes.length < 100) {
       initDatabase();
-      const failMsg = downloadRes.status === 404
-        ? 'No cloud database backup found on server for this mobile number. Please tap "Backup to Cloud" first.'
-        : `Failed to download database file (HTTP ${downloadRes.status}).`;
+      const failMsg = 'Received empty or invalid database file from server.';
       addBackupActivityLog('cloud_restore', 'failed', failMsg);
       return { success: false, message: failMsg };
     }
 
-    // Validate the downloaded SQLite file before touching the live database
-    const validation = await validateSQLiteFile(tempStagingDb);
-    console.log('🔬 [RESTORE_STEP_3] Downloaded SQLite file validation:', validation);
-    if (!validation.isValid) {
-      console.error('❌ [RESTORE_FAILED] Downloaded file is not a valid SQLite database:', validation.reason);
-      try { await FileSystem.deleteAsync(tempStagingDb, { idempotent: true }); } catch (e) {}
+    const isSqliteMagic =
+      dbBytes[0] === 0x53 && // S
+      dbBytes[1] === 0x51 && // Q
+      dbBytes[2] === 0x4c && // L
+      dbBytes[3] === 0x69 && // i
+      dbBytes[4] === 0x74 && // t
+      dbBytes[5] === 0x65 && // e
+      dbBytes[6] === 0x20 && // ' '
+      dbBytes[7] === 0x66;   // f
+
+    if (!isSqliteMagic) {
+      let previewStr = '';
+      try {
+        const previewBytes = dbBytes.slice(0, 150);
+        previewStr = String.fromCharCode.apply(null, previewBytes);
+      } catch (e) {}
+      console.error('❌ [RESTORE_FAILED] Downloaded file is not SQLite:', previewStr);
       initDatabase();
-      const failMsg = `Corrupted or invalid database backup received: ${validation.reason}`;
+      const failMsg = `Invalid database format. Server response: ${previewStr.substring(0, 100)}`;
       addBackupActivityLog('cloud_restore', 'failed', failMsg);
       return { success: false, message: failMsg };
     }
 
-    // 4. Safely inspect and transfer database tables
-    console.log('🔒 [RESTORE_STEP_4] Restoring SQLite database from verified staging file...');
+    console.log(`✅ [RESTORE_STEP_3] Valid SQLite binary verified (${dbBytes.length} bytes).`);
+
+    // 4. In-Memory Deserialization & Table Transfer
+    onProgress?.({ step: 2, totalSteps: 3, title: 'Restoring Database...', percent: 60 });
+    console.log('🔒 [RESTORE_STEP_4] Deserializing SQLite database into memory...');
     checkpointDatabase();
 
-    const rawDocDir = (FileSystem.documentDirectory || '').replace(/^file:\/\//, '').replace(/\/+$/, '');
     let stagingDb = null;
+    try {
+      if (typeof SQLite.deserializeDatabaseSync === 'function') {
+        stagingDb = SQLite.deserializeDatabaseSync(dbBytes);
+        console.log('✅ [RESTORE_STEP_4] Deserialized database in-memory via deserializeDatabaseSync');
+      } else if (typeof SQLite.deserializeDatabaseAsync === 'function') {
+        stagingDb = await SQLite.deserializeDatabaseAsync(dbBytes);
+        console.log('✅ [RESTORE_STEP_4] Deserialized database in-memory via deserializeDatabaseAsync');
+      }
+    } catch (stagingOpenErr) {
+      console.warn('⚠️ [RESTORE_STEP_4] Error deserializing staging DB:', stagingOpenErr?.message);
+    }
+
     let stagingTransactions = [];
     let stagingParties = [];
     let stagingCategories = [];
     let stagingImages = [];
     let stagingUpi = [];
 
-    try {
-      console.log(`🔄 [RESTORE_STEP_4] Opening staging DB instance: ${rawDocDir}/${stagingFileName}`);
-      stagingDb = SQLite.openDatabaseSync(stagingFileName, {}, rawDocDir);
-
+    if (stagingDb) {
       try {
         stagingTransactions = stagingDb.getAllSync('SELECT * FROM transactions;');
       } catch (e) {
         console.warn('⚠️ Could not read transactions from staging DB:', e?.message);
       }
-
       try {
         stagingParties = stagingDb.getAllSync('SELECT * FROM parties;');
       } catch (e) {}
-
       try {
         stagingCategories = stagingDb.getAllSync('SELECT * FROM categories;');
       } catch (e) {}
-
       try {
         stagingImages = stagingDb.getAllSync('SELECT * FROM transaction_images;');
       } catch (e) {}
-
       try {
         stagingUpi = stagingDb.getAllSync('SELECT * FROM upi_info;');
       } catch (e) {}
 
       console.log(`📊 [RESTORE_STEP_4] Verified staging DB rows: ${stagingTransactions.length} transactions, ${stagingParties.length} parties, ${stagingCategories.length} categories, ${stagingImages.length} images.`);
-    } catch (stagingOpenErr) {
-      console.warn('⚠️ [RESTORE_STEP_4] Error opening staging DB:', stagingOpenErr?.message);
     }
 
     const activeDb = getDatabase();
@@ -1021,16 +1097,16 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
     let restoredViaBackupApi = false;
     if (stagingDb) {
       try {
-        if (typeof SQLite.backupDatabaseAsync === 'function') {
-          console.log('🔄 [RESTORE_STEP_4] Attempting SQLite.backupDatabaseAsync...');
-          await SQLite.backupDatabaseAsync({
+        if (typeof SQLite.backupDatabaseSync === 'function') {
+          console.log('🔄 [RESTORE_STEP_4] Attempting SQLite.backupDatabaseSync...');
+          SQLite.backupDatabaseSync({
             sourceDatabase: stagingDb,
             destDatabase: activeDb,
           });
           restoredViaBackupApi = true;
-        } else if (typeof SQLite.backupDatabaseSync === 'function') {
-          console.log('🔄 [RESTORE_STEP_4] Attempting SQLite.backupDatabaseSync...');
-          SQLite.backupDatabaseSync({
+        } else if (typeof SQLite.backupDatabaseAsync === 'function') {
+          console.log('🔄 [RESTORE_STEP_4] Attempting SQLite.backupDatabaseAsync...');
+          await SQLite.backupDatabaseAsync({
             sourceDatabase: stagingDb,
             destDatabase: activeDb,
           });
@@ -1048,8 +1124,8 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       activeTxCount = checkRow?.count || 0;
     } catch (e) {}
 
-    // Strategy B: If activeDb is still empty but staging had transactions, transfer via atomic SQL
-    if (activeTxCount === 0 && stagingTransactions.length > 0) {
+    // Strategy B: If activeDb is still empty or has fewer transactions than staging, transfer via atomic SQL
+    if ((activeTxCount === 0 || activeTxCount < stagingTransactions.length) && stagingTransactions.length > 0) {
       console.log(`🔄 [RESTORE_STEP_4] Transferring ${stagingTransactions.length} transactions via atomic SQL transaction...`);
       try {
         activeDb.execSync('PRAGMA foreign_keys = OFF;');
@@ -1119,16 +1195,16 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
         for (const t of stagingTransactions) {
           stmtTx.executeSync([
             t.id,
-            t.uuid,
-            t.type,
-            t.payment_mode,
-            t.amount,
-            t.category_id,
-            t.party_id,
+            t.uuid || (`tx-${t.id || Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
+            t.type || 'gave',
+            t.payment_mode || 'cash',
+            Number(t.amount) || 0,
+            t.category_id || null,
+            t.party_id || null,
             t.note || '',
-            String(t.transaction_date),
-            t.created_at,
-            t.updated_at || t.created_at,
+            String(t.transaction_date || Math.floor(Date.now() / 1000)),
+            t.created_at || Date.now(),
+            t.updated_at || t.created_at || Date.now(),
             t.sync_status || 'synced',
           ]);
         }
@@ -1185,14 +1261,8 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       }
     }
 
-    // Close staging DB and delete temporary downloaded staging database file
     if (stagingDb) {
       try { stagingDb.closeSync(); } catch (e) {}
-    }
-    try {
-      await FileSystem.deleteAsync(tempStagingDb, { idempotent: true });
-    } catch (cleanErr) {
-      console.warn('⚠️ [RESTORE_STEP_4] Staging file cleanup warning:', cleanErr?.message);
     }
 
     onProgress?.({ step: 2, totalSteps: 3, title: 'Restoring Local Ledger...', percent: 70 });
@@ -1204,10 +1274,13 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
 
     // Verify actual row count in live database
     let finalTxCount = 0;
+    let finalPartyCount = 0;
     try {
       const vRow = db.getFirstSync('SELECT COUNT(*) as count FROM transactions;');
       finalTxCount = vRow?.count || 0;
-      console.log(`✅ [RESTORE_STEP_5] Verified: Live SQLite database now contains ${finalTxCount} transactions.`);
+      const pRow = db.getFirstSync('SELECT COUNT(*) as count FROM parties;');
+      finalPartyCount = pRow?.count || 0;
+      console.log(`✅ [RESTORE_STEP_5] Verified: Live SQLite database now contains ${finalTxCount} transactions and ${finalPartyCount} parties.`);
     } catch (vErr) {
       console.warn('Verification query warning:', vErr?.message);
     }
@@ -1229,20 +1302,47 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       console.warn('⚠️ [RESTORE_STEP_6] Error reading restored transaction_images:', readErr);
     }
 
+    // Build image download map from manifest images
+    const manifestImages = Array.isArray(info.images) ? info.images : [];
     const manifestMap = new Map();
-    if (Array.isArray(info.images)) {
-      for (const mImg of info.images) {
-        if (mImg.file_name) {
-          manifestMap.set(mImg.file_name, mImg.download_url);
-        }
+    for (const mImg of manifestImages) {
+      if (mImg.file_name) {
+        manifestMap.set(mImg.file_name, mImg.download_url);
       }
+    }
+
+    // If transaction_images table was empty but the manifest has images, populate transaction_images
+    if (restoredImages.length === 0 && manifestImages.length > 0) {
+      console.log(`🖼️ [RESTORE_STEP_6] Linking ${manifestImages.length} images from manifest into transaction_images table...`);
+      for (const mImg of manifestImages) {
+        const fName = mImg.file_name;
+        let txId = null;
+        const txMatch = fName.match(/^TXN_(\d+)_/i);
+        if (txMatch) {
+          txId = parseInt(txMatch[1], 10);
+        }
+        try {
+          db.runSync(
+            'INSERT OR IGNORE INTO transaction_images (transaction_id, transaction_uuid, local_uri, server_url, file_name, upload_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);',
+            [txId, `tx-${txId || Date.now()}`, '', mImg.download_url, fName, 'uploaded', Date.now()]
+          );
+        } catch (linkErr) {}
+      }
+      try {
+        restoredImages = db.getAllSync(
+          'SELECT id, transaction_id, transaction_uuid, local_uri, server_url, file_name FROM transaction_images;'
+        );
+      } catch (e) {}
     }
 
     const docDir = FileSystem.documentDirectory || '';
     const imagesDir = `${docDir}transaction_photos/`;
 
+    // Process all images to download and verify on local disk
+    const processedFiles = new Set();
     for (const img of restoredImages) {
       const fileName = img.file_name || (img.local_uri ? img.local_uri.split('/').pop() : `photo_${img.id}.jpg`);
+      processedFiles.add(fileName);
       const targetLocalUri = `${imagesDir}${fileName}`;
 
       let existsLocally = false;
@@ -1264,7 +1364,7 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
               existsLocally = true;
             }
           } catch (dlErr) {
-            console.warn(`⚠️ [RESTORE_STEP_6] Failed to download photo ${fileName}:`, dlErr.message);
+            console.warn(`⚠️ [RESTORE_STEP_6] Failed to download photo ${fileName}:`, dlErr?.message);
           }
         }
       }
@@ -1288,16 +1388,41 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       }
     }
 
+    // Also download any extra images from manifest that were not in transaction_images
+    for (const mImg of manifestImages) {
+      if (!processedFiles.has(mImg.file_name) && mImg.download_url) {
+        const fileName = mImg.file_name;
+        const targetLocalUri = `${imagesDir}${fileName}`;
+        let existsLocally = false;
+        try {
+          const fileStat = await FileSystem.getInfoAsync(targetLocalUri);
+          if (fileStat && fileStat.exists && fileStat.size > 0) {
+            existsLocally = true;
+          }
+        } catch (e) {}
+        if (!existsLocally) {
+          try {
+            const savedUri = await downloadAndSaveImageLocally(mImg.download_url, fileName, auth.token);
+            if (savedUri) existsLocally = true;
+          } catch (e) {}
+        }
+        if (existsLocally) {
+          photosRestoredCount++;
+        }
+      }
+    }
+
     onProgress?.({ step: 3, totalSteps: 3, title: 'Data Restoration Completed!', percent: 100 });
 
-    const txCount = finalTxCount > 0 ? finalTxCount : (info.stats?.transactions || 0);
+    const txCount = finalTxCount > 0 ? finalTxCount : (stagingTransactions.length || info.stats?.transactions || 0);
+    const partyCount = finalPartyCount > 0 ? finalPartyCount : (stagingParties.length || info.stats?.parties || 0);
     const restoreMsg = photosFailedCount > 0
       ? `Restored ${txCount} transactions & ${photosRestoredCount} photos (${photosFailedCount} missing on server)`
       : `Restored ${txCount} transactions & all ${photosRestoredCount} photos from server ✓`;
 
     console.log('\n========================================');
     console.log('🎉 [RESTORE_SUCCESS] Full database & photos restoration completed!');
-    console.log(`📊 Summary: ${txCount} transactions verified in SQLite, ${photosRestoredCount} photos restored (${photosFailedCount} failed).`);
+    console.log(`📊 Summary: ${txCount} transactions, ${partyCount} parties, ${photosRestoredCount} photos restored (${photosFailedCount} failed).`);
     console.log('========================================\n');
 
     addBackupActivityLog('cloud_restore', photosFailedCount > 0 ? 'pending' : 'success', restoreMsg);
@@ -1308,6 +1433,7 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       stats: {
         ...info.stats,
         transactions: txCount,
+        parties: partyCount,
         images: photosRestoredCount,
       },
       photosRestored: photosRestoredCount,
