@@ -36,6 +36,7 @@ export const HomeScreen = () => {
     navigateToBackup,
     backupSettings,
     openBackupSettings,
+    currency,
   } = useApp();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -221,7 +222,7 @@ export const HomeScreen = () => {
             activeOpacity={0.85}
           >
             <Ionicons name="arrow-up-circle" size={20} color="#FFFFFF" />
-            <Text style={styles.gaveButtonText}>You Gave ₹</Text>
+            <Text style={styles.gaveButtonText}>You Gave {currency?.symbol || '₹'}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -230,7 +231,7 @@ export const HomeScreen = () => {
             activeOpacity={0.85}
           >
             <Ionicons name="arrow-down-circle" size={20} color="#FFFFFF" />
-            <Text style={styles.gotButtonText}>You Got ₹</Text>
+            <Text style={styles.gotButtonText}>You Got {currency?.symbol || '₹'}</Text>
           </TouchableOpacity>
         </View>
       </View>

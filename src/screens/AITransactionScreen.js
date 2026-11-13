@@ -48,6 +48,7 @@ export const AITransactionScreen = () => {
     authToken,
     currentUser,
     networkStatus,
+    currency,
   } = useApp();
 
   const [inputText, setInputText] = useState('');
@@ -315,7 +316,7 @@ export const AITransactionScreen = () => {
     const cleanAmount = parseFloat(previewAmount.replace(/,/g, ''));
     if (isNaN(cleanAmount) || cleanAmount <= 0) {
       triggerHaptic('error');
-      setErrorMessage('Please enter a valid amount greater than ₹0.');
+      setErrorMessage(`Please enter a valid amount greater than ${currency?.symbol || '₹'}0.`);
       return;
     }
 
@@ -664,7 +665,7 @@ export const AITransactionScreen = () => {
               {/* Amount & Type Controls */}
               <View style={styles.previewFormRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.fieldLabel}>Amount (₹) *</Text>
+                  <Text style={styles.fieldLabel}>Amount ({currency?.symbol || '₹'}) *</Text>
                   <TextInput
                     style={styles.fieldInput}
                     placeholder="0.00"

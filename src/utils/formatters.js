@@ -1,19 +1,41 @@
+import { DEFAULT_CURRENCY } from '../constants/currencies';
+
+let currentCurrency = { ...DEFAULT_CURRENCY };
+
+export const setGlobalCurrency = (currency) => {
+  if (currency && currency.symbol) {
+    currentCurrency = { ...currentCurrency, ...currency };
+  }
+};
+
+export const getGlobalCurrency = () => currentCurrency;
+
 // Currency formatter
 export const formatCurrency = (amount, options = {}) => {
   const rawNum = Number(amount) || 0;
   const isNegative = rawNum < 0;
   const num = Math.abs(rawNum);
 
-  // Format with Indian numbering system (lakhs/crores)
-  const formatted = num.toLocaleString('en-IN', {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 0,
-  });
+  const symbol = options.symbol !== undefined ? options.symbol : currentCurrency.symbol;
+  const locale = options.locale || currentCurrency.locale || 'en-IN';
+
+  let formatted = '';
+  try {
+    formatted = num.toLocaleString(locale, {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 0,
+    });
+  } catch (e) {
+    formatted = num.toLocaleString('en-US', {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 0,
+    });
+  }
 
   if (isNegative) {
-    return `-₹${formatted}`;
+    return `-${symbol}${formatted}`;
   }
-  return `₹${formatted}`;
+  return `${symbol}${formatted}`;
 };
 
 // -------------------------------------------------------------

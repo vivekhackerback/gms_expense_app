@@ -41,8 +41,8 @@ export const generateTransactionsPDFHtml = ({
     const primaryTitle = t.partyName || t.categoryName || 'General Transaction';
     const subTitle = t.partyName && t.categoryName ? t.categoryName : '';
 
-    const gaveAmount = isGave ? `₹${(Math.abs(Number(t.amount) || 0)).toLocaleString('en-IN')}` : '-';
-    const gotAmount = isGot ? `₹${(Math.abs(Number(t.amount) || 0)).toLocaleString('en-IN')}` : '-';
+    const gaveAmount = isGave ? formatCurrency(Math.abs(Number(t.amount) || 0)) : '-';
+    const gotAmount = isGot ? formatCurrency(Math.abs(Number(t.amount) || 0)) : '-';
 
     const rawBal = t.runningBalance !== undefined && t.runningBalance !== null ? Number(t.runningBalance) : null;
     let balHtml = '-';

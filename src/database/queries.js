@@ -1,6 +1,7 @@
 import { getDatabase } from './db';
 import { getCurrentTimestamp, toUnixTimestamp } from '../utils/formatters';
 import { DEFAULT_CATEGORIES } from '../constants/categories';
+import { DEFAULT_CURRENCY } from '../constants/currencies';
 
 // Helper for generating UUID fallback
 export const generateUUID = () => {
@@ -1093,6 +1094,28 @@ export const updateSetting = (key, value) => {
     "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
     [key, String(value)]
   );
+};
+
+export const getAppCurrency = () => {
+  try {
+    const raw = getSetting('app_currency');
+    if (!raw) return DEFAULT_CURRENCY;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.symbol ? parsed : DEFAULT_CURRENCY;
+  } catch (e) {
+    return DEFAULT_CURRENCY;
+  }
+};
+
+export const updateAppCurrency = (currency) => {
+  try {
+    if (!currency || !currency.symbol) return DEFAULT_CURRENCY;
+    updateSetting('app_currency', JSON.stringify(currency));
+    return currency;
+  } catch (e) {
+    console.error('Failed to update app currency setting:', e);
+    return DEFAULT_CURRENCY;
+  }
 };
 
 export const DEFAULT_BACKUP_SETTINGS = {

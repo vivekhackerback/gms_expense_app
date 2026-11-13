@@ -28,7 +28,11 @@ import {
   getBackupSettings,
   updateBackupSettings,
   DEFAULT_BACKUP_SETTINGS,
+  getAppCurrency,
+  updateAppCurrency,
 } from '../database/queries';
+import { DEFAULT_CURRENCY } from '../constants/currencies';
+import { setGlobalCurrency } from '../utils/formatters';
 import {
   checkNetworkConnectivity,
   syncTextData,
@@ -84,6 +88,7 @@ export const AppProvider = ({ children }) => {
     system: { autoSyncEnabled: true, queuePending: 0 },
   });
   const [backupSettings, setBackupSettings] = useState(DEFAULT_BACKUP_SETTINGS);
+  const [currency, setCurrency] = useState(DEFAULT_CURRENCY);
   const [backupActivityLogs, setBackupActivityLogs] = useState([]);
   const [networkStatus, setNetworkStatus] = useState({ isConnected: true, type: 'UNKNOWN', isWifi: false });
   const [isSyncing, setIsSyncing] = useState(false);
@@ -196,6 +201,11 @@ export const AppProvider = ({ children }) => {
     const initialize = async () => {
       try {
         initDatabase();
+        const savedCurrency = getAppCurrency();
+        if (savedCurrency) {
+          setCurrency(savedCurrency);
+          setGlobalCurrency(savedCurrency);
+        }
         const session = getAuthSession();
         if (session.isLoggedIn) {
           setCurrentUser(session.user);
@@ -648,6 +658,14 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const changeCurrency = useCallback((newCurrency) => {
+    if (!newCurrency) return;
+    updateAppCurrency(newCurrency);
+    setCurrency(newCurrency);
+    setGlobalCurrency(newCurrency);
+    refreshAll();
+  }, [refreshAll]);
+
   return (
     <AppContext.Provider
       value={{
@@ -656,6 +674,8 @@ export const AppProvider = ({ children }) => {
         setActiveTab,
         previousTab,
         navigateToBackup,
+        currency,
+        changeCurrency,
         balances,
         recentTransactions,
         parties,

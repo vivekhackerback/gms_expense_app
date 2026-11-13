@@ -30,6 +30,7 @@ import {
   runSqliteBenchmark,
 } from '../services/stressTestService';
 import { FeedbackScreen } from './FeedbackScreen';
+import { CurrencySelectModal } from '../components/modals/CurrencySelectModal';
 
 export const MoreScreen = () => {
   const {
@@ -48,7 +49,11 @@ export const MoreScreen = () => {
     updateUserProfile,
     logoutUser,
     refreshAll,
+    currency,
+    changeCurrency,
   } = useApp();
+
+  const [isCurrencyModalOpen, setIsCurrencyModalOpen] = useState(false);
 
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [editName, setEditName] = useState('');
@@ -543,6 +548,19 @@ export const MoreScreen = () => {
           </TouchableOpacity>
         )}
 
+        {/* Preferences */}
+        {renderSection('PREFERENCES', [
+          {
+            icon: 'globe-outline',
+            iconColor: '#2563EB',
+            iconBg: '#EFF6FF',
+            label: 'Currency & Country',
+            sublabel: `${currency?.name || 'India'} (${currency?.code || 'INR'} - ${currency?.symbol || '₹'})`,
+            rightText: `${currency?.flag || '🇮🇳'} ${currency?.symbol || '₹'}`,
+            onPress: () => setIsCurrencyModalOpen(true),
+          },
+        ])}
+
         {/* Master Management */}
         {renderSection('MANAGEMENT', [
           {
@@ -748,6 +766,14 @@ export const MoreScreen = () => {
       <FeedbackScreen
         visible={isFeedbackModalOpen}
         onClose={() => setIsFeedbackModalOpen(false)}
+      />
+
+      {/* Country & Currency Selection Modal */}
+      <CurrencySelectModal
+        visible={isCurrencyModalOpen}
+        onClose={() => setIsCurrencyModalOpen(false)}
+        currentCurrency={currency}
+        onSelectCurrency={changeCurrency}
       />
     </View>
   );

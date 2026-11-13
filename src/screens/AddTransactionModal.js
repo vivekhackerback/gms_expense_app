@@ -32,6 +32,7 @@ export const AddTransactionModal = () => {
     parties,
     saveParty,
     openFullScreenImage,
+    currency,
   } = useApp();
 
   const [displayAmount, setDisplayAmount] = useState('');
@@ -193,7 +194,7 @@ export const AddTransactionModal = () => {
     const cleanNumStr = displayAmount.replace(/,/g, '');
     const numAmount = parseFloat(cleanNumStr);
     if (isNaN(numAmount) || numAmount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter an amount greater than ₹0.');
+      Alert.alert('Invalid Amount', `Please enter an amount greater than ${currency?.symbol || '₹'}0.`);
       return;
     }
 
@@ -317,7 +318,7 @@ export const AddTransactionModal = () => {
 
               {/* Comma-Formatted Amount Input with Dynamic Colors */}
               <View style={styles.amountBox}>
-                <Text style={[styles.currencySymbol, { color: primaryColor }]}>₹</Text>
+                <Text style={[styles.currencySymbol, { color: primaryColor }]}>{currency?.symbol || '₹'}</Text>
                 <TextInput
                   style={[styles.amountInput, { color: primaryColor }]}
                   placeholder="0"
