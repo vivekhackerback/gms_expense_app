@@ -993,6 +993,28 @@ export const addBackupActivityLog = (actionType, status, message, details = '') 
   try {
     const db = getDatabase();
     const now = getCurrentTimestamp();
+
+    // Ensure table columns exist
+    try {
+      const cols = db.getAllSync("PRAGMA table_info('backup_activity_logs');");
+      const names = cols.map((c) => c.name);
+      if (!names.includes('type')) {
+        try { db.execSync('ALTER TABLE backup_activity_logs ADD COLUMN type TEXT;'); } catch (e) {}
+      }
+      if (!names.includes('action_type')) {
+        try { db.execSync('ALTER TABLE backup_activity_logs ADD COLUMN action_type TEXT;'); } catch (e) {}
+      }
+      if (!names.includes('timestamp')) {
+        try { db.execSync('ALTER TABLE backup_activity_logs ADD COLUMN timestamp TEXT;'); } catch (e) {}
+      }
+      if (!names.includes('details')) {
+        try { db.execSync('ALTER TABLE backup_activity_logs ADD COLUMN details TEXT;'); } catch (e) {}
+      }
+      if (!names.includes('created_at')) {
+        try { db.execSync('ALTER TABLE backup_activity_logs ADD COLUMN created_at INTEGER;'); } catch (e) {}
+      }
+    } catch (colErr) {}
+
     try {
       db.runSync(
         `INSERT INTO backup_activity_logs (
@@ -1003,23 +1025,34 @@ export const addBackupActivityLog = (actionType, status, message, details = '') 
     } catch (insertErr) {
       try {
         db.runSync(
-          `INSERT INTO backup_activity_logs (timestamp, type, status, message, created_at) VALUES (?, ?, ?, ?, ?);`,
-          [now, actionType, status, message, now]
+          `INSERT INTO backup_activity_logs (timestamp, action_type, status, message, details) VALUES (?, ?, ?, ?, ?);`,
+          [now, actionType, status, message, details ? String(details) : '']
         );
       } catch (e2) {
-        db.runSync(
-          `INSERT INTO backup_activity_logs (type, status, message, created_at) VALUES (?, ?, ?, ?);`,
-          [actionType, status, message, now]
-        );
+        try {
+          db.runSync(
+            `INSERT INTO backup_activity_logs (action_type, status, message) VALUES (?, ?, ?);`,
+            [actionType, status, message]
+          );
+        } catch (e3) {
+          try {
+            db.runSync(
+              `INSERT INTO backup_activity_logs (status, message) VALUES (?, ?);`,
+              [status, message]
+            );
+          } catch (e4) {}
+        }
       }
     }
 
     // Maintain max 50 recent logs
-    db.runSync(`
-      DELETE FROM backup_activity_logs WHERE id NOT IN (
-        SELECT id FROM backup_activity_logs ORDER BY id DESC LIMIT 50
-      );
-    `);
+    try {
+      db.runSync(`
+        DELETE FROM backup_activity_logs WHERE id NOT IN (
+          SELECT id FROM backup_activity_logs ORDER BY id DESC LIMIT 50
+        );
+      `);
+    } catch (delErr) {}
   } catch (err) {
     console.warn('Failed to insert backup activity log:', err);
   }

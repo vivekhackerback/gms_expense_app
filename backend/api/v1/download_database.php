@@ -19,7 +19,27 @@ if (!$baseUploadsDir) {
     $baseUploadsDir = __DIR__ . '/../../uploads';
 }
 
-$userDbFile = $baseUploadsDir . '/users/' . $cleanPhone . '/database/expenses_khata.db';
+$userDbDir = $baseUploadsDir . '/users/' . $cleanPhone . '/database';
+
+// Support downloading a specific chosen backup file or defaulting to latest
+$requestedFile = 'expenses_khata.db';
+if (isset($_GET['file']) && !empty($_GET['file'])) {
+    $requestedFile = basename(trim($_GET['file']));
+} elseif (isset($_GET['filename']) && !empty($_GET['filename'])) {
+    $requestedFile = basename(trim($_GET['filename']));
+}
+
+// Security: strictly validate filename format to prevent directory traversal
+if (!preg_match('/^[a-zA-Z0-9_\-\.]+\.db$/', $requestedFile)) {
+    $requestedFile = 'expenses_khata.db';
+}
+
+$userDbFile = $userDbDir . '/' . $requestedFile;
+if (!file_exists($userDbFile)) {
+    // Fallback to active expenses_khata.db if specific snapshot does not exist
+    $userDbFile = $userDbDir . '/expenses_khata.db';
+    $requestedFile = 'expenses_khata.db';
+}
 
 // Support health check / readiness verification without streaming binary bytes
 $isCheckOnly = isset($_GET['check']) || isset($_GET['health']) || $_SERVER['REQUEST_METHOD'] === 'HEAD';
@@ -60,7 +80,7 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Content-Description: File Transfer');
 header('Content-Type: application/x-sqlite3');
-header('Content-Disposition: attachment; filename="expenses_khata.db"');
+header('Content-Disposition: attachment; filename="' . $requestedFile . '"');
 header('Expires: 0');
 header('Cache-Control: must-revalidate');
 header('Pragma: public');

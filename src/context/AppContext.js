@@ -458,7 +458,7 @@ export const AppProvider = ({ children }) => {
     return await fetchCloudBackupInfo();
   };
 
-  const importAndRestoreData = async (onProgress) => {
+  const importAndRestoreData = async (onProgress, selectedBackupFile = null) => {
     if (!isLoggedIn) {
       return {
         success: false,
@@ -466,7 +466,7 @@ export const AppProvider = ({ children }) => {
         message: 'Please sign in to restore your cloud data.',
       };
     }
-    const res = await importCloudDataAndRestore(onProgress);
+    const res = await importCloudDataAndRestore(onProgress, selectedBackupFile);
     refreshAll();
     return res;
   };

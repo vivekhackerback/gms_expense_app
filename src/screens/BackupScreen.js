@@ -129,6 +129,7 @@ export const BackupScreen = () => {
   const [isCheckingImport, setIsCheckingImport] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [cloudBackupInfo, setCloudBackupInfo] = useState(null);
+  const [selectedBackupFile, setSelectedBackupFile] = useState(null);
   const [isImportConfirmModalOpen, setIsImportConfirmModalOpen] = useState(false);
   const [progressModal, setProgressModal] = useState({
     visible: false,
@@ -393,6 +394,12 @@ export const BackupScreen = () => {
     }
 
     setCloudBackupInfo(info);
+    const availableFiles = info.backup_files || [];
+    if (availableFiles.length > 0) {
+      setSelectedBackupFile(availableFiles[0]);
+    } else {
+      setSelectedBackupFile(null);
+    }
     setIsImportConfirmModalOpen(true);
   };
 
@@ -400,21 +407,23 @@ export const BackupScreen = () => {
     setIsImportConfirmModalOpen(false);
     setIsRestoring(true);
 
+    const targetLabel = selectedBackupFile?.label || 'Cloud Backup';
+
     setProgressModal({
       visible: true,
-      title: 'Importing My Data',
-      subtitle: 'Connecting to backup server...',
+      title: 'Restoring My Data',
+      subtitle: `Preparing ${targetLabel}...`,
       percent: 10,
     });
 
     const res = await importAndRestoreData((p) => {
       setProgressModal({
         visible: true,
-        title: p.title || 'Importing My Data',
+        title: p.title || 'Restoring My Data',
         subtitle: p.detail || `Step ${p.step} of ${p.totalSteps}`,
         percent: p.percent || 50,
       });
-    });
+    }, selectedBackupFile);
 
     setIsRestoring(false);
     setProgressModal({ visible: false, title: '', subtitle: '', percent: 0 });
@@ -423,11 +432,11 @@ export const BackupScreen = () => {
       console.log('🎉 [BackupScreen] Restore succeeded:', res);
       Alert.alert(
         'Data Restored Successfully ✓',
-        `Successfully restored ${res.stats?.transactions || 0} transactions, ${res.stats?.parties || 0} parties, and ${res.photosRestored || 0} photos from cloud database.`
+        `Successfully restored ${res.stats?.transactions || 0} transactions, ${res.stats?.parties || 0} parties, and ${res.photosRestored || 0} photos from ${selectedBackupFile?.label || selectedBackupFile?.file_name || 'cloud database'}.`
       );
     } else {
       console.error('❌ [BackupScreen] Restore failed:', res);
-      Alert.alert('Import Failed', res.message || 'Unable to restore data from server.');
+      Alert.alert('Restore Failed', res.message || 'Unable to restore data from server.');
     }
   };
 
@@ -1405,28 +1414,99 @@ export const BackupScreen = () => {
           <View style={[styles.importModalCard, Shadows.lg]}>
             <View style={styles.modalHeaderRow}>
               <Ionicons name="cloud-download" size={24} color={Colors.primary} style={{ marginRight: 8 }} />
-              <Text style={styles.modalHeaderTitle}>Import My Data</Text>
+              <Text style={styles.modalHeaderTitle}>Choose Backup to Restore</Text>
             </View>
 
             <Text style={styles.importModalSub}>
-              We discovered the following verified cloud backup on the server for this account:
+              Select the backup snapshot you want to restore to your device:
             </Text>
 
-            {/* Cloud Backup Summary Grid */}
+            {/* List of Available Backup Snapshots */}
+            {cloudBackupInfo?.backup_files && cloudBackupInfo.backup_files.length > 0 ? (
+              <View style={styles.backupFilesSection}>
+                <Text style={styles.backupSectionLabel}>Available Cloud Backups:</Text>
+                <ScrollView
+                  style={styles.backupFilesScroll}
+                  contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
+                  showsVerticalScrollIndicator={true}
+                  nestedScrollEnabled={true}
+                >
+                  {cloudBackupInfo.backup_files.map((file, idx) => {
+                    const isSelected = selectedBackupFile?.file_name
+                      ? selectedBackupFile.file_name === file.file_name
+                      : idx === 0;
+
+                    return (
+                      <TouchableOpacity
+                        key={file.file_name || String(idx)}
+                        style={[
+                          styles.backupFileItem,
+                          isSelected && styles.backupFileItemSelected,
+                        ]}
+                        onPress={() => setSelectedBackupFile(file)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.backupRadioWrap}>
+                          <Ionicons
+                            name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                            size={20}
+                            color={isSelected ? Colors.primary : Colors.textMuted}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={styles.backupItemHeaderRow}>
+                            <Text
+                              style={[
+                                styles.backupItemTitle,
+                                isSelected && { color: Colors.primary, fontWeight: '700' },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {file.label || file.file_name}
+                            </Text>
+                            {file.is_latest && (
+                              <View style={styles.latestBadge}>
+                                <Text style={styles.latestBadgeText}>Latest</Text>
+                              </View>
+                            )}
+                          </View>
+                          <View style={styles.backupItemMetaRow}>
+                            <Text style={styles.backupItemMeta}>
+                              <Ionicons name="time-outline" size={12} color={Colors.textMuted} />{' '}
+                              {file.formatted_time || 'Snapshot'}
+                            </Text>
+                            <Text style={styles.backupItemDot}>•</Text>
+                            <Text style={styles.backupItemMeta}>
+                              <Ionicons name="document-text-outline" size={12} color={Colors.textMuted} />{' '}
+                              {file.file_size_formatted || `${(file.file_size / 1024).toFixed(1)} KB`}
+                            </Text>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
+
+            {/* Selected Snapshot Details Grid */}
             <View style={styles.importStatsCard}>
               <View style={styles.importStatsRow}>
-                <Text style={styles.importStatsLabel}>Last Backup Date:</Text>
-                <Text style={styles.importStatsValue}>
-                  {cloudBackupInfo?.backup_time
-                    ? formatFullDateTime(cloudBackupInfo.backup_time).combined
-                    : 'Recent'}
+                <Text style={styles.importStatsLabel}>Selected File:</Text>
+                <Text style={[styles.importStatsValue, { color: Colors.primary }]} numberOfLines={1}>
+                  {selectedBackupFile?.file_name || 'expenses_khata.db'}
                 </Text>
               </View>
 
               <View style={styles.importStatsRow}>
-                <Text style={styles.importStatsLabel}>Database File Size:</Text>
+                <Text style={styles.importStatsLabel}>Backup Size:</Text>
                 <Text style={styles.importStatsValue}>
-                  {cloudBackupInfo?.db_size ? `${(cloudBackupInfo.db_size / 1024).toFixed(1)} KB` : 'N/A'}
+                  {selectedBackupFile?.file_size_formatted ||
+                    (selectedBackupFile?.file_size
+                      ? `${(selectedBackupFile.file_size / 1024).toFixed(1)} KB`
+                      : cloudBackupInfo?.db_size
+                      ? `${(cloudBackupInfo.db_size / 1024).toFixed(1)} KB`
+                      : 'N/A')}
                 </Text>
               </View>
 
@@ -1455,7 +1535,7 @@ export const BackupScreen = () => {
             <View style={styles.importWarningBox}>
               <Ionicons name="information-circle" size={20} color="#B45309" style={{ marginRight: 6 }} />
               <Text style={styles.importWarningText}>
-                Importing will replace your current local SQLite database with this cloud snapshot and download all receipt images.
+                Restoring will replace your current local SQLite database with the selected snapshot and restore all receipt images.
               </Text>
             </View>
 
@@ -1472,7 +1552,7 @@ export const BackupScreen = () => {
                 onPress={handleExecuteImport}
               >
                 <Ionicons name="cloud-download-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.importProceedBtnText}>Restore Data Now</Text>
+                <Text style={styles.importProceedBtnText}>Restore Selected</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2494,12 +2574,82 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     width: '100%',
     maxWidth: 440,
+    maxHeight: '90%',
   },
   importModalSub: {
     fontSize: Typography.fontSizes.xs + 1,
     color: Colors.textSecondary,
     lineHeight: 18,
+    marginBottom: Spacing.sm,
+  },
+  backupFilesSection: {
     marginBottom: Spacing.md,
+  },
+  backupSectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  backupFilesScroll: {
+    maxHeight: 160,
+  },
+  backupFileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: Colors.borderLight,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.sm + 2,
+  },
+  backupFileItemSelected: {
+    backgroundColor: '#EFF6FF',
+    borderColor: Colors.primary,
+  },
+  backupRadioWrap: {
+    marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backupItemHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  backupItemTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    flex: 1,
+  },
+  latestBadge: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 6,
+  },
+  latestBadgeText: {
+    color: '#15803D',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  backupItemMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  backupItemMeta: {
+    fontSize: 11.5,
+    color: Colors.textSecondary,
+  },
+  backupItemDot: {
+    fontSize: 10,
+    color: Colors.textMuted,
   },
   importStatsCard: {
     backgroundColor: '#F8FAFC',

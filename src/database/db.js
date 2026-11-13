@@ -378,14 +378,21 @@ export const initDatabase = () => {
 
     try {
       const logCols = dbInstance.getAllSync("PRAGMA table_info('backup_activity_logs');");
-      if (!logCols.some((col) => col.name === 'timestamp')) {
+      const colNames = logCols.map((col) => col.name);
+      if (!colNames.includes('timestamp')) {
         dbInstance.execSync('ALTER TABLE backup_activity_logs ADD COLUMN timestamp TEXT;');
       }
-      if (!logCols.some((col) => col.name === 'action_type')) {
+      if (!colNames.includes('action_type')) {
         dbInstance.execSync('ALTER TABLE backup_activity_logs ADD COLUMN action_type TEXT;');
       }
-      if (!logCols.some((col) => col.name === 'details')) {
+      if (!colNames.includes('type')) {
+        dbInstance.execSync('ALTER TABLE backup_activity_logs ADD COLUMN type TEXT;');
+      }
+      if (!colNames.includes('details')) {
         dbInstance.execSync('ALTER TABLE backup_activity_logs ADD COLUMN details TEXT;');
+      }
+      if (!colNames.includes('created_at')) {
+        dbInstance.execSync('ALTER TABLE backup_activity_logs ADD COLUMN created_at INTEGER;');
       }
     } catch (migErr) {
       console.warn('Migration error for backup_activity_logs:', migErr);

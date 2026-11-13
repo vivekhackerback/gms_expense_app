@@ -858,11 +858,15 @@ export const validateSQLiteFile = async (filePath) => {
 };
 
 /**
- * Download complete SQLite database and all associated images from server and restore locally
+ * Download complete SQLite database and all associated images from server and restore locally.
+ * Supports choosing a specific backup file snapshot or defaulting to the latest active backup.
  */
-export const importCloudDataAndRestore = async (onProgress) => {
+export const importCloudDataAndRestore = async (onProgress, selectedBackupFile = null) => {
   console.log('\n========================================');
   console.log('🔄 [RESTORE_START] Starting full SQLite database and photos restoration...');
+  if (selectedBackupFile) {
+    console.log('📦 [RESTORE_START] Selected target backup snapshot:', selectedBackupFile.file_name || selectedBackupFile.label);
+  }
   console.log('========================================');
 
   try {
@@ -916,13 +920,20 @@ export const importCloudDataAndRestore = async (onProgress) => {
           await FileSystem.makeDirectoryAsync(parentDir, { intermediates: true });
         }
       } catch (dirErr) {
-        console.warn('⚠️ [RESTORE_STEP_2] Error creating DB parent directory:', dirErr);
+        console.warn('⚠️ [RESTORE_STEP_2] Error creating DB parent directory (ignored):', dirErr);
       }
     }
 
     // 3. Download the database to a temporary staging file first to prevent corruption
     const tempStagingDb = `${FileSystem.cacheDirectory}staging_cloud_db_${Date.now()}.db`;
-    const downloadUrl = `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}`;
+    let downloadUrl = `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}`;
+    if (selectedBackupFile) {
+      if (selectedBackupFile.download_url) {
+        downloadUrl = selectedBackupFile.download_url;
+      } else if (selectedBackupFile.file_name) {
+        downloadUrl = `${API_CONFIG.DATABASE_BACKUP_DOWNLOAD_URL}?phone=${encodeURIComponent(userPhone)}&file=${encodeURIComponent(selectedBackupFile.file_name)}`;
+      }
+    }
     console.log('🚀 [RESTORE_STEP_3] Downloading database file from:', downloadUrl, 'to staging:', tempStagingDb);
 
     const downloadRes = await FileSystem.downloadAsync(
@@ -960,37 +971,96 @@ export const importCloudDataAndRestore = async (onProgress) => {
       return { success: false, message: failMsg };
     }
 
-    // 4. Safely replace the local active SQLite database with the verified downloaded file
-    console.log('🔒 [RESTORE_STEP_4] Closing active SQLite connection before replacing file...');
-    closeDatabase();
+    // 4. Safely replace local SQLite database with downloaded verified snapshot
+    console.log('🔒 [RESTORE_STEP_4] Restoring SQLite database from staging file...');
+    checkpointDatabase();
 
-    const targetDbWal = `${targetDbPath}-wal`;
-    const targetDbShm = `${targetDbPath}-shm`;
+    let restoredSuccessfully = false;
 
-    // Remove old WAL / SHM and existing DB file
+    // Strategy 1 (Primary): Use Expo SQLite's native online backup API
+    // Clones the database page-by-page directly within the SQLite engine.
+    // This avoids filesystem locks and scoped sandbox errors (e.g. "Location isn't deletable").
     try {
-      const walInfo = await FileSystem.getInfoAsync(targetDbWal);
-      if (walInfo.exists) await FileSystem.deleteAsync(targetDbWal, { idempotent: true });
-      const shmInfo = await FileSystem.getInfoAsync(targetDbShm);
-      if (shmInfo.exists) await FileSystem.deleteAsync(targetDbShm, { idempotent: true });
-      const currentDbInfo = await FileSystem.getInfoAsync(targetDbPath);
-      if (currentDbInfo.exists) await FileSystem.deleteAsync(targetDbPath, { idempotent: true });
-    } catch (cleanErr) {
-      console.warn('⚠️ [RESTORE_STEP_4] Error cleaning old DB/WAL/SHM:', cleanErr);
+      const rawCacheDir = (FileSystem.cacheDirectory || '').replace(/^file:\/\//, '').replace(/\/+$/, '');
+      const stagingFileName = tempStagingDb.substring(tempStagingDb.lastIndexOf('/') + 1);
+
+      console.log(`🔄 [RESTORE_STEP_4] Opening staging DB from: ${rawCacheDir}/${stagingFileName}`);
+      const stagingDb = SQLite.openDatabaseSync(stagingFileName, {}, rawCacheDir);
+      const activeDb = getDatabase();
+
+      if (typeof SQLite.backupDatabaseAsync === 'function') {
+        console.log('🔄 [RESTORE_STEP_4] Executing SQLite.backupDatabaseAsync...');
+        await SQLite.backupDatabaseAsync({
+          sourceDatabase: stagingDb,
+          destDatabase: activeDb,
+        });
+        restoredSuccessfully = true;
+      } else if (typeof SQLite.backupDatabaseSync === 'function') {
+        console.log('🔄 [RESTORE_STEP_4] Executing SQLite.backupDatabaseSync...');
+        SQLite.backupDatabaseSync({
+          sourceDatabase: stagingDb,
+          destDatabase: activeDb,
+        });
+        restoredSuccessfully = true;
+      }
+
+      try { stagingDb.closeSync(); } catch (e) {}
+      if (restoredSuccessfully) {
+        console.log('✅ [RESTORE_STEP_4] Database content cloned successfully via Native SQLite Backup API');
+      }
+    } catch (nativeBackupErr) {
+      console.warn('⚠️ [RESTORE_STEP_4] Native SQLite backup API error (trying file replacement fallback):', nativeBackupErr);
     }
 
-    // Move staging DB to target path
-    await FileSystem.copyAsync({
-      from: tempStagingDb,
-      to: targetDbPath,
-    });
-    try { await FileSystem.deleteAsync(tempStagingDb, { idempotent: true }); } catch (e) {}
-    console.log('✅ [RESTORE_STEP_4] Verified database moved to target destination:', targetDbPath);
+    // Strategy 2 (Fallback): Direct file replacement if native clone didn't run
+    if (!restoredSuccessfully) {
+      console.log('🔒 [RESTORE_STEP_4] Executing file replacement fallback...');
+      closeDatabase();
 
-    onProgress?.({ step: 2, totalSteps: 2, title: 'Restoring Local Ledger...', percent: 90 });
+      try {
+        SQLite.deleteDatabaseSync('expenses_khata.db');
+      } catch (delErr) {
+        console.warn('⚠️ [RESTORE_STEP_4] SQLite.deleteDatabaseSync fallback warning:', delErr);
+      }
 
-    // 5. Re-open and Re-initialize SQLite Database
+      const targetDbWal = `${targetDbPath}-wal`;
+      const targetDbShm = `${targetDbPath}-shm`;
+
+      try {
+        const walInfo = await FileSystem.getInfoAsync(targetDbWal);
+        if (walInfo.exists) await FileSystem.deleteAsync(targetDbWal, { idempotent: true });
+        const shmInfo = await FileSystem.getInfoAsync(targetDbShm);
+        if (shmInfo.exists) await FileSystem.deleteAsync(targetDbShm, { idempotent: true });
+        const currentDbInfo = await FileSystem.getInfoAsync(targetDbPath);
+        if (currentDbInfo.exists) await FileSystem.deleteAsync(targetDbPath, { idempotent: true });
+      } catch (cleanErr) {
+        console.warn('⚠️ [RESTORE_STEP_4] FileSystem cleanup warning (non-fatal):', cleanErr);
+      }
+
+      try {
+        await FileSystem.copyAsync({
+          from: tempStagingDb,
+          to: targetDbPath,
+        });
+        restoredSuccessfully = true;
+        console.log('✅ [RESTORE_STEP_4] Verified database moved to target destination via FileSystem.copyAsync');
+      } catch (fileCopyErr) {
+        console.warn('⚠️ [RESTORE_STEP_4] FileSystem.copyAsync fallback failed:', fileCopyErr);
+      }
+    }
+
+    // Always safely delete temporary downloaded staging database file
+    try {
+      await FileSystem.deleteAsync(tempStagingDb, { idempotent: true });
+    } catch (cleanErr) {
+      console.warn('⚠️ [RESTORE_STEP_4] Staging file cleanup warning:', cleanErr);
+    }
+
+    onProgress?.({ step: 2, totalSteps: 3, title: 'Restoring Local Ledger...', percent: 70 });
+
+    // 5. Re-open and Re-initialize SQLite Database to ensure all caches and connections are fresh
     console.log('🔄 [RESTORE_STEP_5] Re-opening and verifying SQLite database...');
+    closeDatabase();
     const db = initDatabase();
 
     // 6. Download and restore all transaction receipt photos
