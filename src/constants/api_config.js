@@ -54,6 +54,10 @@ export const API_CONFIG = {
   GET_UPI_URL: `${API_BASE}/get_upi.php`,
   /** Endpoint to fetch active OTP domain and gateway settings (https://otp.losttag.in/docs) */
   GET_OTP_DOMAIN_URL: `${API_BASE}/get_otp_domain.php`,
+  /** Endpoint to send OTP via WhatsApp */
+  OTP_SEND_URL: `${API_BASE}/otp_send.php`,
+  /** Endpoint to verify OTP */
+  OTP_VERIFY_URL: `${API_BASE}/otp_verify.php`,
   /** Default WhatsApp OTP Gateway Base URL */
   OTP_GATEWAY_DEFAULT_BASE_URL: 'https://otp.losttag.in/api/v1',
 

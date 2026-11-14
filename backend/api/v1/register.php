@@ -42,6 +42,30 @@ if (empty($cleanPhone) || strlen($cleanPhone) < 10) {
     ], 400);
 }
 
+// Support pre-registration availability check
+$isCheckOnly = !empty($payload['check_phone']) || (isset($payload['action']) && $payload['action'] === 'check_phone') || !empty($payload['check_only']);
+if ($isCheckOnly) {
+    $db = getDbConnection();
+    if ($db) {
+        $stmt = $db->prepare("SELECT id FROM users WHERE phone = :p1 OR phone LIKE :p2 LIMIT 1");
+        $stmt->execute([':p1' => $cleanPhone, ':p2' => '%' . $cleanPhone]);
+        $exists = (bool)$stmt->fetch();
+        if ($exists) {
+            sendJsonResponse([
+                'success'            => false,
+                'already_registered' => true,
+                'message'            => 'An account with mobile number ' . htmlspecialchars($cleanPhone) . ' already exists. Please sign in instead.'
+            ], 409);
+        } else {
+            sendJsonResponse([
+                'success'            => true,
+                'already_registered' => false,
+                'message'            => 'Mobile number is available.'
+            ], 200);
+        }
+    }
+}
+
 if (empty($password) || strlen($password) < 4) {
     sendJsonResponse([
         'success' => false,
