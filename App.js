@@ -1,3 +1,7 @@
+/**
+ * Expense Tracker & Khata App
+ * Version 3.7.0
+ */
 import React, { Component } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -5,6 +9,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider } from './src/context/AppContext';
 import { Navigation } from './src/navigation/Navigation';
 import { Colors } from './src/constants/colors';
+import { BrandConfig } from './src/constants/assets';
+
+export const APP_VERSION = BrandConfig.version;
 
 class ErrorBoundary extends Component {
   state = { hasError: false, error: null };

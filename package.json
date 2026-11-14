@@ -1,6 +1,6 @@
 {
   "name": "expense_app",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
