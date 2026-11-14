@@ -20,6 +20,8 @@ import { Colors } from '../../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../../constants/theme';
 import { AppImages } from '../../constants/assets';
 import { otpService } from '../../services/otpService';
+import { CountrySelectModal } from './CountrySelectModal';
+import { DEFAULT_COUNTRY } from '../../constants/countries';
 
 export const LoginModal = () => {
   const insets = useSafeAreaInsets();
@@ -40,6 +42,8 @@ export const LoginModal = () => {
   // Form Fields
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY);
+  const [isCountryModalOpen, setIsCountryModalOpen] = useState(false);
   const [otp, setOtp] = useState('');
   const [challengeId, setChallengeId] = useState('');
   const [password, setPassword] = useState('');
@@ -190,15 +194,16 @@ export const LoginModal = () => {
   const handleRequestOtp = async () => {
     setErrorMessage('');
     const cleanPhone = phone.trim().replace(/[^0-9]/g, '');
+    const isIndia = selectedCountry.dialCode === '+91';
 
-    if (!cleanPhone || cleanPhone.length < 10) {
-      setErrorMessage('Please enter a valid 10-digit mobile number');
+    if (!cleanPhone || (isIndia && cleanPhone.length < 10) || (!isIndia && cleanPhone.length < 6)) {
+      setErrorMessage(isIndia ? 'Please enter a valid 10-digit mobile number' : 'Please enter a valid mobile number');
       return;
     }
 
     setIsLoading(true);
     try {
-      const res = await otpService.sendOtp(cleanPhone, 'Registration');
+      const res = await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode);
       if (res && res.success) {
         setChallengeId(res.challenge_id || '');
         setResendCooldown(res.resend_cooldown || 60);
@@ -223,7 +228,7 @@ export const LoginModal = () => {
 
     setIsLoading(true);
     try {
-      const res = await otpService.sendOtp(cleanPhone, 'Registration');
+      const res = await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode);
       if (res && res.success) {
         setChallengeId(res.challenge_id || '');
         setResendCooldown(res.resend_cooldown || 60);
@@ -291,7 +296,9 @@ export const LoginModal = () => {
     setIsLoading(true);
     try {
       const displayName = name.trim() || `User ${cleanPhone.slice(-4)}`;
-      const result = await registerUser(displayName, cleanPhone, password.trim());
+      const dialDigits = selectedCountry.dialCode.replace(/\D/g, '');
+      const targetPhone = dialDigits === '91' ? cleanPhone : `${dialDigits}${cleanPhone}`;
+      const result = await registerUser(displayName, targetPhone, password.trim());
       if (result.success) {
         triggerSuccessAnimation(result.user, true);
       } else {
@@ -310,9 +317,10 @@ export const LoginModal = () => {
   const handleLoginSubmit = async () => {
     setErrorMessage('');
     const cleanPhone = phone.trim().replace(/[^0-9]/g, '');
+    const isIndia = selectedCountry.dialCode === '+91';
 
-    if (!cleanPhone || cleanPhone.length < 10) {
-      setErrorMessage('Please enter a valid 10-digit mobile number');
+    if (!cleanPhone || (isIndia && cleanPhone.length < 10) || (!isIndia && cleanPhone.length < 6)) {
+      setErrorMessage(isIndia ? 'Please enter a valid 10-digit mobile number' : 'Please enter a valid mobile number');
       return;
     }
 
@@ -323,7 +331,13 @@ export const LoginModal = () => {
 
     setIsLoading(true);
     try {
-      const result = await loginUser(cleanPhone, password.trim());
+      const dialDigits = selectedCountry.dialCode.replace(/\D/g, '');
+      const fullPhone = dialDigits === '91' ? cleanPhone : `${dialDigits}${cleanPhone}`;
+      let result = await loginUser(fullPhone, password.trim());
+      if (!result.success && dialDigits === '91' && fullPhone !== cleanPhone) {
+        result = await loginUser(cleanPhone, password.trim());
+      }
+
       if (result.success) {
         triggerSuccessAnimation(result.user, false);
       } else {
@@ -530,13 +544,18 @@ export const LoginModal = () => {
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Mobile Number *</Text>
                       <View style={styles.phoneInputWrap}>
-                        <View style={styles.countryCodeBox}>
-                          <Text style={styles.flagEmoji}>🇮🇳</Text>
-                          <Text style={styles.countryCodeText}>+91</Text>
-                        </View>
+                        <TouchableOpacity
+                          style={styles.countryCodePickerBtn}
+                          onPress={() => setIsCountryModalOpen(true)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.flagEmoji}>{selectedCountry.flag}</Text>
+                          <Text style={styles.countryCodeText}>{selectedCountry.dialCode}</Text>
+                          <Ionicons name="chevron-down" size={13} color={Colors.textSecondary} style={{ marginLeft: 3 }} />
+                        </TouchableOpacity>
                         <TextInput
                           style={styles.phoneInput}
-                          placeholder="Enter 10-digit mobile"
+                          placeholder={selectedCountry.dialCode === '+91' ? 'Enter 10-digit mobile' : 'Enter mobile number'}
                           placeholderTextColor={Colors.textMuted}
                           value={phone}
                           onChangeText={(val) => {
@@ -544,7 +563,7 @@ export const LoginModal = () => {
                             setErrorMessage('');
                           }}
                           keyboardType="phone-pad"
-                          maxLength={10}
+                          maxLength={selectedCountry.dialCode === '+91' ? 10 : 15}
                           autoFocus={true}
                         />
                       </View>
@@ -619,13 +638,18 @@ export const LoginModal = () => {
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Mobile Number (WhatsApp) *</Text>
                       <View style={styles.phoneInputWrap}>
-                        <View style={styles.countryCodeBox}>
-                          <Text style={styles.flagEmoji}>🇮🇳</Text>
-                          <Text style={styles.countryCodeText}>+91</Text>
-                        </View>
+                        <TouchableOpacity
+                          style={styles.countryCodePickerBtn}
+                          onPress={() => setIsCountryModalOpen(true)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.flagEmoji}>{selectedCountry.flag}</Text>
+                          <Text style={styles.countryCodeText}>{selectedCountry.dialCode}</Text>
+                          <Ionicons name="chevron-down" size={13} color={Colors.textSecondary} style={{ marginLeft: 3 }} />
+                        </TouchableOpacity>
                         <TextInput
                           style={styles.phoneInput}
-                          placeholder="Enter 10-digit mobile"
+                          placeholder={selectedCountry.dialCode === '+91' ? 'Enter 10-digit mobile' : 'Enter mobile number'}
                           placeholderTextColor={Colors.textMuted}
                           value={phone}
                           onChangeText={(val) => {
@@ -633,7 +657,7 @@ export const LoginModal = () => {
                             setErrorMessage('');
                           }}
                           keyboardType="phone-pad"
-                          maxLength={10}
+                          maxLength={selectedCountry.dialCode === '+91' ? 10 : 15}
                           autoFocus={true}
                         />
                       </View>
@@ -687,7 +711,10 @@ export const LoginModal = () => {
                         <Ionicons name="logo-whatsapp" size={22} color="#16A34A" style={{ marginRight: 8 }} />
                         <View>
                           <Text style={styles.otpSentToLabel}>Code sent via WhatsApp to</Text>
-                          <Text style={styles.otpSentToNumber}>+91 {phone}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1 }}>
+                            <Text style={{ fontSize: 16, marginRight: 5 }}>{selectedCountry.flag}</Text>
+                            <Text style={styles.otpSentToNumber}>{selectedCountry.dialCode} {phone}</Text>
+                          </View>
                         </View>
                       </View>
                       <TouchableOpacity
@@ -768,7 +795,10 @@ export const LoginModal = () => {
                     <View style={styles.verifiedPhoneBadge}>
                       <Ionicons name="shield-checkmark" size={18} color="#16A34A" style={{ marginRight: 6 }} />
                       <Text style={styles.verifiedPhoneText}>
-                        Mobile Verified: <Text style={{ fontWeight: 'bold' }}>+91 {phone}</Text>
+                        Mobile Verified:{' '}
+                        <Text style={{ fontWeight: 'bold' }}>
+                          {selectedCountry.flag} {selectedCountry.dialCode} {phone}
+                        </Text>
                       </Text>
                     </View>
 
@@ -894,6 +924,16 @@ export const LoginModal = () => {
           )}
         </View>
       </KeyboardAvoidingView>
+
+      {/* Country Selection Modal */}
+      <CountrySelectModal
+        visible={isCountryModalOpen}
+        onClose={() => setIsCountryModalOpen(false)}
+        selectedCountry={selectedCountry}
+        onSelectCountry={(country) => {
+          setSelectedCountry(country);
+        }}
+      />
     </Modal>
   );
 };
@@ -1189,7 +1229,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     overflow: 'hidden',
   },
-  countryCodeBox: {
+  countryCodePickerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: Spacing.md,

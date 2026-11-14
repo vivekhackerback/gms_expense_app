@@ -105,17 +105,19 @@ class OtpService {
    * First tries backend proxy (which reads live MySQL `otp_domain` row),
    * with fallback to direct database-configured `api_base_url`.
    * 
-   * @param {string} phone - 10-digit mobile number
+   * @param {string} phone - Mobile number
    * @param {string} purpose - Purpose of OTP (max 15 characters per Meta limit)
    * @param {number} expirySeconds - Validity window in seconds (default: 300)
+   * @param {string} countryCode - International dialing code (e.g. "+91", "+1", "+44")
    */
-  async sendOtp(phone, purpose = 'Registration', expirySeconds = 300) {
+  async sendOtp(phone, purpose = 'Registration', expirySeconds = 300, countryCode = '+91') {
     // 0. Proactively sync latest database configuration
     try {
       await this.syncOtpDomainConfig();
     } catch (syncErr) {}
 
     const cleanPhone = String(phone).replace(/\D/g, '');
+    const cleanCountryCode = String(countryCode || '+91').trim();
     const config = getLocalOtpDomainRecord();
 
     // Sanitize purpose to never exceed Meta's 15-char limit (#132018)
@@ -135,6 +137,7 @@ class OtpService {
         headers: API_CONFIG.HEADERS,
         body: JSON.stringify({
           phone: cleanPhone,
+          country_code: cleanCountryCode,
           purpose: safePurpose,
           expiry_seconds: expirySeconds || config?.expirySeconds || 300,
           check_registered: true,
@@ -168,12 +171,15 @@ class OtpService {
       headers['X-API-Key'] = config.apiKey;
     }
 
+    const dialDigits = cleanCountryCode.replace(/\D/g, '');
+    const targetPhone = (dialDigits === '91' || !dialDigits) ? cleanPhone : `${dialDigits}${cleanPhone}`;
+
     try {
       const response = await fetch(`${baseUrl}/otp/send`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          phone: cleanPhone,
+          phone: targetPhone,
           purpose: safePurpose,
           expiry_seconds: expirySeconds || config?.expirySeconds || 300,
         }),

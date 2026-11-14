@@ -25,6 +25,7 @@ if (!$payload) {
 }
 
 $phone = isset($payload['phone']) ? trim($payload['phone']) : '';
+$countryCode = isset($payload['country_code']) ? preg_replace('/\D/', '', $payload['country_code']) : '91';
 $rawPurpose = isset($payload['purpose']) ? trim($payload['purpose']) : 'Registration';
 // Meta WhatsApp Parameter Limit: Body parameter at index 1 must NOT exceed 15 chars (Error #132018)
 if ($rawPurpose === 'Account Registration') {
@@ -41,18 +42,25 @@ if (empty($rawPurpose)) {
 $purpose = $rawPurpose;
 $expirySeconds = isset($payload['expiry_seconds']) ? (int)$payload['expiry_seconds'] : 300;
 
-// Clean phone (10 digits)
+// Clean phone digits
 $cleanPhone = preg_replace('/\D/', '', $phone);
-if (strlen($cleanPhone) === 12 && substr($cleanPhone, 0, 2) === '91') {
-    $cleanPhone = substr($cleanPhone, 2);
+// Strip leading country code if redundant
+if (!empty($countryCode) && strpos($cleanPhone, $countryCode) === 0 && strlen($cleanPhone) > 10) {
+    $localPhone = substr($cleanPhone, strlen($countryCode));
+} else {
+    $localPhone = $cleanPhone;
 }
 
-if (empty($cleanPhone) || strlen($cleanPhone) < 10) {
+if (empty($localPhone) || strlen($localPhone) < 6) {
     sendJsonResponse([
         'success' => false,
-        'message' => 'Please provide a valid 10-digit mobile number.'
+        'message' => 'Please provide a valid mobile number.'
     ], 400);
 }
+
+$fullPhone = (!empty($countryCode) ? $countryCode : '91') . $localPhone;
+// Target phone sent to gateway: 10-digit for default India (+91), full international number for other countries
+$gatewayPhone = ($countryCode === '91' || empty($countryCode)) ? $localPhone : $fullPhone;
 
 $db = getDbConnection();
 if (!$db) {
@@ -66,16 +74,17 @@ try {
     // 1. If registering, check if phone is already registered
     $checkRegistered = isset($payload['check_registered']) ? (bool)$payload['check_registered'] : true;
     if ($checkRegistered) {
-        $stmt = $db->prepare("SELECT id FROM users WHERE phone = :p1 OR phone LIKE :p2 LIMIT 1");
+        $stmt = $db->prepare("SELECT id FROM users WHERE phone = :p1 OR phone = :p2 OR phone LIKE :p3 LIMIT 1");
         $stmt->execute([
-            ':p1' => $cleanPhone,
-            ':p2' => '%' . $cleanPhone,
+            ':p1' => $localPhone,
+            ':p2' => $fullPhone,
+            ':p3' => '%' . $localPhone,
         ]);
         if ($stmt->fetch()) {
             sendJsonResponse([
                 'success' => false,
                 'already_registered' => true,
-                'message' => 'An account with mobile number ' . htmlspecialchars($cleanPhone) . ' already exists. Please sign in instead.'
+                'message' => 'An account with mobile number ' . htmlspecialchars($localPhone) . ' already exists. Please sign in instead.'
             ], 409);
         }
     }
@@ -84,7 +93,7 @@ try {
     $otpClient = OtpGatewayClient::fromDatabase($db);
 
     // 3. Dispatch OTP via WhatsApp Gateway
-    $result = $otpClient->sendOtp($cleanPhone, $purpose, $expirySeconds);
+    $result = $otpClient->sendOtp($gatewayPhone, $purpose, $expirySeconds);
 
     if (!empty($result['success'])) {
         sendJsonResponse([
