@@ -136,10 +136,7 @@ const findLegacyDbPathAsync = async () => {
  * 5. Dynamically calculates new database name using current Unix timestamp
  */
 export const resolveOrCreateDatabaseNameAsync = async () => {
-  if (currentDbName) {
-    await saveDatabaseMetaAsync(currentDbName);
-    return currentDbName;
-  }
+  let resolvedName = null;
 
   // 1. Try reading saved meta file
   const docDir = FileSystem.documentDirectory;
@@ -151,46 +148,60 @@ export const resolveOrCreateDatabaseNameAsync = async () => {
         const raw = await FileSystem.readAsStringAsync(metaPath);
         const parsed = JSON.parse(raw);
         if (parsed && parsed.dbName) {
-          currentDbName = parsed.dbName;
-          return currentDbName;
+          resolvedName = parsed.dbName;
         }
       }
     } catch (e) {}
   }
 
   // 2. Scan directories for existing expenses_khata_{timestamp}.db
-  try {
-    const existing = await scanForExistingExpensesKhataDbAsync();
-    if (existing) {
-      currentDbName = existing;
-      await saveDatabaseMetaAsync(existing);
-      return currentDbName;
-    }
-  } catch (e) {}
+  if (!resolvedName) {
+    try {
+      const existing = await scanForExistingExpensesKhataDbAsync();
+      if (existing) {
+        resolvedName = existing;
+      }
+    } catch (e) {}
+  }
 
   // 3. Migrate legacy expenses_khata.db if present
-  try {
-    const legacyPath = await findLegacyDbPathAsync();
-    if (legacyPath) {
-      const newTimestamp = Math.floor(Date.now() / 1000);
-      const newName = calculateDatabaseName(newTimestamp);
-      const targetDir = SQLite.defaultDatabaseDirectory || `${FileSystem.documentDirectory}SQLite/`;
-      const targetPath = `${targetDir.replace(/\/+$/, '')}/${newName}`;
-      try {
-        await FileSystem.copyAsync({ from: legacyPath, to: targetPath });
-      } catch (copyErr) {}
-      currentDbName = newName;
-      await saveDatabaseMetaAsync(newName);
-      return currentDbName;
-    }
-  } catch (e) {}
+  if (!resolvedName) {
+    try {
+      const legacyPath = await findLegacyDbPathAsync();
+      if (legacyPath) {
+        const newTimestamp = Math.floor(Date.now() / 1000);
+        const newName = calculateDatabaseName(newTimestamp);
+        const targetDir = SQLite.defaultDatabaseDirectory || `${FileSystem.documentDirectory}SQLite/`;
+        const targetPath = `${targetDir.replace(/\/+$/, '')}/${newName}`;
+        try {
+          await FileSystem.copyAsync({ from: legacyPath, to: targetPath });
+        } catch (copyErr) {}
+        resolvedName = newName;
+      }
+    } catch (e) {}
+  }
 
-  // 4. Fresh dynamic generation using current Unix timestamp
-  const unixTimestamp = Math.floor(Date.now() / 1000);
-  const dynamicName = calculateDatabaseName(unixTimestamp);
-  currentDbName = dynamicName;
-  await saveDatabaseMetaAsync(dynamicName);
-  return currentDbName;
+  // 4. If currentDbName is already set and no saved db found, keep currentDbName
+  if (!resolvedName && currentDbName) {
+    resolvedName = currentDbName;
+  }
+
+  // 5. Otherwise dynamically calculate new database name using current Unix timestamp
+  if (!resolvedName) {
+    resolvedName = calculateDatabaseName();
+  }
+
+  // If active database instance differs from resolved database, close old instance
+  if (dbInstance && currentDbName && currentDbName !== resolvedName) {
+    try {
+      dbInstance.closeSync();
+    } catch (e) {}
+    dbInstance = null;
+  }
+
+  currentDbName = resolvedName;
+  await saveDatabaseMetaAsync(resolvedName);
+  return resolvedName;
 };
 
 export const getDatabaseFilePath = async () => {
@@ -323,7 +334,14 @@ export const getDatabase = () => {
 
 export const initDatabase = (customDbName = null) => {
   if (customDbName) {
-    setDatabaseName(customDbName);
+    const formatted = customDbName.endsWith('.db') ? customDbName : `${customDbName}.db`;
+    if (dbInstance && currentDbName && currentDbName !== formatted) {
+      try {
+        dbInstance.closeSync();
+      } catch (e) {}
+      dbInstance = null;
+    }
+    setDatabaseName(formatted);
   }
   const activeDbName = getDatabaseName();
   if (dbInstance) return dbInstance;

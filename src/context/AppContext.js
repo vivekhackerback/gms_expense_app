@@ -13,6 +13,7 @@ import {
   getAuthSession,
   saveAuthSession,
   clearAuthSession,
+  restoreAuthSessionAsync,
   updateSetting,
   eraseLocalDeviceDataOnly,
   addTransaction as dbAddTransaction,
@@ -65,6 +66,7 @@ export const AppProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [authToken, setAuthToken] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isRestoringAuth, setIsRestoringAuth] = useState(true);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
@@ -151,14 +153,70 @@ export const AppProvider = ({ children }) => {
         setAuthToken(session.token);
         setIsLoggedIn(true);
       } else {
-        setCurrentUser(null);
-        setAuthToken(null);
-        setIsLoggedIn(false);
+        if (!isRestoringAuth) {
+          setCurrentUser(null);
+          setAuthToken(null);
+          setIsLoggedIn(false);
+        }
       }
     } catch (err) {
       console.error('Error refreshing state:', err);
     }
-  }, []);
+  }, [isRestoringAuth]);
+
+  // Server Token Verification Helper
+  const validateSessionWithServerAsync = useCallback(async (token, user) => {
+    if (!token || !user) return;
+    try {
+      const net = await checkNetworkConnectivity();
+      if (!net.isConnected) {
+        console.log('📡 [AUTH_VERIFY] Device offline. Session preserved locally.');
+        return;
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const headers = {
+        ...API_CONFIG.HEADERS,
+        Authorization: `Bearer ${token}`,
+      };
+
+      const response = await fetch(API_CONFIG.AUTH_VERIFY_TOKEN_URL, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          token,
+          user_id: user?.id,
+          phone: user?.phone,
+          country_code: user?.country_code,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const data = await response.json().catch(() => null);
+
+      if (response.status === 401 || (data && data.success === false && data.valid === false)) {
+        console.warn('🔒 [AUTH_VERIFY] Token invalid or revoked by server. Clearing session.');
+        clearAuthSession();
+        setCurrentUser(null);
+        setAuthToken(null);
+        setIsLoggedIn(false);
+        refreshAll();
+        return;
+      }
+
+      if (response.ok && data && data.success && data.user) {
+        const updatedUser = { ...user, ...data.user };
+        saveAuthSession(token, updatedUser);
+        setCurrentUser(updatedUser);
+        console.log('✅ [AUTH_VERIFY] Session verified with server successfully.');
+      }
+    } catch (err) {
+      console.warn('⚠️ [AUTH_VERIFY] Network error while verifying token (preserving session):', err?.message);
+    }
+  }, [refreshAll]);
 
   // Background Auto-Sync Daemon
   const runBackgroundChecks = useCallback(async () => {
@@ -207,9 +265,36 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Dynamically calculate and resolve database name using Unix timestamp
+        // 1. Immediately restore auth session from durable storage
+        let restoredSession = null;
+        try {
+          restoredSession = await restoreAuthSessionAsync();
+          if (restoredSession && restoredSession.isLoggedIn && restoredSession.user) {
+            setCurrentUser(restoredSession.user);
+            setAuthToken(restoredSession.token);
+            setIsLoggedIn(true);
+          }
+        } catch (authErr) {
+          console.warn('⚠️ [APP_INIT] Error restoring auth session:', authErr);
+        }
+
+        // 2. Dynamically calculate and resolve database name using Unix timestamp
         const resolvedDbName = await resolveOrCreateDatabaseNameAsync();
         initDatabase(resolvedDbName);
+
+        // 3. Ensure restored session is also persisted in SQLite settings table
+        if (restoredSession && restoredSession.isLoggedIn && restoredSession.user) {
+          saveAuthSession(restoredSession.token, restoredSession.user);
+        } else {
+          // If file had no session, check if SQLite had one
+          const dbSession = getAuthSession();
+          if (dbSession.isLoggedIn && dbSession.user) {
+            restoredSession = dbSession;
+            setCurrentUser(dbSession.user);
+            setAuthToken(dbSession.token);
+            setIsLoggedIn(true);
+          }
+        }
 
         const savedCurrency = getAppCurrency();
         if (savedCurrency) {
@@ -223,17 +308,16 @@ export const AppProvider = ({ children }) => {
           setIsCurrencySetupOpen(true);
         }
 
-        const session = getAuthSession();
-        if (session.isLoggedIn) {
-          setCurrentUser(session.user);
-          setAuthToken(session.token);
-          setIsLoggedIn(true);
-        }
-
         refreshAll();
+        setIsRestoringAuth(false);
         const net = await checkNetworkConnectivity();
         setNetworkStatus(net);
         setIsInitialized(true);
+
+        // 4. Validate saved session with server asynchronously
+        if (restoredSession && restoredSession.isLoggedIn && restoredSession.token) {
+          validateSessionWithServerAsync(restoredSession.token, restoredSession.user);
+        }
 
         // Fetch latest UPI & OTP Gateway configurations in background
         if (net.isConnected) {
@@ -245,6 +329,7 @@ export const AppProvider = ({ children }) => {
         runBackgroundChecks();
       } catch (e) {
         console.error('Initialization error:', e);
+        setIsRestoringAuth(false);
         setIsInitialized(true);
       }
     };
@@ -256,7 +341,7 @@ export const AppProvider = ({ children }) => {
     }, 25000);
 
     return () => clearInterval(interval);
-  }, [refreshAll, runBackgroundChecks]);
+  }, [refreshAll, runBackgroundChecks, validateSessionWithServerAsync]);
 
   // Modal Actions
   const openAddTransaction = (options = {}) => {
@@ -675,11 +760,21 @@ export const AppProvider = ({ children }) => {
 
   const logoutUser = async () => {
     try {
-      // Optional: notify server
+      const activeToken = authToken;
+      const activeUser = currentUser;
+
+      // Notify server to revoke/clear token
       try {
         fetch(API_CONFIG.AUTH_LOGOUT_URL, {
           method: 'POST',
-          headers: API_CONFIG.HEADERS,
+          headers: {
+            ...API_CONFIG.HEADERS,
+            ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
+          },
+          body: JSON.stringify({
+            token: activeToken,
+            user_id: activeUser?.id,
+          }),
         }).catch(() => {});
       } catch (e) {}
 
@@ -852,6 +947,7 @@ export const AppProvider = ({ children }) => {
         currentUser,
         authToken,
         isLoggedIn,
+        isRestoringAuth,
         isLoginModalOpen,
         openLoginModal,
         closeLoginModal,

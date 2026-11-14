@@ -55,6 +55,7 @@ export const MoreScreen = () => {
     openBackupSettings,
     currentUser,
     isLoggedIn,
+    isRestoringAuth,
     openLoginModal,
     openLogoutModal,
     updateUserProfile,
@@ -69,9 +70,15 @@ export const MoreScreen = () => {
   const [isCurrencyModalOpen, setIsCurrencyModalOpen] = useState(false);
 
   // Budget & Spend States
-  const [monthlyBudget, setMonthlyBudgetState] = useState(() => getMonthlyBudget());
-  const [monthSpend, setMonthSpend] = useState(() => getThisMonthSpend());
-  const [categoryReport, setCategoryReport] = useState(() => getMonthlyCategorySpendReport());
+  const [monthlyBudget, setMonthlyBudgetState] = useState(() => {
+    try { return getMonthlyBudget(); } catch (e) { return 0; }
+  });
+  const [monthSpend, setMonthSpend] = useState(() => {
+    try { return getThisMonthSpend(); } catch (e) { return { spent: 0, budget: 0 }; }
+  });
+  const [categoryReport, setCategoryReport] = useState(() => {
+    try { return getMonthlyCategorySpendReport(); } catch (e) { return { items: [] }; }
+  });
   const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
   const [isEmiModalOpen, setIsEmiModalOpen] = useState(false);
   const [isExportPdfOpen, setIsExportPdfOpen] = useState(false);
@@ -132,7 +139,12 @@ export const MoreScreen = () => {
   };
 
   // Developer Mode & Stress Test States
-  const [isDeveloperMode, setIsDeveloperMode] = useState(() => isDeveloperModeUnlocked());
+  const [isDeveloperMode, setIsDeveloperMode] = useState(false);
+  useEffect(() => {
+    try {
+      setIsDeveloperMode(isDeveloperModeUnlocked());
+    } catch (e) {}
+  }, []);
   const [devTapCount, setDevTapCount] = useState(0);
   const [devToastMessage, setDevToastMessage] = useState(null);
   const lastDevTapTime = useRef(0);
@@ -442,6 +454,11 @@ export const MoreScreen = () => {
               <Text style={styles.logoutBtnText}>Logout</Text>
             </TouchableOpacity>
           </View>
+        ) : isRestoringAuth ? (
+          <View style={[styles.userProfileCard, Shadows.sm, { paddingVertical: 18, justifyContent: 'center', alignItems: 'center' }]}>
+            <ActivityIndicator size="small" color={Colors.primary} />
+            <Text style={{ marginTop: 6, fontSize: 12, color: Colors.textMuted }}>Checking session...</Text>
+          </View>
         ) : (
           <TouchableOpacity
             style={[styles.loginPromptCard, Shadows.sm]}
@@ -611,20 +628,6 @@ export const MoreScreen = () => {
             </View>
           )}
         </TouchableOpacity>
-
-        {/* Account Profile Section */}
-        {isLoggedIn &&
-          renderSection('MY ACCOUNT', [
-            {
-              icon: 'person-circle-outline',
-              iconColor: '#2563EB',
-              iconBg: '#EFF6FF',
-              label: 'Full Name',
-              sublabel: currentUser?.name || 'Tap to set your full name',
-              rightText: 'Change ✏️',
-              onPress: handleOpenEditProfile,
-            },
-          ])}
 
         {/* Preferences */}
         {renderSection('PREFERENCES', [

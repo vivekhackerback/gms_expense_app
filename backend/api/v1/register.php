@@ -210,6 +210,15 @@ try {
     $userId = intval($db->lastInsertId());
     $token = bin2hex(random_bytes(24));
 
+    // Save session token in users table
+    try {
+        $checkCols = $db->query("SHOW COLUMNS FROM users LIKE 'session_token'")->fetchAll();
+        if (empty($checkCols)) {
+            $db->exec("ALTER TABLE users ADD COLUMN session_token VARCHAR(255) NULL");
+        }
+        $db->prepare("UPDATE users SET session_token = :t WHERE id = :id")->execute([':t' => $token, ':id' => $userId]);
+    } catch (Exception $e) {}
+
     // Initialize dedicated international user upload directory
     getUserUploadDir($e164Phone, $countryCode);
 

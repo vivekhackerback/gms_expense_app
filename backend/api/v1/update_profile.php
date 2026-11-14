@@ -55,81 +55,155 @@ try {
     $now = time();
 
     if ($userId > 0) {
-        $stmt = $db->prepare("UPDATE users SET name = :name, email = CASE WHEN :email != '' THEN :email ELSE email END, updated_at = :updated_at WHERE id = :id");
-        $stmt->execute([':name' => $name, ':email' => $email, ':updated_at' => $now, ':id' => $userId]);
-    } else {
-        if ($hasCols) {
-            $stmt = $db->prepare("
-                UPDATE users 
-                SET name = :name, email = CASE WHEN :email != '' THEN :email ELSE email END, updated_at = :updated_at 
-                WHERE phone = :e164 
-                   OR phone = :digits 
-                   OR (country_code = :cc AND national_phone = :nat)
-            ");
+        if (!empty($email)) {
+            $stmt = $db->prepare("UPDATE users SET name = :name, email = :email, updated_at = :updated_at WHERE id = :id");
             $stmt->execute([
                 ':name'       => $name,
                 ':email'      => $email,
                 ':updated_at' => $now,
-                ':e164'       => $e164Phone,
-                ':digits'     => $userDigits,
-                ':cc'         => $countryCode,
-                ':nat'        => $nationalPhone,
+                ':id'         => $userId,
             ]);
         } else {
-            $stmt = $db->prepare("
-                UPDATE users 
-                SET name = :name, email = CASE WHEN :email != '' THEN :email ELSE email END, updated_at = :updated_at 
-                WHERE phone = :e164 
-                   OR phone = :digits 
-                   OR phone = :nat
-            ");
+            $stmt = $db->prepare("UPDATE users SET name = :name, updated_at = :updated_at WHERE id = :id");
             $stmt->execute([
                 ':name'       => $name,
-                ':email'      => $email,
                 ':updated_at' => $now,
-                ':e164'       => $e164Phone,
-                ':digits'     => $userDigits,
-                ':nat'        => $nationalPhone,
+                ':id'         => $userId,
             ]);
+        }
+    } else {
+        if ($hasCols) {
+            if (!empty($email)) {
+                $stmt = $db->prepare("
+                    UPDATE users 
+                    SET name = :name, email = :email, updated_at = :updated_at 
+                    WHERE phone = :e164 
+                       OR phone = :digits 
+                       OR (country_code = :cc AND national_phone = :nat)
+                ");
+                $stmt->execute([
+                    ':name'       => $name,
+                    ':email'      => $email,
+                    ':updated_at' => $now,
+                    ':e164'       => $e164Phone,
+                    ':digits'     => $userDigits,
+                    ':cc'         => $countryCode,
+                    ':nat'        => $nationalPhone,
+                ]);
+            } else {
+                $stmt = $db->prepare("
+                    UPDATE users 
+                    SET name = :name, updated_at = :updated_at 
+                    WHERE phone = :e164 
+                       OR phone = :digits 
+                       OR (country_code = :cc AND national_phone = :nat)
+                ");
+                $stmt->execute([
+                    ':name'       => $name,
+                    ':updated_at' => $now,
+                    ':e164'       => $e164Phone,
+                    ':digits'     => $userDigits,
+                    ':cc'         => $countryCode,
+                    ':nat'        => $nationalPhone,
+                ]);
+            }
+        } else {
+            if (!empty($email)) {
+                $stmt = $db->prepare("
+                    UPDATE users 
+                    SET name = :name, email = :email, updated_at = :updated_at 
+                    WHERE phone = :e164 
+                       OR phone = :digits 
+                       OR phone = :nat
+                ");
+                $stmt->execute([
+                    ':name'       => $name,
+                    ':email'      => $email,
+                    ':updated_at' => $now,
+                    ':e164'       => $e164Phone,
+                    ':digits'     => $userDigits,
+                    ':nat'        => $nationalPhone,
+                ]);
+            } else {
+                $stmt = $db->prepare("
+                    UPDATE users 
+                    SET name = :name, updated_at = :updated_at 
+                    WHERE phone = :e164 
+                       OR phone = :digits 
+                       OR phone = :nat
+                ");
+                $stmt->execute([
+                    ':name'       => $name,
+                    ':updated_at' => $now,
+                    ':e164'       => $e164Phone,
+                    ':digits'     => $userDigits,
+                    ':nat'        => $nationalPhone,
+                ]);
+            }
         }
     }
 
-    // Fetch updated user (only SELECT columns that exist)
-    if ($hasCols) {
-        $selectStmt = $db->prepare("
-            SELECT id, name, phone, email, currency, country_code, national_phone 
-            FROM users 
-            WHERE id = :id 
-               OR phone = :e164 
-               OR phone = :digits 
-            LIMIT 1
-        ");
-        $selectStmt->execute([
-            ':id'     => $userId,
-            ':e164'   => $e164Phone,
-            ':digits' => $userDigits,
-        ]);
-        $updatedUser = $selectStmt->fetch();
+    // Fetch updated user
+    if ($userId > 0) {
+        if ($hasCols) {
+            $selectStmt = $db->prepare("
+                SELECT id, name, phone, email, currency, country_code, national_phone 
+                FROM users 
+                WHERE id = :id 
+                LIMIT 1
+            ");
+            $selectStmt->execute([':id' => $userId]);
+            $updatedUser = $selectStmt->fetch();
+        } else {
+            $selectStmt = $db->prepare("
+                SELECT id, name, phone, email, currency 
+                FROM users 
+                WHERE id = :id 
+                LIMIT 1
+            ");
+            $selectStmt->execute([':id' => $userId]);
+            $updatedUser = $selectStmt->fetch();
+            if ($updatedUser) {
+                $updatedUser['country_code'] = $countryCode;
+                $updatedUser['national_phone'] = $nationalPhone;
+            }
+        }
     } else {
-        $selectStmt = $db->prepare("
-            SELECT id, name, phone, email, currency 
-            FROM users 
-            WHERE id = :id 
-               OR phone = :e164 
-               OR phone = :digits 
-               OR phone = :nat
-            LIMIT 1
-        ");
-        $selectStmt->execute([
-            ':id'     => $userId,
-            ':e164'   => $e164Phone,
-            ':digits' => $userDigits,
-            ':nat'    => $nationalPhone,
-        ]);
-        $updatedUser = $selectStmt->fetch();
-        if ($updatedUser) {
-            $updatedUser['country_code'] = $countryCode;
-            $updatedUser['national_phone'] = $nationalPhone;
+        if ($hasCols) {
+            $selectStmt = $db->prepare("
+                SELECT id, name, phone, email, currency, country_code, national_phone 
+                FROM users 
+                WHERE phone = :e164 
+                   OR phone = :digits 
+                   OR (country_code = :cc AND national_phone = :nat)
+                LIMIT 1
+            ");
+            $selectStmt->execute([
+                ':e164'   => $e164Phone,
+                ':digits' => $userDigits,
+                ':cc'     => $countryCode,
+                ':nat'    => $nationalPhone,
+            ]);
+            $updatedUser = $selectStmt->fetch();
+        } else {
+            $selectStmt = $db->prepare("
+                SELECT id, name, phone, email, currency 
+                FROM users 
+                WHERE phone = :e164 
+                   OR phone = :digits 
+                   OR phone = :nat
+                LIMIT 1
+            ");
+            $selectStmt->execute([
+                ':e164'   => $e164Phone,
+                ':digits' => $userDigits,
+                ':nat'    => $nationalPhone,
+            ]);
+            $updatedUser = $selectStmt->fetch();
+            if ($updatedUser) {
+                $updatedUser['country_code'] = $countryCode;
+                $updatedUser['national_phone'] = $nationalPhone;
+            }
         }
     }
 
