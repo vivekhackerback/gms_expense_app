@@ -9,17 +9,8 @@
 require_once __DIR__ . '/db_connect.php';
 
 $rawPhone = isset($_GET['phone']) ? trim($_GET['phone']) : (isset($_GET['mobile']) ? trim($_GET['mobile']) : '');
-$cleanPhone = preg_replace('/[^0-9]/', '', $rawPhone);
-if (empty($cleanPhone) || strlen($cleanPhone) < 4) {
-    $cleanPhone = '9876543210';
-}
-
-$baseUploadsDir = realpath(__DIR__ . '/../../uploads');
-if (!$baseUploadsDir) {
-    $baseUploadsDir = __DIR__ . '/../../uploads';
-}
-
-$userDbDir = $baseUploadsDir . '/users/' . $cleanPhone . '/database';
+$countryCode = isset($_GET['country_code']) ? trim($_GET['country_code']) : (isset($_GET['dial_code']) ? trim($_GET['dial_code']) : null);
+$userDbDir = getUserUploadDir($rawPhone, $countryCode, 'database');
 
 // Support downloading a specific chosen backup file or defaulting to latest
 $requestedFile = 'expenses_khata.db';

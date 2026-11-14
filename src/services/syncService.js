@@ -673,6 +673,7 @@ export const uploadPendingImages = async (customBatchLimit = 20) => {
           transaction_uuid: txUuid,
           ...(img.transaction_id ? { transaction_id: String(img.transaction_id) } : {}),
           phone: String(userPhone),
+          country_code: String(auth?.user?.country_code || ''),
           user_id: String(userId),
           file_name: fileName,
         };

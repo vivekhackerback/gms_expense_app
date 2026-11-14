@@ -66,10 +66,9 @@ if (strpos($header, 'SQLite format 3') !== 0) {
 
 // 3. User & Metadata parsing
 $rawPhone = isset($_POST['phone']) ? trim($_POST['phone']) : (isset($_POST['mobile']) ? trim($_POST['mobile']) : '');
-$cleanPhone = preg_replace('/[^0-9]/', '', $rawPhone);
-if (empty($cleanPhone) || strlen($cleanPhone) < 4) {
-    $cleanPhone = '9876543210';
-}
+$countryCode = isset($_POST['country_code']) ? trim($_POST['country_code']) : (isset($_POST['dial_code']) ? trim($_POST['dial_code']) : null);
+$parsed = parsePhoneNumber($rawPhone, $countryCode);
+$e164Phone = $parsed['e164'];
 
 $userId = isset($_POST['user_id']) ? intval($_POST['user_id']) : 1;
 $txCount = isset($_POST['tx_count']) ? intval($_POST['tx_count']) : 0;
@@ -79,30 +78,10 @@ $imageCount = isset($_POST['image_count']) ? intval($_POST['image_count']) : 0;
 
 $now = time();
 
-// 4. Directory Structure
-$baseUploadsDir = realpath(__DIR__ . '/../../uploads');
-if (!$baseUploadsDir) {
-    $baseUploadsDir = __DIR__ . '/../../uploads';
-    if (!is_dir($baseUploadsDir)) {
-        mkdir($baseUploadsDir, 0755, true);
-    }
-}
-
-$userDbDir = $baseUploadsDir . '/users/' . $cleanPhone . '/database';
-if (!is_dir($userDbDir)) {
-    if (!mkdir($userDbDir, 0755, true)) {
-        sendJsonResponse([
-            'success' => false,
-            'saved'   => false,
-            'message' => 'Failed to create user database directory.'
-        ], 500);
-    }
-}
-
-$userImagesDir = $baseUploadsDir . '/users/' . $cleanPhone . '/images';
-if (!is_dir($userImagesDir)) {
-    mkdir($userImagesDir, 0755, true);
-}
+// 4. Dedicated International Directory Structure: uploads/{country_code+phone}/
+$userDbDir = getUserUploadDir($rawPhone, $countryCode, 'database');
+$userImagesDir = getUserUploadDir($rawPhone, $countryCode, 'images');
+$txDir = getUserUploadDir($rawPhone, $countryCode, 'transactions');
 
 // Save active database file
 $targetDbFile = $userDbDir . '/expenses_khata.db';
@@ -131,7 +110,6 @@ if (is_dir($userImagesDir)) {
 }
 
 // Also check transaction image subdirectories if any
-$txDir = $baseUploadsDir . '/users/' . $cleanPhone . '/transactions';
 if (is_dir($txDir)) {
     $subfolders = scandir($txDir);
     foreach ($subfolders as $sf) {
@@ -151,7 +129,9 @@ $existingImages = array_values(array_unique($existingImages));
 // 5. Create or Update Manifest
 $manifest = [
     'user_id'         => $userId,
-    'phone'           => $cleanPhone,
+    'phone'           => $e164Phone,
+    'country_code'    => $parsed['country_code'],
+    'digits'          => $parsed['digits'],
     'last_backup_at'  => $now,
     'db_file_name'    => 'expenses_khata.db',
     'db_size_bytes'   => $fileSize,

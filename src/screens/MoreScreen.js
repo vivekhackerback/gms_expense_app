@@ -415,7 +415,7 @@ export const MoreScreen = () => {
                   </View>
                 </View>
                 <Text style={styles.userPhoneText}>
-                  +91 {currentUser.phone || '9876543210'}
+                  {currentUser.phone?.startsWith('+') ? currentUser.phone : `${currentUser.country_code || '+91'} ${currentUser.phone || '9876543210'}`}
                 </Text>
               </View>
             </View>

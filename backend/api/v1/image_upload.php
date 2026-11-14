@@ -15,10 +15,7 @@ require_once __DIR__ . '/db_connect.php';
 
 // 1. Validate HTTP Method & Support GET/HEAD Health Checks
 if ($_SERVER['REQUEST_METHOD'] === 'GET' || $_SERVER['REQUEST_METHOD'] === 'HEAD') {
-    $baseUploadsDir = realpath(__DIR__ . '/../../uploads');
-    if (!$baseUploadsDir) {
-        $baseUploadsDir = __DIR__ . '/../../uploads';
-    }
+    $baseUploadsDir = getUserUploadsBaseDir();
     $storageWritable = is_dir($baseUploadsDir) ? is_writable($baseUploadsDir) : is_writable(__DIR__ . '/../../');
     $db = getDbConnection();
     $dbOk = ($db !== null);
@@ -130,13 +127,9 @@ if (empty($transactionUuid) && empty($transactionId)) {
     ], 400);
 }
 
-// Determine User Phone (Dedicated Directory)
+// Determine User Phone & Country (Dedicated Directory)
 $rawPhone = isset($_POST['phone']) ? trim($_POST['phone']) : (isset($_POST['mobile']) ? trim($_POST['mobile']) : '');
-$cleanPhone = preg_replace('/[^0-9]/', '', $rawPhone);
-if (empty($cleanPhone) || strlen($cleanPhone) < 4) {
-    $cleanPhone = '9876543210'; // Default tenant fallback
-}
-
+$countryCode = isset($_POST['country_code']) ? trim($_POST['country_code']) : (isset($_POST['dial_code']) ? trim($_POST['dial_code']) : null);
 $userId = isset($_POST['user_id']) ? intval($_POST['user_id']) : 1;
 
 // Determine Transaction Prefix & Folder (e.g. TXN_10001 or TXN_UUID)
@@ -156,25 +149,9 @@ $now = time(); // Unix timestamp in seconds
 $uniqueHex = bin2hex(random_bytes(2)); // 4-char random hex (e.g. a8f3)
 $generatedFileName = sprintf('%s_%d_%s.%s', $txIdentifier, $now, $uniqueHex, $safeExtension);
 
-// 7. Structured Directory Storage: uploads/users/{mobile}/transactions/{tx_folder}/
-$baseUploadsDir = realpath(__DIR__ . '/../../uploads');
-if (!$baseUploadsDir) {
-    $baseUploadsDir = __DIR__ . '/../../uploads';
-    if (!is_dir($baseUploadsDir)) {
-        mkdir($baseUploadsDir, 0755, true);
-    }
-}
-
-$userDir = $baseUploadsDir . '/users/' . $cleanPhone . '/transactions/' . $txFolder;
-if (!is_dir($userDir)) {
-    if (!mkdir($userDir, 0755, true)) {
-        sendJsonResponse([
-            'success' => false,
-            'saved'   => false,
-            'message' => 'Failed to create dedicated user transaction directory on server.'
-        ], 500);
-    }
-}
+// 7. Structured International Directory Storage: uploads/{country_code+phone}/transactions/{tx_folder}/
+$txSubfolder = 'transactions/' . $txFolder;
+$userDir = getUserUploadDir($rawPhone, $countryCode, $txSubfolder);
 
 $targetFilePath = $userDir . '/' . $generatedFileName;
 
@@ -195,18 +172,8 @@ if (!move_uploaded_file($tmpPath, $targetFilePath)) {
 }
 
 // Construct Storage URLs and Relative Path
-$relativeStoragePath = 'uploads/users/' . $cleanPhone . '/transactions/' . $txFolder . '/' . $generatedFileName;
-$isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || 
-           (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ||
-           (isset($_SERVER['HTTP_X_FORWARDED_SSL']) && $_SERVER['HTTP_X_FORWARDED_SSL'] === 'on');
-$protocol = $isHttps ? 'https://' : 'http://';
-$host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
-
-$scriptName = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
-$apiDirPos = strpos($scriptName, '/api/v1/');
-$pathPrefix = ($apiDirPos !== false) ? substr($scriptName, 0, $apiDirPos) : '';
-
-$storageUrl = $protocol . $host . $pathPrefix . '/' . $relativeStoragePath;
+$relativeStoragePath = getUserUploadRelativePath($rawPhone, $countryCode, $txSubfolder, $generatedFileName);
+$storageUrl = getUserPublicStorageUrl($relativeStoragePath);
 
 // 9. Persist to MySQL Database
 $db = getDbConnection();

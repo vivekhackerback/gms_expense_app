@@ -533,7 +533,7 @@ export const AppProvider = ({ children }) => {
     setIsLogoutModalOpen(false);
   };
 
-  const loginUser = async (phone, password) => {
+  const loginUser = async (phone, password, countryCode = '+91') => {
     try {
       const net = await checkNetworkConnectivity();
       if (!net.isConnected) {
@@ -546,7 +546,7 @@ export const AppProvider = ({ children }) => {
       const response = await fetch(API_CONFIG.AUTH_LOGIN_URL, {
         method: 'POST',
         headers: API_CONFIG.HEADERS,
-        body: JSON.stringify({ phone, password }),
+        body: JSON.stringify({ phone, password, country_code: countryCode }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -576,7 +576,7 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const registerUser = async (name, phone, password, email = '') => {
+  const registerUser = async (name, phone, password, email = '', countryCode = '+91') => {
     try {
       const net = await checkNetworkConnectivity();
       if (!net.isConnected) {
@@ -589,7 +589,7 @@ export const AppProvider = ({ children }) => {
       const response = await fetch(API_CONFIG.AUTH_REGISTER_URL, {
         method: 'POST',
         headers: API_CONFIG.HEADERS,
-        body: JSON.stringify({ name, phone, password, email }),
+        body: JSON.stringify({ name, phone, password, email, country_code: countryCode }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -642,7 +642,7 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const updateUserProfile = async (name, email = '') => {
+  const updateUserProfile = async (name, email = '', countryCode = null) => {
     try {
       const net = await checkNetworkConnectivity();
       if (!net.isConnected) {
@@ -658,6 +658,7 @@ export const AppProvider = ({ children }) => {
         body: JSON.stringify({
           user_id: currentUser?.id,
           phone: currentUser?.phone,
+          country_code: countryCode || currentUser?.country_code,
           name: name.trim(),
           email: email.trim(),
         }),

@@ -177,7 +177,7 @@ export const LogoutModal = () => {
                       {currentUser.name || 'Account User'}
                     </Text>
                     <Text style={styles.userPhone}>
-                      +91 {currentUser.phone || ''}
+                      {currentUser.phone?.startsWith('+') ? currentUser.phone : `${currentUser.country_code || '+91'} ${currentUser.phone || ''}`}
                     </Text>
                   </View>
                 </View>

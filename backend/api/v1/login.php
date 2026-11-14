@@ -1,7 +1,11 @@
 <?php
 /**
- * User Login API Endpoint (Mobile Number + Password)
+ * User Login API Endpoint (International Mobile Number + Password)
  * POST /api/v1/login.php
+ * 
+ * Supports global accounts with country dialing codes.
+ * Ensures users with identical local mobile numbers from different countries
+ * log into their own distinct accounts (e.g. +91 8651615629 vs +1 8651615629).
  */
 
 require_once __DIR__ . '/db_connect.php';
@@ -20,24 +24,24 @@ if (!$payload) {
     $payload = $_POST;
 }
 
-$phone = isset($payload['phone']) ? trim($payload['phone']) : (isset($payload['mobile']) ? trim($payload['mobile']) : '');
+$phoneInput = isset($payload['phone']) ? trim($payload['phone']) : (isset($payload['mobile']) ? trim($payload['mobile']) : '');
+$countryCodeInput = isset($payload['country_code']) ? trim($payload['country_code']) : (isset($payload['dial_code']) ? trim($payload['dial_code']) : null);
 $password = isset($payload['password']) ? trim($payload['password']) : '';
 
-if (empty($phone) || empty($password)) {
+if (empty($phoneInput) || empty($password)) {
     sendJsonResponse([
         'success' => false,
         'message' => 'Please provide both mobile number and password.'
     ], 400);
 }
 
-// Clean phone (keep digits only for comparison)
-$cleanPhone = preg_replace('/[^0-9]/', '', $phone);
-// Support 10 digit or with 91 prefix
-if (strlen($cleanPhone) === 12 && substr($cleanPhone, 0, 2) === '91') {
-    $cleanPhone10 = substr($cleanPhone, 2);
-} else {
-    $cleanPhone10 = $cleanPhone;
-}
+// Parse and normalize international phone number
+$parsedPhone = parsePhoneNumber($phoneInput, $countryCodeInput);
+$e164Phone = $parsedPhone['e164'];
+$countryCode = $parsedPhone['country_code'];
+$dialCode = $parsedPhone['dial_code'];
+$nationalPhone = $parsedPhone['national_number'];
+$userDigits = $parsedPhone['digits'];
 
 $db = getDbConnection();
 if (!$db) {
@@ -48,19 +52,64 @@ if (!$db) {
 }
 
 try {
-    // Search user by phone
-    $stmt = $db->prepare("SELECT * FROM users WHERE phone = :phone1 OR phone = :phone2 OR phone LIKE :phone3 LIMIT 1");
+    // 1. Search user by exact international phone number or dial_code + national_phone
+    $stmt = $db->prepare("
+        SELECT * FROM users 
+        WHERE phone = :e164 
+           OR phone = :digits 
+           OR (country_code = :cc AND (national_phone = :nat OR phone = :nat_exact))
+        LIMIT 1
+    ");
     $stmt->execute([
-        ':phone1' => $phone,
-        ':phone2' => $cleanPhone10,
-        ':phone3' => '%' . $cleanPhone10
+        ':e164'      => $e164Phone,
+        ':digits'    => $userDigits,
+        ':cc'        => $countryCode,
+        ':nat'       => $nationalPhone,
+        ':nat_exact' => $nationalPhone,
     ]);
     $user = $stmt->fetch();
+
+    // 2. Backward compatibility for un-migrated legacy accounts (e.g. existing Indian users stored as 10 digits)
+    if (!$user && ($countryCode === '+91' || $dialCode === '91' || empty($countryCodeInput))) {
+        $stmtLegacy = $db->prepare("
+            SELECT * FROM users 
+            WHERE (country_code IS NULL OR country_code = '+91' OR country_code = '')
+              AND (phone = :p10 OR phone = :p12 OR phone LIKE :p_like)
+            LIMIT 1
+        ");
+        $stmtLegacy->execute([
+            ':p10'    => $nationalPhone,
+            ':p12'    => '91' . $nationalPhone,
+            ':p_like' => '%' . $nationalPhone,
+        ]);
+        $user = $stmtLegacy->fetch();
+
+        // Self-heal: update legacy user row to normalized international format if columns exist
+        if ($user) {
+            try {
+                $healStmt = $db->prepare("
+                    UPDATE users 
+                    SET phone = :new_phone, country_code = '+91', national_phone = :nat_phone 
+                    WHERE id = :uid
+                ");
+                $healStmt->execute([
+                    ':new_phone'  => $e164Phone,
+                    ':nat_phone'  => $nationalPhone,
+                    ':uid'        => $user['id'],
+                ]);
+                $user['phone'] = $e164Phone;
+                $user['country_code'] = '+91';
+                $user['national_phone'] = $nationalPhone;
+            } catch (Exception $healEx) {
+                // Silently ignore if columns are not yet present in old schema
+            }
+        }
+    }
 
     if (!$user) {
         sendJsonResponse([
             'success' => false,
-            'message' => 'No user found with mobile number ' . htmlspecialchars($phone) . '.'
+            'message' => 'No user found with mobile number ' . htmlspecialchars($e164Phone) . '.'
         ], 401);
     }
 
@@ -80,6 +129,9 @@ try {
         ], 401);
     }
 
+    // Ensure user upload directory is initialized & migrated
+    getUserUploadDir($user['phone'] ?: $e164Phone, $user['country_code'] ?? $countryCode);
+
     // Generate session token
     $token = bin2hex(random_bytes(24));
 
@@ -87,11 +139,13 @@ try {
         'success' => true,
         'token'   => $token,
         'user'    => [
-            'id'       => intval($user['id']),
-            'name'     => $user['name'] ?: 'Business User',
-            'phone'    => $user['phone'],
-            'email'    => $user['email'],
-            'currency' => $user['currency'] ?: '₹',
+            'id'             => intval($user['id']),
+            'name'           => $user['name'] ?: 'Business User',
+            'phone'          => $user['phone'] ?: $e164Phone,
+            'country_code'   => isset($user['country_code']) ? $user['country_code'] : $countryCode,
+            'national_phone' => isset($user['national_phone']) ? $user['national_phone'] : $nationalPhone,
+            'email'          => $user['email'],
+            'currency'       => $user['currency'] ?: '₹',
         ],
         'message' => 'Login successful.'
     ], 200);

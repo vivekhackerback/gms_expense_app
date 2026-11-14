@@ -296,9 +296,7 @@ export const LoginModal = () => {
     setIsLoading(true);
     try {
       const displayName = name.trim() || `User ${cleanPhone.slice(-4)}`;
-      const dialDigits = selectedCountry.dialCode.replace(/\D/g, '');
-      const targetPhone = dialDigits === '91' ? cleanPhone : `${dialDigits}${cleanPhone}`;
-      const result = await registerUser(displayName, targetPhone, password.trim());
+      const result = await registerUser(displayName, cleanPhone, password.trim(), '', selectedCountry.dialCode);
       if (result.success) {
         triggerSuccessAnimation(result.user, true);
       } else {
@@ -331,12 +329,7 @@ export const LoginModal = () => {
 
     setIsLoading(true);
     try {
-      const dialDigits = selectedCountry.dialCode.replace(/\D/g, '');
-      const fullPhone = dialDigits === '91' ? cleanPhone : `${dialDigits}${cleanPhone}`;
-      let result = await loginUser(fullPhone, password.trim());
-      if (!result.success && dialDigits === '91' && fullPhone !== cleanPhone) {
-        result = await loginUser(cleanPhone, password.trim());
-      }
+      const result = await loginUser(cleanPhone, password.trim(), selectedCountry.dialCode);
 
       if (result.success) {
         triggerSuccessAnimation(result.user, false);

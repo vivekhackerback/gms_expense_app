@@ -74,11 +74,11 @@ class OtpService {
   }
 
   /**
-   * Check if a phone number is already registered before requesting OTP
+   * Check if an international phone number is already registered before requesting OTP
    */
-  async checkPhoneRegistered(phone) {
+  async checkPhoneRegistered(phone, countryCode = '+91') {
     const cleanPhone = String(phone).replace(/\D/g, '');
-    if (cleanPhone.length < 10) {
+    if (cleanPhone.length < 5) {
       return { registered: false, message: 'Invalid phone number' };
     }
 
@@ -86,7 +86,7 @@ class OtpService {
       const res = await fetch(API_CONFIG.AUTH_REGISTER_URL, {
         method: 'POST',
         headers: API_CONFIG.HEADERS,
-        body: JSON.stringify({ check_phone: true, phone: cleanPhone }),
+        body: JSON.stringify({ check_phone: true, phone: cleanPhone, country_code: countryCode }),
       });
       const data = await res.json();
       if (data.already_registered) {

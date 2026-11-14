@@ -97,3 +97,7 @@ function sendJsonResponse($data, $statusCode = 200) {
     echo json_encode($data, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
     exit();
 }
+
+// User Storage & International Phone Helper
+require_once __DIR__ . '/user_storage.php';
+

@@ -10,25 +10,23 @@
 require_once __DIR__ . '/db_connect.php';
 
 $rawPhone = '';
+$countryCodeInput = null;
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $rawPhone = isset($_GET['phone']) ? trim($_GET['phone']) : (isset($_GET['mobile']) ? trim($_GET['mobile']) : '');
+    $countryCodeInput = isset($_GET['country_code']) ? trim($_GET['country_code']) : (isset($_GET['dial_code']) ? trim($_GET['dial_code']) : null);
 } else {
     $rawInput = file_get_contents('php://input');
     $payload = json_decode($rawInput, true) ?: $_POST;
     $rawPhone = isset($payload['phone']) ? trim($payload['phone']) : (isset($payload['mobile']) ? trim($payload['mobile']) : '');
+    $countryCodeInput = isset($payload['country_code']) ? trim($payload['country_code']) : (isset($payload['dial_code']) ? trim($payload['dial_code']) : null);
 }
 
-$cleanPhone = preg_replace('/[^0-9]/', '', $rawPhone);
-if (empty($cleanPhone) || strlen($cleanPhone) < 4) {
-    $cleanPhone = '9876543210';
-}
+$parsed = parsePhoneNumber($rawPhone, $countryCodeInput);
+$e164Phone = $parsed['e164'];
+$countryCode = $parsed['country_code'];
+$userDigits = $parsed['digits'];
 
-$baseUploadsDir = realpath(__DIR__ . '/../../uploads');
-if (!$baseUploadsDir) {
-    $baseUploadsDir = __DIR__ . '/../../uploads';
-}
-
-$userDbDir = $baseUploadsDir . '/users/' . $cleanPhone . '/database';
+$userDbDir = getUserUploadDir($rawPhone, $countryCode, 'database');
 $targetDbFile = $userDbDir . '/expenses_khata.db';
 $manifestFile = $userDbDir . '/manifest.json';
 
@@ -101,7 +99,8 @@ if (empty($backupFiles) && !file_exists($targetDbFile)) {
         'success'        => true,
         'has_backup'     => false,
         'message'        => 'No cloud database backup found for this account.',
-        'phone'          => $cleanPhone,
+        'phone'          => $e164Phone,
+        'country_code'   => $countryCode,
         'backup_time'    => null,
         'db_size'        => 0,
         'backup_files'   => [],
@@ -124,20 +123,20 @@ if (file_exists($manifestFile)) {
 $dbSize = file_exists($targetDbFile) ? filesize($targetDbFile) : (isset($backupFiles[0]['file_size']) ? $backupFiles[0]['file_size'] : 0);
 $backupTime = isset($manifest['last_backup_at']) ? $manifest['last_backup_at'] : (file_exists($targetDbFile) ? filemtime($targetDbFile) : (isset($backupFiles[0]['backup_time']) ? $backupFiles[0]['backup_time'] : time()));
 
-// Discover all images in user directory
-$userImagesDir = $baseUploadsDir . '/users/' . $cleanPhone . '/images';
+// Discover all images in dedicated user directory
+$userImagesDir = getUserUploadDir($rawPhone, $countryCode, 'images');
 $allImages = [];
 
 if (is_dir($userImagesDir)) {
     $files = scandir($userImagesDir);
     foreach ($files as $f) {
         if ($f !== '.' && $f !== '..' && !is_dir($userImagesDir . '/' . $f)) {
-            $allImages[$f] = 'uploads/users/' . $cleanPhone . '/images/' . $f;
+            $allImages[$f] = getUserUploadRelativePath($rawPhone, $countryCode, 'images', $f);
         }
     }
 }
 
-$txDir = $baseUploadsDir . '/users/' . $cleanPhone . '/transactions';
+$txDir = getUserUploadDir($rawPhone, $countryCode, 'transactions');
 if (is_dir($txDir)) {
     $subfolders = scandir($txDir);
     foreach ($subfolders as $sf) {
@@ -145,7 +144,7 @@ if (is_dir($txDir)) {
             $subFiles = scandir($txDir . '/' . $sf);
             foreach ($subFiles as $img) {
                 if ($img !== '.' && $img !== '..' && !is_dir($txDir . '/' . $sf . '/' . $img)) {
-                    $allImages[$img] = 'uploads/users/' . $cleanPhone . '/transactions/' . $sf . '/' . $img;
+                    $allImages[$img] = getUserUploadRelativePath($rawPhone, $countryCode, 'transactions/' . $sf, $img);
                 }
             }
         }
@@ -175,11 +174,11 @@ foreach ($allImages as $fileName => $relPath) {
     ];
 }
 
-$dbDownloadUrl = $projectBaseUrl . 'api/v1/download_database.php?phone=' . urlencode($cleanPhone);
+$dbDownloadUrl = $projectBaseUrl . 'api/v1/download_database.php?phone=' . urlencode($e164Phone) . '&country_code=' . urlencode($countryCode);
 
 // Attach download URLs to all backup files
 foreach ($backupFiles as &$bf) {
-    $bf['download_url'] = $projectBaseUrl . 'api/v1/download_database.php?phone=' . urlencode($cleanPhone) . '&file=' . urlencode($bf['file_name']);
+    $bf['download_url'] = $projectBaseUrl . 'api/v1/download_database.php?phone=' . urlencode($e164Phone) . '&country_code=' . urlencode($countryCode) . '&file=' . urlencode($bf['file_name']);
 }
 unset($bf);
 
@@ -211,7 +210,8 @@ $manifestStats['images'] = count($imageList);
 sendJsonResponse([
     'success'         => true,
     'has_backup'      => true,
-    'phone'           => $cleanPhone,
+    'phone'           => $e164Phone,
+    'country_code'    => $countryCode,
     'backup_time'     => $backupTime,
     'db_size'         => $dbSize,
     'db_download_url' => $dbDownloadUrl,

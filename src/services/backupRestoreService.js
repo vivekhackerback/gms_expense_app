@@ -275,6 +275,7 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
 
     const uploadParameters = {
       phone: String(userPhone),
+      country_code: String(auth?.user?.country_code || ''),
       user_id: String(userId),
       tx_count: String(txCount),
       party_count: String(partyCount),
@@ -833,7 +834,8 @@ export const fetchCloudBackupInfo = async () => {
     }
 
     const userPhone = auth?.user?.phone || '9876543210';
-    const url = `${API_CONFIG.DATABASE_BACKUP_INFO_URL}?phone=${encodeURIComponent(userPhone)}`;
+    const userCountryCode = auth?.user?.country_code || '';
+    const url = `${API_CONFIG.DATABASE_BACKUP_INFO_URL}?phone=${encodeURIComponent(userPhone)}&country_code=${encodeURIComponent(userCountryCode)}`;
     console.log('📤 [CLOUD_BACKUP_CHECK] Requesting manifest URL:', url);
 
     const controller = new AbortController();

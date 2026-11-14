@@ -4,6 +4,7 @@
  * POST /api/v1/otp_send.php
  * 
  * Documentation: https://otp.losttag.in/docs
+ * Supports international phone numbers and strict cross-country isolation.
  */
 
 require_once __DIR__ . '/db_connect.php';
@@ -24,9 +25,10 @@ if (!$payload) {
     $payload = $_POST;
 }
 
-$phone = isset($payload['phone']) ? trim($payload['phone']) : '';
-$countryCode = isset($payload['country_code']) ? preg_replace('/\D/', '', $payload['country_code']) : '91';
+$phoneInput = isset($payload['phone']) ? trim($payload['phone']) : '';
+$countryCodeInput = isset($payload['country_code']) ? trim($payload['country_code']) : (isset($payload['dial_code']) ? trim($payload['dial_code']) : null);
 $rawPurpose = isset($payload['purpose']) ? trim($payload['purpose']) : 'Registration';
+
 // Meta WhatsApp Parameter Limit: Body parameter at index 1 must NOT exceed 15 chars (Error #132018)
 if ($rawPurpose === 'Account Registration') {
     $rawPurpose = 'Registration';
@@ -42,25 +44,23 @@ if (empty($rawPurpose)) {
 $purpose = $rawPurpose;
 $expirySeconds = isset($payload['expiry_seconds']) ? (int)$payload['expiry_seconds'] : 300;
 
-// Clean phone digits
-$cleanPhone = preg_replace('/\D/', '', $phone);
-// Strip leading country code if redundant
-if (!empty($countryCode) && strpos($cleanPhone, $countryCode) === 0 && strlen($cleanPhone) > 10) {
-    $localPhone = substr($cleanPhone, strlen($countryCode));
-} else {
-    $localPhone = $cleanPhone;
-}
+// Parse and normalize international phone number
+$parsedPhone = parsePhoneNumber($phoneInput, $countryCodeInput);
+$e164Phone = $parsedPhone['e164'];
+$countryCode = $parsedPhone['country_code'];
+$dialCode = $parsedPhone['dial_code'];
+$nationalPhone = $parsedPhone['national_number'];
+$userDigits = $parsedPhone['digits'];
 
-if (empty($localPhone) || strlen($localPhone) < 6) {
+if (empty($nationalPhone) || strlen($nationalPhone) < 5) {
     sendJsonResponse([
         'success' => false,
         'message' => 'Please provide a valid mobile number.'
     ], 400);
 }
 
-$fullPhone = (!empty($countryCode) ? $countryCode : '91') . $localPhone;
 // Target phone sent to gateway: 10-digit for default India (+91), full international number for other countries
-$gatewayPhone = ($countryCode === '91' || empty($countryCode)) ? $localPhone : $fullPhone;
+$gatewayPhone = ($dialCode === '91') ? $nationalPhone : $userDigits;
 
 $db = getDbConnection();
 if (!$db) {
@@ -74,17 +74,42 @@ try {
     // 1. If registering, check if phone is already registered
     $checkRegistered = isset($payload['check_registered']) ? (bool)$payload['check_registered'] : true;
     if ($checkRegistered) {
-        $stmt = $db->prepare("SELECT id FROM users WHERE phone = :p1 OR phone = :p2 OR phone LIKE :p3 LIMIT 1");
+        $stmt = $db->prepare("
+            SELECT id FROM users 
+            WHERE phone = :e164 
+               OR phone = :digits 
+               OR (country_code = :cc AND (national_phone = :nat OR phone = :nat_exact))
+            LIMIT 1
+        ");
         $stmt->execute([
-            ':p1' => $localPhone,
-            ':p2' => $fullPhone,
-            ':p3' => '%' . $localPhone,
+            ':e164'      => $e164Phone,
+            ':digits'    => $userDigits,
+            ':cc'        => $countryCode,
+            ':nat'       => $nationalPhone,
+            ':nat_exact' => $nationalPhone,
         ]);
-        if ($stmt->fetch()) {
+        $exists = (bool)$stmt->fetch();
+
+        // Check legacy un-migrated Indian accounts if registering with +91
+        if (!$exists && ($countryCode === '+91' || $dialCode === '91')) {
+            $stmtLegacy = $db->prepare("
+                SELECT id FROM users 
+                WHERE (country_code IS NULL OR country_code = '+91' OR country_code = '') 
+                  AND (phone = :p10 OR phone = :p12)
+                LIMIT 1
+            ");
+            $stmtLegacy->execute([
+                ':p10' => $nationalPhone,
+                ':p12' => '91' . $nationalPhone,
+            ]);
+            $exists = (bool)$stmtLegacy->fetch();
+        }
+
+        if ($exists) {
             sendJsonResponse([
-                'success' => false,
+                'success'            => false,
                 'already_registered' => true,
-                'message' => 'An account with mobile number ' . htmlspecialchars($localPhone) . ' already exists. Please sign in instead.'
+                'message'            => 'An account with mobile number ' . htmlspecialchars($e164Phone) . ' already exists. Please sign in instead.'
             ], 409);
         }
     }
@@ -98,25 +123,30 @@ try {
     if (!empty($result['success'])) {
         sendJsonResponse([
             'success'             => true,
-            'message'             => $result['message'] ?? 'OTP sent to your WhatsApp number.',
-            'challenge_id'        => $result['challenge_id'] ?? '',
-            'status'              => $result['status'] ?? 'sent',
-            'expires_in'          => $result['expires_in'] ?? 300,
-            'resend_cooldown'     => $result['resend_cooldown'] ?? 60,
-            'whatsapp_message_id' => $result['whatsapp_message_id'] ?? '',
+            'message'             => isset($result['message']) ? $result['message'] : 'OTP sent successfully via WhatsApp.',
+            'verification_id'     => isset($result['verification_id']) ? $result['verification_id'] : null,
+            'otp'                 => isset($result['otp']) ? $result['otp'] : null,
+            'phone'               => $e164Phone,
+            'country_code'        => $countryCode,
+            'national_phone'      => $nationalPhone,
+            'gateway_phone'       => $gatewayPhone,
+            'simulated'           => !empty($result['simulated']),
+            'expires_in_seconds'  => $expirySeconds,
+            'service_url'         => $otpClient->getBaseUrl(),
         ], 200);
     } else {
-        $msg = $result['message'] ?? 'Failed to send WhatsApp OTP. Please try again.';
+        $errorMsg = isset($result['message']) ? $result['message'] : 'Failed to send OTP via WhatsApp gateway.';
         sendJsonResponse([
-            'success' => false,
-            'message' => $msg,
-            'error_code' => $result['error_code'] ?? 'PROVIDER_ERROR',
+            'success'     => false,
+            'message'     => $errorMsg,
+            'service_url' => $otpClient->getBaseUrl(),
+            'debug'       => $result,
         ], 400);
     }
 
 } catch (Exception $e) {
     sendJsonResponse([
         'success' => false,
-        'message' => 'Error requesting WhatsApp OTP: ' . $e->getMessage()
+        'message' => 'OTP Service Error: ' . $e->getMessage()
     ], 500);
 }

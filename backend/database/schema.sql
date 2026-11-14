@@ -13,10 +13,13 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(255) NOT NULL,
   email VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  phone VARCHAR(20) NULL,
+  country_code VARCHAR(10) NOT NULL DEFAULT '+91',
+  phone VARCHAR(25) NOT NULL,
+  national_phone VARCHAR(25) NULL,
   currency VARCHAR(10) DEFAULT '₹',
   created_at BIGINT UNSIGNED NOT NULL,
-  updated_at BIGINT UNSIGNED NOT NULL
+  updated_at BIGINT UNSIGNED NOT NULL,
+  UNIQUE KEY uq_user_phone (phone)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2. Devices Registered
