@@ -56,8 +56,12 @@ export const API_CONFIG = {
   GET_OTP_DOMAIN_URL: `${API_BASE}/get_otp_domain.php`,
   /** Endpoint to send OTP via WhatsApp */
   OTP_SEND_URL: `${API_BASE}/otp_send.php`,
+  /** Endpoint to resend OTP via WhatsApp */
+  OTP_RESEND_URL: `${API_BASE}/otp_resend.php`,
   /** Endpoint to verify OTP */
   OTP_VERIFY_URL: `${API_BASE}/otp_verify.php`,
+  /** Endpoint to get supported countries catalog */
+  OTP_COUNTRIES_URL: `${API_BASE}/get_countries.php`,
   /** 
    * Dynamic OTP Gateway Base URL:
    * The app dynamically loads and caches the base URL from the database (`otp_domain` table).

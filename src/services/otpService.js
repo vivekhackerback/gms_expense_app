@@ -353,15 +353,185 @@ class OtpService {
   }
 
   /**
-   * Endpoint 2: Verify OTP
+   * Endpoint 2: Resend OTP
+   * POST /otp/resend
+   * 
+   * Triggers OTP resend for an active challenge or country_code + mobile_number.
+   * Enforces strict delivery status handling via evaluateOtpResponse:
+   * cooldown only set on confirmed success.
+   * 
+   * @param {string} challengeId - Challenge ID from sendOtp
+   * @param {string} countryCode - Dialing code (e.g. "+91")
+   * @param {string} mobileNumber - National mobile number
+   */
+  async resendOtp(challengeId, countryCode = '+91', mobileNumber = '') {
+    const cleanChallengeId = String(challengeId || '').trim();
+    const cleanCountryCode = String(countryCode || '+91').trim();
+    const cleanMobile = String(mobileNumber || '').replace(/\D/g, '');
+
+    // 1. Try Backend Proxy endpoint
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const response = await fetch(API_CONFIG.OTP_RESEND_URL, {
+        method: 'POST',
+        headers: API_CONFIG.HEADERS,
+        body: JSON.stringify({
+          challenge_id: cleanChallengeId,
+          country_code: cleanCountryCode,
+          mobile_number: cleanMobile,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const rawText = await response.text();
+      let data = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.warn('[OtpService] Proxy resendOtp response was not JSON:', rawText.slice(0, 150));
+      }
+
+      const evaluated = evaluateOtpResponse(data, response.status);
+      if (evaluated.success || (data && response.status < 500)) {
+        return evaluated;
+      }
+    } catch (proxyError) {
+      console.warn('[OtpService] Proxy resendOtp failed, attempting direct gateway fallback:', proxyError?.message);
+    }
+
+    // 2. Direct fallback using dynamic database-stored base URL
+    const baseUrl = this.getApiBaseUrl();
+    if (!baseUrl) {
+      return evaluateOtpResponse(
+        { status: 'failed', message: 'No OTP service URL configured in database. Please check connection.' },
+        500
+      );
+    }
+
+    const config = getLocalOtpDomainRecord();
+    const headers = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (config?.apiKey) {
+      headers['X-API-Key'] = config.apiKey;
+    }
+
+    const payload = {};
+    if (cleanChallengeId) payload.challenge_id = cleanChallengeId;
+    if (cleanCountryCode) payload.country_code = cleanCountryCode;
+    if (cleanMobile) payload.mobile_number = cleanMobile;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const response = await fetch(`${baseUrl}/otp/resend`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const rawText = await response.text();
+      let data = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.warn('[OtpService] Direct gateway resendOtp was not JSON:', rawText.slice(0, 150));
+      }
+
+      return evaluateOtpResponse(data, response.status);
+    } catch (error) {
+      console.error('[OtpService] direct resendOtp error:', error);
+      const isTimeout = error?.name === 'AbortError' || error?.message?.toLowerCase().includes('timeout');
+      return evaluateOtpResponse(
+        {
+          status: isTimeout ? 'timeout' : 'failed',
+          message: isTimeout ? 'Unable to send OTP. Try again.' : 'Failed to resend OTP. Please try again.',
+        },
+        isTimeout ? 504 : 500
+      );
+    }
+  }
+
+  /**
+   * Endpoint 3: Supported Countries Catalog
+   * GET /countries
+   * 
+   * Returns list of supported countries with code, name, dial_code, flag, example.
+   */
+  async getCountries(query = '') {
+    // 1. Try Backend Proxy
+    try {
+      const q = query ? `?q=${encodeURIComponent(query)}` : '';
+      const response = await fetch(`${API_CONFIG.OTP_COUNTRIES_URL}${q}`, {
+        method: 'GET',
+        headers: API_CONFIG.HEADERS,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.success && Array.isArray(data.countries)) {
+          return data.countries;
+        }
+      }
+    } catch (e) {
+      console.warn('[OtpService] Proxy getCountries error:', e?.message);
+    }
+
+    // 2. Direct fallback
+    const baseUrl = this.getApiBaseUrl();
+    if (baseUrl) {
+      try {
+        const config = getLocalOtpDomainRecord();
+        const headers = { Accept: 'application/json' };
+        if (config?.apiKey) headers['X-API-Key'] = config.apiKey;
+
+        const q = query ? `?q=${encodeURIComponent(query)}` : '';
+        const response = await fetch(`${baseUrl}/countries${q}`, {
+          method: 'GET',
+          headers,
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.success && Array.isArray(data.countries)) {
+            return data.countries;
+          }
+        }
+      } catch (e) {
+        console.warn('[OtpService] Direct getCountries error:', e?.message);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Endpoint 4: Verify OTP
    * Validates OTP code against active challenge using dynamic database URL.
+   * Supports both challenge_id and (country_code + mobile_number).
    * 
    * @param {string} challengeId - Challenge ID returned from sendOtp (e.g. "CHL_...")
    * @param {string} otp - 6-digit OTP code entered by user
+   * @param {string} [countryCode] - Optional country dialing code (e.g. "+91")
+   * @param {string} [mobileNumber] - Optional mobile number
    */
-  async verifyOtp(challengeId, otp) {
+  async verifyOtp(challengeId, otp, countryCode = '+91', mobileNumber = '') {
     const cleanChallengeId = String(challengeId || '').trim();
     const cleanOtp = String(otp || '').trim();
+    const cleanCountryCode = String(countryCode || '+91').trim();
+    const cleanMobile = String(mobileNumber || '').replace(/\D/g, '');
+
+    const requestPayload = {
+      otp: cleanOtp,
+    };
+    if (cleanChallengeId) requestPayload.challenge_id = cleanChallengeId;
+    if (cleanCountryCode) requestPayload.country_code = cleanCountryCode;
+    if (cleanMobile) requestPayload.mobile_number = cleanMobile;
 
     // 1. Try Backend Proxy endpoint
     try {
@@ -371,10 +541,7 @@ class OtpService {
       const response = await fetch(API_CONFIG.OTP_VERIFY_URL, {
         method: 'POST',
         headers: API_CONFIG.HEADERS,
-        body: JSON.stringify({
-          challenge_id: cleanChallengeId,
-          otp: cleanOtp,
-        }),
+        body: JSON.stringify(requestPayload),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -417,10 +584,7 @@ class OtpService {
       const response = await fetch(`${baseUrl}/otp/verify`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          challenge_id: cleanChallengeId,
-          otp: cleanOtp,
-        }),
+        body: JSON.stringify(requestPayload),
       });
 
       const data = await response.json();

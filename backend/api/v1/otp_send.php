@@ -137,8 +137,8 @@ try {
     // 2. Initialize OTP Gateway Client from database config
     $otpClient = OtpGatewayClient::fromDatabase($db);
 
-    // 3. Dispatch OTP via WhatsApp Gateway
-    $result = $otpClient->sendOtp($gatewayPhone, $purpose, $expirySeconds);
+    // 3. Dispatch OTP via WhatsApp Gateway using new format (country_code, mobile_number, and E.164 phone)
+    $result = $otpClient->sendOtp($e164Phone, $purpose, $expirySeconds, $countryCode, $nationalPhone);
 
     $serviceUrl = method_exists($otpClient, 'getBaseUrl') ? $otpClient->getBaseUrl() : 'https://otp.losttag.in/api/v1';
 
@@ -165,7 +165,7 @@ try {
             'success'             => true,
             'delivery_status'     => 'success',
             'status'              => 'sent',
-            'message'             => 'OTP sent successfully via WhatsApp.',
+            'message'             => $result['message'] ?? 'OTP sent successfully via WhatsApp.',
             'challenge_id'        => $challengeId,
             'verification_id'     => $challengeId,
             'resend_cooldown'     => $resendCooldown > 0 ? $resendCooldown : 60,
@@ -173,10 +173,13 @@ try {
             'otp'                 => isset($result['otp']) ? $result['otp'] : null,
             'phone'               => $e164Phone,
             'country_code'        => $countryCode,
+            'national_number'     => $nationalPhone,
             'national_phone'      => $nationalPhone,
+            'mobile_number'       => $nationalPhone,
             'gateway_phone'       => $gatewayPhone,
             'simulated'           => !empty($result['simulated']),
-            'expires_in_seconds'  => isset($result['expires_in_seconds']) ? (int)$result['expires_in_seconds'] : $expirySeconds,
+            'expires_in_seconds'  => isset($result['expires_in']) ? (int)$result['expires_in'] : (isset($result['expires_in_seconds']) ? (int)$result['expires_in_seconds'] : $expirySeconds),
+            'whatsapp_message_id' => $result['whatsapp_message_id'] ?? null,
             'service_url'         => $serviceUrl,
         ], 200);
     } else {

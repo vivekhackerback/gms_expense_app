@@ -3,7 +3,7 @@
  * WhatsApp OTP Gateway Verify Proxy Endpoint
  * POST /api/v1/otp_verify.php
  * 
- * Documentation: https://otp.losttag.in/docs
+ * Documentation: https://otp.losttag.in/public/docs
  */
 
 require_once __DIR__ . '/db_connect.php';
@@ -25,12 +25,15 @@ if (!$payload) {
 }
 
 $challengeId = isset($payload['challenge_id']) ? trim($payload['challenge_id']) : (isset($payload['verification_id']) ? trim($payload['verification_id']) : '');
+$countryCode = isset($payload['country_code']) ? trim($payload['country_code']) : null;
+$mobileNumber = isset($payload['mobile_number']) ? trim($payload['mobile_number']) : (isset($payload['phone']) ? trim($payload['phone']) : null);
 $otp = isset($payload['otp']) ? trim($payload['otp']) : '';
 
-if (empty($challengeId)) {
+// Either challenge_id OR (country_code + mobile_number) must be provided
+if (empty($challengeId) && (empty($countryCode) || empty($mobileNumber))) {
     sendJsonResponse([
         'success' => false,
-        'message' => 'Missing challenge_id. Please request a new OTP.'
+        'message' => 'Missing challenge_id or phone details. Please request a new OTP.'
     ], 400);
 }
 
@@ -54,7 +57,7 @@ try {
     $otpClient = OtpGatewayClient::fromDatabase($db);
 
     // 2. Verify OTP with gateway
-    $result = $otpClient->verifyOtp($challengeId, $otp);
+    $result = $otpClient->verifyOtp($challengeId, $otp, $countryCode, $mobileNumber);
 
     if (!empty($result['success']) && !empty($result['verified'])) {
         sendJsonResponse([

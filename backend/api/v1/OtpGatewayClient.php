@@ -50,12 +50,27 @@ class OtpGatewayClient
      * Endpoint 1: Request & Send OTP
      * Route: POST /otp/send
      * 
+     * Supports:
+     * - Option A: country_code & mobile_number (Recommended in new API docs)
+     * - Option B: Full international phone in E.164 (+918651615629)
+     * - Option C: Legacy 10-digit number
+     * 
      * Note: Meta enforces a strict 15-character limit on template parameter index 1 (purpose).
      */
-    public function sendOtp(string $phone, string $purpose = 'Verification', int $expirySeconds = 300): array
+    public function sendOtp(string $phone, string $purpose = 'Verification', int $expirySeconds = 300, ?string $countryCode = null, ?string $mobileNumber = null): array
     {
-        // Strip non-digit characters
         $cleanPhone = preg_replace('/\D/', '', $phone);
+        $cleanCountry = !empty($countryCode) ? (strpos($countryCode, '+') === 0 ? $countryCode : ('+' . preg_replace('/\D/', '', $countryCode))) : '+91';
+        $cleanMobile = !empty($mobileNumber) ? preg_replace('/\D/', '', $mobileNumber) : $cleanPhone;
+
+        // Strip leading country dial digits if accidentally part of mobileNumber
+        $dialDigits = preg_replace('/\D/', '', $cleanCountry);
+        if (!empty($dialDigits) && strpos($cleanMobile, $dialDigits) === 0 && strlen($cleanMobile) > 10) {
+            $cleanMobile = substr($cleanMobile, strlen($dialDigits));
+        }
+
+        // Full E.164 phone string
+        $e164Phone = (strpos($phone, '+') === 0) ? $phone : ($cleanCountry . $cleanMobile);
 
         // Sanitize purpose to never exceed Meta's 15-character parameter limit (#132018)
         $cleanPurpose = trim($purpose);
@@ -71,23 +86,85 @@ class OtpGatewayClient
             $cleanPurpose = 'Verification';
         }
 
-        return $this->request('POST', '/otp/send', [
-            'phone'          => $cleanPhone,
+        $payload = [
+            'country_code'   => $cleanCountry,
+            'mobile_number'  => $cleanMobile,
+            'phone'          => $e164Phone,
             'purpose'        => $cleanPurpose,
             'expiry_seconds' => $expirySeconds,
-        ]);
+        ];
+
+        return $this->request('POST', '/otp/send', $payload);
     }
 
     /**
-     * Endpoint 2: Verify OTP
-     * Route: POST /otp/verify
+     * Endpoint 2: Resend OTP
+     * Route: POST /otp/resend
+     * 
+     * Resends an active OTP challenge or triggers a new challenge while respecting cooldown.
+     * Preserves country dialing code.
      */
-    public function verifyOtp(string $challengeId, string $otp): array
+    public function resendOtp(string $challengeId, ?string $countryCode = null, ?string $mobileNumber = null): array
     {
-        return $this->request('POST', '/otp/verify', [
+        $payload = [
+            'challenge_id' => trim($challengeId),
+        ];
+        if (!empty($countryCode)) {
+            $payload['country_code'] = (strpos($countryCode, '+') === 0) ? $countryCode : ('+' . preg_replace('/\D/', '', $countryCode));
+        }
+        if (!empty($mobileNumber)) {
+            $cleanMobile = preg_replace('/\D/', '', $mobileNumber);
+            if (!empty($countryCode)) {
+                $dialDigits = preg_replace('/\D/', '', $countryCode);
+                if (strpos($cleanMobile, $dialDigits) === 0 && strlen($cleanMobile) > 10) {
+                    $cleanMobile = substr($cleanMobile, strlen($dialDigits));
+                }
+            }
+            $payload['mobile_number'] = $cleanMobile;
+        }
+
+        return $this->request('POST', '/otp/resend', $payload);
+    }
+
+    /**
+     * Endpoint 3: Supported Countries Catalog
+     * Route: GET /countries
+     * 
+     * Returns the 61-country catalog with code, name, dial_code, flag, example.
+     */
+    public function getCountries(?string $query = null): array
+    {
+        $path = '/countries' . (!empty($query) ? ('?q=' . urlencode(trim($query))) : '');
+        return $this->request('GET', $path);
+    }
+
+    /**
+     * Endpoint 4: Verify OTP
+     * Route: POST /otp/verify
+     * 
+     * Supports validation by challenge_id or (country_code + mobile_number).
+     */
+    public function verifyOtp(string $challengeId, string $otp, ?string $countryCode = null, ?string $mobileNumber = null): array
+    {
+        $payload = [
             'challenge_id' => trim($challengeId),
             'otp'          => trim($otp),
-        ]);
+        ];
+        if (!empty($countryCode)) {
+            $payload['country_code'] = (strpos($countryCode, '+') === 0) ? $countryCode : ('+' . preg_replace('/\D/', '', $countryCode));
+        }
+        if (!empty($mobileNumber)) {
+            $cleanMobile = preg_replace('/\D/', '', $mobileNumber);
+            if (!empty($countryCode)) {
+                $dialDigits = preg_replace('/\D/', '', $countryCode);
+                if (strpos($cleanMobile, $dialDigits) === 0 && strlen($cleanMobile) > 10) {
+                    $cleanMobile = substr($cleanMobile, strlen($dialDigits));
+                }
+            }
+            $payload['mobile_number'] = $cleanMobile;
+        }
+
+        return $this->request('POST', '/otp/verify', $payload);
     }
 
     /**

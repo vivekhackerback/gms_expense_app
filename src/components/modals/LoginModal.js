@@ -236,9 +236,12 @@ export const LoginModal = () => {
 
     setIsLoading(true);
     try {
-      const res = await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode);
+      const res = challengeId
+        ? await otpService.resendOtp(challengeId, selectedCountry.dialCode, cleanPhone)
+        : await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode);
+
       if (res && res.success && (res.deliveryStatus === 'success' || res.delivery_status === 'success')) {
-        const cid = res.challenge_id || res.challengeId || res.verification_id || res.id || '';
+        const cid = res.challenge_id || res.challengeId || res.verification_id || res.id || challengeId || '';
         setChallengeId(cid);
         // Only start 60s countdown on confirmed successful delivery
         setResendCooldown(res.resend_cooldown || res.resendCooldown || 60);
@@ -246,7 +249,7 @@ export const LoginModal = () => {
       } else {
         // Resend failed -> Allow user to retry immediately! Never lock in a countdown!
         setResendCooldown(0);
-        setErrorMessage(res?.message || 'Failed to send OTP. Please try again.');
+        setErrorMessage(res?.message || 'Failed to resend OTP. Please try again.');
       }
     } catch (e) {
       setResendCooldown(0);
@@ -263,20 +266,21 @@ export const LoginModal = () => {
   const handleVerifyOtp = async () => {
     setErrorMessage('');
     const cleanOtp = otp.trim().replace(/[^0-9]/g, '');
+    const cleanPhone = phone.trim().replace(/[^0-9]/g, '');
 
     if (!cleanOtp || cleanOtp.length < 4) {
       setErrorMessage('Please enter the 6-digit OTP code sent on WhatsApp');
       return;
     }
 
-    if (!challengeId) {
-      setErrorMessage('Verification session expired or missing challenge ID. Please tap "Resend OTP".');
+    if (!challengeId && !cleanPhone) {
+      setErrorMessage('Verification session expired. Please tap "Resend OTP".');
       return;
     }
 
     setIsLoading(true);
     try {
-      const res = await otpService.verifyOtp(challengeId, cleanOtp);
+      const res = await otpService.verifyOtp(challengeId, cleanOtp, selectedCountry.dialCode, cleanPhone);
       if (res && res.success && res.verified) {
         // Move to Step 3: Password creation
         setRegStep('password');
