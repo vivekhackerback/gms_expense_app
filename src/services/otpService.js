@@ -146,8 +146,15 @@ class OtpService {
       });
       clearTimeout(timeoutId);
 
-      const data = await response.json();
-      if (response.status === 200 || response.status === 400 || response.status === 409 || data.already_registered) {
+      const rawText = await response.text();
+      let data = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.warn('[OtpService] Proxy response was not JSON:', rawText.slice(0, 150));
+      }
+
+      if (data && (response.status === 200 || response.status === 400 || response.status === 409 || data.already_registered)) {
         return data;
       }
     } catch (proxyError) {
@@ -223,8 +230,15 @@ class OtpService {
       });
       clearTimeout(timeoutId);
 
-      const data = await response.json();
-      if (response.status === 200 || response.status === 400 || response.status === 410 || response.status === 429) {
+      const rawText = await response.text();
+      let data = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.warn('[OtpService] Proxy verifyOtp response was not JSON:', rawText.slice(0, 150));
+      }
+
+      if (data && (response.status === 200 || response.status === 400 || response.status === 410 || response.status === 429)) {
         return data;
       }
     } catch (proxyError) {

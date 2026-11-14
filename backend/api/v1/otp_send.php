@@ -140,6 +140,8 @@ try {
     // 3. Dispatch OTP via WhatsApp Gateway
     $result = $otpClient->sendOtp($gatewayPhone, $purpose, $expirySeconds);
 
+    $serviceUrl = method_exists($otpClient, 'getBaseUrl') ? $otpClient->getBaseUrl() : 'https://otp.losttag.in/api/v1';
+
     if (!empty($result['success'])) {
         sendJsonResponse([
             'success'             => true,
@@ -152,14 +154,14 @@ try {
             'gateway_phone'       => $gatewayPhone,
             'simulated'           => !empty($result['simulated']),
             'expires_in_seconds'  => $expirySeconds,
-            'service_url'         => $otpClient->getBaseUrl(),
+            'service_url'         => $serviceUrl,
         ], 200);
     } else {
         $errorMsg = isset($result['message']) ? $result['message'] : 'Failed to send OTP via WhatsApp gateway.';
         sendJsonResponse([
             'success'     => false,
             'message'     => $errorMsg,
-            'service_url' => $otpClient->getBaseUrl(),
+            'service_url' => $serviceUrl,
             'debug'       => $result,
         ], 400);
     }

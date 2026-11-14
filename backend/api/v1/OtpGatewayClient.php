@@ -19,6 +19,11 @@ class OtpGatewayClient
         $this->apiSecret = $apiSecret;
     }
 
+    public function getBaseUrl(): string
+    {
+        return $this->baseUrl;
+    }
+
     /**
      * Factory method to initialize client using active `otp_domain` configuration in database.
      */
