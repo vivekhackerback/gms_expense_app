@@ -123,3 +123,30 @@ INSERT INTO upi_info (id, upi_id, upi_update)
 VALUES (1, '8651615629@jio', 1)
 ON DUPLICATE KEY UPDATE upi_id = VALUES(upi_id), upi_update = VALUES(upi_update);
 
+-- 9. WhatsApp OTP Gateway Domain Configuration
+-- Integration specification: https://otp.losttag.in/docs
+CREATE TABLE IF NOT EXISTS otp_domain (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  domain VARCHAR(255) NOT NULL DEFAULT 'https://otp.losttag.in',
+  api_base_url VARCHAR(255) NOT NULL DEFAULT 'https://otp.losttag.in/api/v1',
+  api_key VARCHAR(255) NULL,
+  api_secret VARCHAR(255) NULL,
+  sender_phone_id VARCHAR(100) NULL,
+  template_name VARCHAR(100) NOT NULL DEFAULT 'otp_service',
+  purpose VARCHAR(100) NOT NULL DEFAULT 'Login Verification',
+  expiry_seconds INT UNSIGNED NOT NULL DEFAULT 300,
+  resend_cooldown INT UNSIGNED NOT NULL DEFAULT 60,
+  max_attempts INT UNSIGNED NOT NULL DEFAULT 5,
+  status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  otp_update INT NOT NULL DEFAULT 1,
+  created_at BIGINT UNSIGNED NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default OTP Gateway domain configuration
+INSERT INTO otp_domain (id, domain, api_base_url, api_key, api_secret, sender_phone_id, template_name, purpose, expiry_seconds, resend_cooldown, max_attempts, status, is_active, otp_update, created_at)
+VALUES (1, 'https://otp.losttag.in', 'https://otp.losttag.in/api/v1', '', '', '1432742293247493', 'otp_service', 'Login Verification', 300, 60, 5, 'active', 1, 1, UNIX_TIMESTAMP())
+ON DUPLICATE KEY UPDATE domain = VALUES(domain), api_base_url = VALUES(api_base_url);
+
+

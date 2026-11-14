@@ -52,6 +52,11 @@ export const API_CONFIG = {
   BACKUP_STATUS_URL: `${API_BASE}/backup_status.php`,
   /** Endpoint to fetch latest upi_id and updated_at timestamp */
   GET_UPI_URL: `${API_BASE}/get_upi.php`,
+  /** Endpoint to fetch active OTP domain and gateway settings (https://otp.losttag.in/docs) */
+  GET_OTP_DOMAIN_URL: `${API_BASE}/get_otp_domain.php`,
+  /** Default WhatsApp OTP Gateway Base URL */
+  OTP_GATEWAY_DEFAULT_BASE_URL: 'https://otp.losttag.in/api/v1',
+
 
   // -------------------------------------------------------------
   // 4. Cloud Restore / SQLite Database & Media Backup (PHP Endpoints)

@@ -133,6 +133,14 @@ if ($isJsonExport && file_exists($userDbFile) && class_exists('SQLite3')) {
             }
         } catch (Exception $e) {}
 
+        $otpDomain = [];
+        try {
+            $resOtp = $sq->query("SELECT * FROM otp_domain");
+            if ($resOtp) {
+                while ($r = $resOtp->fetchArray(SQLITE3_ASSOC)) $otpDomain[] = $r;
+            }
+        } catch (Exception $e) {}
+
         $sq->close();
 
         sendJsonResponse([
@@ -146,6 +154,7 @@ if ($isJsonExport && file_exists($userDbFile) && class_exists('SQLite3')) {
             'transactions'  => $txs,
             'images'        => $imgs,
             'upi'           => $upi,
+            'otp_domain'    => $otpDomain,
             'stats'         => [
                 'transactions' => count($txs),
                 'parties'      => count($parties),

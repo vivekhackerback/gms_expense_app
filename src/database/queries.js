@@ -1793,6 +1793,187 @@ export const getMonthlyCategorySpendReport = () => {
   }
 };
 
+// -------------------------------------------------------------
+// WhatsApp OTP Gateway Domain Configuration (https://otp.losttag.in/docs)
+// -------------------------------------------------------------
+export const DEFAULT_OTP_DOMAIN = 'https://otp.losttag.in';
+export const DEFAULT_OTP_API_BASE_URL = 'https://otp.losttag.in/api/v1';
+export const DEFAULT_OTP_TEMPLATE = 'otp_service';
+export const DEFAULT_OTP_PURPOSE = 'Login Verification';
+export const DEFAULT_OTP_EXPIRY_SECONDS = 300;
+export const DEFAULT_OTP_COOLDOWN = 60;
+export const DEFAULT_OTP_MAX_ATTEMPTS = 5;
+export const DEFAULT_OTP_UPDATE = 1;
+
+/**
+ * Ensures otp_domain table has all required columns with default values
+ */
+export const ensureOtpDomainColumns = (db) => {
+  try {
+    const cols = db.getAllSync("PRAGMA table_info('otp_domain');");
+    const colNames = cols.map((c) => c.name);
+
+    if (!colNames.includes('api_base_url')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `api_base_url` TEXT DEFAULT 'https://otp.losttag.in/api/v1';"); } catch (e) {}
+    }
+    if (!colNames.includes('sender_phone_id')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `sender_phone_id` TEXT DEFAULT '1432742293247493';"); } catch (e) {}
+    }
+    if (!colNames.includes('template_name')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `template_name` TEXT DEFAULT 'otp_service';"); } catch (e) {}
+    }
+    if (!colNames.includes('purpose')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `purpose` TEXT DEFAULT 'Login Verification';"); } catch (e) {}
+    }
+    if (!colNames.includes('expiry_seconds')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `expiry_seconds` INTEGER DEFAULT 300;"); } catch (e) {}
+    }
+    if (!colNames.includes('resend_cooldown')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `resend_cooldown` INTEGER DEFAULT 60;"); } catch (e) {}
+    }
+    if (!colNames.includes('max_attempts')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `max_attempts` INTEGER DEFAULT 5;"); } catch (e) {}
+    }
+    if (!colNames.includes('otp_update')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `otp_update` INTEGER DEFAULT 1;"); } catch (e) {}
+    }
+    if (!colNames.includes('status')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `status` TEXT DEFAULT 'active';"); } catch (e) {}
+    }
+    if (!colNames.includes('is_active')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `is_active` INTEGER DEFAULT 1;"); } catch (e) {}
+    }
+    if (!colNames.includes('updated_at')) {
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `updated_at` TEXT DEFAULT '';"); } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('[DB] ensureOtpDomainColumns warning:', e?.message);
+  }
+};
+
+/**
+ * Returns the latest successfully cached OTP Gateway record from local SQLite
+ */
+export const getLocalOtpDomainRecord = () => {
+  try {
+    const db = getDatabase();
+    ensureOtpDomainColumns(db);
+
+    const row = db.getFirstSync(
+      'SELECT id, domain, api_base_url, api_key, api_secret, sender_phone_id, template_name, purpose, expiry_seconds, resend_cooldown, max_attempts, status, is_active, otp_update, updated_at FROM otp_domain WHERE (is_active = 1 OR status = "active") AND domain IS NOT NULL AND TRIM(domain) != "" ORDER BY id DESC LIMIT 1;'
+    );
+    if (row && row.domain) {
+      return {
+        id: row.id,
+        domain: String(row.domain).trim(),
+        apiBaseUrl: row.api_base_url ? String(row.api_base_url).trim() : DEFAULT_OTP_API_BASE_URL,
+        apiKey: row.api_key ? String(row.api_key).trim() : '',
+        apiSecret: row.api_secret ? String(row.api_secret).trim() : '',
+        senderPhoneId: row.sender_phone_id ? String(row.sender_phone_id).trim() : '1432742293247493',
+        templateName: row.template_name ? String(row.template_name).trim() : DEFAULT_OTP_TEMPLATE,
+        purpose: row.purpose ? String(row.purpose).trim() : DEFAULT_OTP_PURPOSE,
+        expirySeconds: Number(row.expiry_seconds || DEFAULT_OTP_EXPIRY_SECONDS),
+        resendCooldown: Number(row.resend_cooldown || DEFAULT_OTP_COOLDOWN),
+        maxAttempts: Number(row.max_attempts || DEFAULT_OTP_MAX_ATTEMPTS),
+        status: row.status || 'active',
+        isActive: Number(row.is_active != null ? row.is_active : 1),
+        otpUpdate: Number(row.otp_update != null ? row.otp_update : DEFAULT_OTP_UPDATE),
+        updatedAt: row.updated_at ? String(row.updated_at).trim() : '',
+      };
+    }
+
+    // Auto-seed table if empty so app always has valid gateway configuration
+    try {
+      db.runSync(
+        'INSERT INTO `otp_domain` (`id`, `domain`, `api_base_url`, `api_key`, `api_secret`, `sender_phone_id`, `template_name`, `purpose`, `expiry_seconds`, `resend_cooldown`, `max_attempts`, `status`, `is_active`, `otp_update`, `created_at`, `updated_at`) VALUES (1, ?, ?, "", "", "1432742293247493", ?, ?, ?, ?, ?, "active", 1, ?, strftime("%s", "now"), datetime("now"));',
+        [DEFAULT_OTP_DOMAIN, DEFAULT_OTP_API_BASE_URL, DEFAULT_OTP_TEMPLATE, DEFAULT_OTP_PURPOSE, DEFAULT_OTP_EXPIRY_SECONDS, DEFAULT_OTP_COOLDOWN, DEFAULT_OTP_MAX_ATTEMPTS, DEFAULT_OTP_UPDATE]
+      );
+    } catch (insertErr) {}
+
+    return {
+      id: 1,
+      domain: DEFAULT_OTP_DOMAIN,
+      apiBaseUrl: DEFAULT_OTP_API_BASE_URL,
+      apiKey: '',
+      apiSecret: '',
+      senderPhoneId: '1432742293247493',
+      templateName: DEFAULT_OTP_TEMPLATE,
+      purpose: DEFAULT_OTP_PURPOSE,
+      expirySeconds: DEFAULT_OTP_EXPIRY_SECONDS,
+      resendCooldown: DEFAULT_OTP_COOLDOWN,
+      maxAttempts: DEFAULT_OTP_MAX_ATTEMPTS,
+      status: 'active',
+      isActive: 1,
+      otpUpdate: DEFAULT_OTP_UPDATE,
+      updatedAt: '',
+    };
+  } catch (e) {
+    console.warn('[DB] Could not query local otp_domain:', e?.message);
+  }
+
+  return {
+    id: null,
+    domain: DEFAULT_OTP_DOMAIN,
+    apiBaseUrl: DEFAULT_OTP_API_BASE_URL,
+    apiKey: '',
+    apiSecret: '',
+    senderPhoneId: '1432742293247493',
+    templateName: DEFAULT_OTP_TEMPLATE,
+    purpose: DEFAULT_OTP_PURPOSE,
+    expirySeconds: DEFAULT_OTP_EXPIRY_SECONDS,
+    resendCooldown: DEFAULT_OTP_COOLDOWN,
+    maxAttempts: DEFAULT_OTP_MAX_ATTEMPTS,
+    status: 'active',
+    isActive: 1,
+    otpUpdate: DEFAULT_OTP_UPDATE,
+    updatedAt: '',
+  };
+};
+
+/**
+ * Saves a validated OTP Gateway record to local SQLite table otp_domain.
+ */
+export const saveLocalOtpDomainRecord = (config) => {
+  if (!config || !config.domain) {
+    console.warn('[DB] Refusing to save invalid otp_domain config:', config);
+    return false;
+  }
+
+  const domain = String(config.domain).trim();
+  const apiBaseUrl = String(config.api_base_url || config.apiBaseUrl || `${domain}/api/v1`).trim();
+  const apiKey = String(config.api_key || config.apiKey || '').trim();
+  const apiSecret = String(config.api_secret || config.apiSecret || '').trim();
+  const senderPhoneId = String(config.sender_phone_id || config.senderPhoneId || '1432742293247493').trim();
+  const templateName = String(config.template_name || config.templateName || DEFAULT_OTP_TEMPLATE).trim();
+  const purpose = String(config.purpose || DEFAULT_OTP_PURPOSE).trim();
+  const expirySeconds = Number(config.expiry_seconds || config.expirySeconds || DEFAULT_OTP_EXPIRY_SECONDS);
+  const resendCooldown = Number(config.resend_cooldown || config.resendCooldown || DEFAULT_OTP_COOLDOWN);
+  const maxAttempts = Number(config.max_attempts || config.maxAttempts || DEFAULT_OTP_MAX_ATTEMPTS);
+  const status = String(config.status || 'active').trim();
+  const isActive = config.is_active != null ? Number(config.is_active) : 1;
+  const otpUpdate = Number(config.otp_update != null ? config.otp_update : (config.otpUpdate != null ? config.otpUpdate : 1));
+  const updatedAt = config.updated_at || config.updatedAt || new Date().toISOString().replace('T', ' ').substring(0, 19);
+
+  try {
+    const db = getDatabase();
+    ensureOtpDomainColumns(db);
+
+    db.withTransactionSync(() => {
+      db.runSync('DELETE FROM otp_domain;');
+      db.runSync(
+        'INSERT INTO `otp_domain` (`id`, `domain`, `api_base_url`, `api_key`, `api_secret`, `sender_phone_id`, `template_name`, `purpose`, `expiry_seconds`, `resend_cooldown`, `max_attempts`, `status`, `is_active`, `otp_update`, `created_at`, `updated_at`) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime("%s", "now"), ?);',
+        [domain, apiBaseUrl, apiKey, apiSecret, senderPhoneId, templateName, purpose, expirySeconds, resendCooldown, maxAttempts, status, isActive, otpUpdate, updatedAt]
+      );
+    });
+
+    return true;
+  } catch (e) {
+    console.warn('[DB] Could not save otp_domain:', e?.message);
+    return false;
+  }
+};
+
+
 
 
 

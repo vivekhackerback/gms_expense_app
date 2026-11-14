@@ -1110,6 +1110,7 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
     let stagingCategories = [];
     let stagingImages = [];
     let stagingUpi = [];
+    let stagingOtpDomain = [];
 
     // Attempt A: In-Memory Deserialization (if supported by device SQLite build)
     try {
@@ -1188,6 +1189,7 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       try { stagingCategories = stagingDb.getAllSync('SELECT * FROM categories;'); } catch (e) {}
       try { stagingImages = stagingDb.getAllSync('SELECT * FROM transaction_images;'); } catch (e) {}
       try { stagingUpi = stagingDb.getAllSync('SELECT * FROM upi_info;'); } catch (e) {}
+      try { stagingOtpDomain = stagingDb.getAllSync('SELECT * FROM otp_domain;'); } catch (e) {}
     }
 
     console.log(`📊 [RESTORE_STEP_4] Total transactions ready for ledger: ${stagingTransactions.length}`);
@@ -1358,6 +1360,39 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
             }
             stmtUpi.finalizeSync();
           } catch (upiErr) {}
+        }
+
+        // 6. OTP Gateway Domain Config (https://otp.losttag.in/docs)
+        if (stagingOtpDomain.length > 0) {
+          try {
+            activeDb.execSync('DELETE FROM otp_domain;');
+            const stmtOtp = activeDb.prepareSync(
+              'INSERT OR REPLACE INTO otp_domain (id, domain, api_base_url, api_key, api_secret, sender_phone_id, template_name, purpose, expiry_seconds, resend_cooldown, max_attempts, status, is_active, otp_update, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);'
+            );
+            for (const o of stagingOtpDomain) {
+              stmtOtp.executeSync([
+                o.id || 1,
+                o.domain || 'https://otp.losttag.in',
+                o.api_base_url || 'https://otp.losttag.in/api/v1',
+                o.api_key || '',
+                o.api_secret || '',
+                o.sender_phone_id || '1432742293247493',
+                o.template_name || 'otp_service',
+                o.purpose || 'Login Verification',
+                o.expiry_seconds || 300,
+                o.resend_cooldown || 60,
+                o.max_attempts || 5,
+                o.status || 'active',
+                o.is_active != null ? o.is_active : 1,
+                o.otp_update || 1,
+                o.created_at || Math.floor(Date.now() / 1000),
+                o.updated_at || '',
+              ]);
+            }
+            stmtOtp.finalizeSync();
+          } catch (otpErr) {
+            console.warn('OTP domain restore warning:', otpErr?.message);
+          }
         }
 
         activeDb.execSync('COMMIT;');

@@ -328,6 +328,81 @@ export const initDatabase = () => {
       console.warn('Could not ensure default upi_info:', upiErr);
     }
 
+    // 9. WhatsApp OTP Gateway Domain Configuration Table (https://otp.losttag.in/docs)
+    dbInstance.execSync(`
+      CREATE TABLE IF NOT EXISTS otp_domain (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        domain TEXT NOT NULL DEFAULT 'https://otp.losttag.in',
+        api_base_url TEXT NOT NULL DEFAULT 'https://otp.losttag.in/api/v1',
+        api_key TEXT DEFAULT '',
+        api_secret TEXT DEFAULT '',
+        sender_phone_id TEXT DEFAULT '1432742293247493',
+        template_name TEXT DEFAULT 'otp_service',
+        purpose TEXT DEFAULT 'Login Verification',
+        expiry_seconds INTEGER DEFAULT 300,
+        resend_cooldown INTEGER DEFAULT 60,
+        max_attempts INTEGER DEFAULT 5,
+        status TEXT DEFAULT 'active',
+        is_active INTEGER DEFAULT 1,
+        otp_update INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER,
+        updated_at TEXT DEFAULT ''
+      );
+    `);
+
+    // Migration for otp_domain columns if not present
+    try {
+      const otpCols = dbInstance.getAllSync("PRAGMA table_info('otp_domain');");
+      const otpColNames = otpCols.map((col) => col.name);
+      if (!otpColNames.includes('api_base_url')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN api_base_url TEXT DEFAULT 'https://otp.losttag.in/api/v1';");
+      }
+      if (!otpColNames.includes('sender_phone_id')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN sender_phone_id TEXT DEFAULT '1432742293247493';");
+      }
+      if (!otpColNames.includes('template_name')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN template_name TEXT DEFAULT 'otp_service';");
+      }
+      if (!otpColNames.includes('purpose')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN purpose TEXT DEFAULT 'Login Verification';");
+      }
+      if (!otpColNames.includes('expiry_seconds')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN expiry_seconds INTEGER DEFAULT 300;");
+      }
+      if (!otpColNames.includes('resend_cooldown')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN resend_cooldown INTEGER DEFAULT 60;");
+      }
+      if (!otpColNames.includes('max_attempts')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN max_attempts INTEGER DEFAULT 5;");
+      }
+      if (!otpColNames.includes('otp_update')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN otp_update INTEGER DEFAULT 1;");
+      }
+      if (!otpColNames.includes('status')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN status TEXT DEFAULT 'active';");
+      }
+      if (!otpColNames.includes('is_active')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN is_active INTEGER DEFAULT 1;");
+      }
+      if (!otpColNames.includes('updated_at')) {
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN updated_at TEXT DEFAULT '';");
+      }
+    } catch (migErr) {
+      console.warn('Migration error for otp_domain columns:', migErr);
+    }
+
+    // Ensure default initial row exists
+    try {
+      const otpCount = dbInstance.getFirstSync("SELECT COUNT(*) as count FROM otp_domain WHERE domain IS NOT NULL AND TRIM(domain) != '';");
+      if (!otpCount || Number(otpCount.count) === 0) {
+        dbInstance.runSync(
+          "INSERT INTO `otp_domain` (`id`, `domain`, `api_base_url`, `api_key`, `api_secret`, `sender_phone_id`, `template_name`, `purpose`, `expiry_seconds`, `resend_cooldown`, `max_attempts`, `status`, `is_active`, `otp_update`, `created_at`, `updated_at`) VALUES (1, 'https://otp.losttag.in', 'https://otp.losttag.in/api/v1', '', '', '1432742293247493', 'otp_service', 'Login Verification', 300, 60, 5, 'active', 1, 1, strftime('%s', 'now'), datetime('now'));"
+        );
+      }
+    } catch (otpErr) {
+      console.warn('Could not ensure default otp_domain:', otpErr);
+    }
+
     // Dynamic Schema Migrations for existing DB instances
     try {
       const catCols = dbInstance.getAllSync("PRAGMA table_info('categories');");
