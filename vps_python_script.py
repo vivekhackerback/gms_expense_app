@@ -1,8 +1,9 @@
-
 #!/usr/bin/env python3
 
 import os
 import sys
+import re
+import json
 import getpass
 import shutil
 import subprocess
@@ -13,7 +14,8 @@ from urllib.request import Request, urlopen
 # CONFIGURATION
 # ==================================================
 
-PROJECT = Path("/home/officialtplpro/gms_expense_app")
+DEFAULT_VPS_PROJECT = Path("/home/officialtplpro/gms_expense_app")
+PROJECT = DEFAULT_VPS_PROJECT if DEFAULT_VPS_PROJECT.exists() else Path(__file__).resolve().parent
 
 REPOSITORY = "https://github.com/vivekhackerback/gms_expense_app.git"
 BRANCH = "main"
@@ -55,7 +57,7 @@ def run(command, cwd=None, env=None):
 
 def get_signing_credentials():
 
-    print("\n[1/10] Checking signing credentials")
+    print("\n[1/11] Checking signing credentials")
 
     if not KEYSTORE.exists():
         raise FileNotFoundError(
@@ -96,7 +98,7 @@ def get_signing_credentials():
 
 def backup_local_changes():
 
-    print("\n[2/10] Checking local Git changes")
+    print("\n[2/11] Checking local Git changes")
 
     result = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -144,7 +146,7 @@ def backup_local_changes():
 
 def update_repository():
 
-    print("\n[3/10] Fetching latest GitHub code")
+    print("\n[3/11] Fetching latest GitHub code")
 
     run(
         ["git", "fetch", "origin"],
@@ -168,7 +170,7 @@ def update_repository():
 
 def install_dependencies():
 
-    print("\n[4/10] Installing Node dependencies")
+    print("\n[4/11] Installing Node dependencies")
 
     run(
         ["npm", "ci"],
@@ -182,7 +184,7 @@ def install_dependencies():
 
 def verify_keystore(env):
 
-    print("\n[5/10] Verifying existing release keystore")
+    print("\n[5/11] Verifying existing release keystore")
 
     run([
         "keytool",
@@ -193,12 +195,124 @@ def verify_keystore(env):
 
 
 # ==================================================
+# SYNC ANDROID VERSION CODE & NAME
+# ==================================================
+
+def sync_android_version():
+
+    print("\n[6/11] Synchronizing Android versionCode and versionName")
+
+    gradle_file = PROJECT / "android/app/build.gradle"
+    app_json_file = PROJECT / "app.json"
+    package_json_file = PROJECT / "package.json"
+
+    target_code = None
+    target_name = None
+
+    # 1. Read app.json if available
+    if app_json_file.exists():
+        try:
+            with open(app_json_file, "r", encoding="utf-8") as f:
+                app_data = json.load(f)
+            expo_cfg = app_data.get("expo", {})
+            target_name = expo_cfg.get("version")
+            android_cfg = expo_cfg.get("android", {})
+            target_code = android_cfg.get("versionCode")
+        except Exception as e:
+            print(f"Warning reading app.json: {e}")
+
+    # 2. Read package.json as fallback for versionName
+    if not target_name and package_json_file.exists():
+        try:
+            with open(package_json_file, "r", encoding="utf-8") as f:
+                pkg_data = json.load(f)
+            target_name = pkg_data.get("version")
+        except Exception:
+            pass
+
+    if not target_name:
+        target_name = "3.7.0"
+
+    # 3. Read current versionCode from android/app/build.gradle
+    current_gradle_code = None
+    if gradle_file.exists():
+        content = gradle_file.read_text(encoding="utf-8")
+        match = re.search(r"versionCode\s+(\d+)", content)
+        if match:
+            current_gradle_code = int(match.group(1))
+
+    # 4. Check for command-line arguments or environment variable override
+    # Usage: python3 vps_python_script.py 7 OR VERSION_CODE=7 python3 vps_python_script.py
+    forced_code = None
+    for i, arg in enumerate(sys.argv):
+        if arg in ("--version-code", "-vc") and i + 1 < len(sys.argv):
+            if sys.argv[i + 1].isdigit():
+                forced_code = int(sys.argv[i + 1])
+        elif arg.isdigit() and int(arg) > 0:
+            forced_code = int(arg)
+
+    env_override = os.getenv("VERSION_CODE")
+    if env_override and env_override.strip().isdigit():
+        forced_code = int(env_override.strip())
+
+    # 5. Enforce minimum versionCode > 6 (since Google Play rejected version code 6)
+    if forced_code is not None:
+        target_code = forced_code
+    else:
+        candidates = [c for c in [target_code, current_gradle_code] if c is not None]
+        base_code = max(candidates) if candidates else 6
+        target_code = max(base_code, 7)
+
+    print(f"Target versionCode : {target_code} (previous in Gradle: {current_gradle_code})")
+    print(f"Target versionName : {target_name}")
+
+    # 6. Update android/app/build.gradle
+    if gradle_file.exists():
+        content = gradle_file.read_text(encoding="utf-8")
+
+        new_content = re.sub(
+            r"versionCode\s+\d+",
+            f"versionCode {target_code}",
+            content,
+            count=1
+        )
+
+        new_content = re.sub(
+            r'versionName\s+["\'][^"\']+["\']',
+            f'versionName "{target_name}"',
+            new_content,
+            count=1
+        )
+
+        gradle_file.write_text(new_content, encoding="utf-8")
+        print(f"Updated {gradle_file.name} -> versionCode {target_code}, versionName \"{target_name}\"")
+    else:
+        print(f"Notice: {gradle_file} not found; skipping Gradle file update.")
+
+    # 7. Synchronize app.json
+    if app_json_file.exists():
+        try:
+            with open(app_json_file, "r", encoding="utf-8") as f:
+                app_data = json.load(f)
+            if "expo" in app_data:
+                app_data["expo"]["version"] = target_name
+                if "android" not in app_data["expo"]:
+                    app_data["expo"]["android"] = {}
+                app_data["expo"]["android"]["versionCode"] = target_code
+            with open(app_json_file, "w", encoding="utf-8") as f:
+                json.dump(app_data, f, indent=2)
+            print(f"Updated {app_json_file.name} -> versionCode {target_code}, version \"{target_name}\"")
+        except Exception as e:
+            print(f"Warning updating app.json: {e}")
+
+
+# ==================================================
 # REMOVE OLD GRADLE BUILD FILES
 # ==================================================
 
 def clean_gradle():
 
-    print("\n[6/10] Removing old Gradle build files")
+    print("\n[7/11] Removing old Gradle build files")
 
     android = PROJECT / "android"
 
@@ -229,7 +343,7 @@ def clean_gradle():
 
 def build_aab(env):
 
-    print("\n[7/10] Building fresh signed Android AAB")
+    print("\n[8/11] Building fresh signed Android AAB")
 
     android = PROJECT / "android"
 
@@ -260,7 +374,7 @@ def build_aab(env):
 
 def verify_signature():
 
-    print("\n[8/10] Verifying AAB signature")
+    print("\n[9/11] Verifying AAB signature")
 
     run([
         "jarsigner",
@@ -278,7 +392,7 @@ def verify_signature():
 
 def deploy_to_nginx():
 
-    print("\n[9/10] Deploying AAB to Nginx")
+    print("\n[10/11] Deploying AAB to Nginx")
 
     run([
         "sudo", "mkdir", "-p", str(NGINX_DIR)
@@ -318,7 +432,7 @@ def deploy_to_nginx():
 
 def verify_deployment():
 
-    print("\n[10/10] Testing download URL")
+    print("\n[11/11] Testing download URL")
 
     if not AAB_DEST.exists():
         raise FileNotFoundError(
@@ -369,6 +483,8 @@ def main():
         install_dependencies()
 
         verify_keystore(env)
+
+        sync_android_version()
 
         clean_gradle()
 
