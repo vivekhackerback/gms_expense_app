@@ -71,6 +71,9 @@ try {
         ], 200);
     } else {
         $errorMessage = $result['message'] ?? 'Failed to resend OTP. Please try again.';
+        if (stripos($errorMessage, 'internal server error') !== false || ($result['error_code'] ?? '') === 'INTERNAL_SERVER_ERROR') {
+            $errorMessage = 'Failed to resend OTP. Please try again.';
+        }
         sendJsonResponse([
             'success'         => false,
             'delivery_status' => $deliveryStatus,

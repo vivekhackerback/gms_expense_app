@@ -123,7 +123,13 @@ export const evaluateOtpResponse = (data, httpStatus = 200) => {
 
   // Delivery Failure:
   let failMsg = data.message ? String(data.message).trim() : 'Failed to send OTP';
-  if (failMsg.toLowerCase().includes('success') || failMsg.toLowerCase().includes('dispatched') || failMsg.toLowerCase().includes('accepted')) {
+  if (
+    failMsg.toLowerCase().includes('success') ||
+    failMsg.toLowerCase().includes('dispatched') ||
+    failMsg.toLowerCase().includes('accepted') ||
+    failMsg.toLowerCase().includes('internal server error') ||
+    data.error_code === 'INTERNAL_SERVER_ERROR'
+  ) {
     failMsg = 'Failed to send OTP. Please try again.';
   }
 
@@ -322,7 +328,9 @@ class OtpService {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          phone: targetPhone,
+          country_code: cleanCountryCode,
+          mobile_number: cleanPhone,
+          phone: `+${dialDigits}${cleanPhone}`,
           purpose: safePurpose,
           expiry_seconds: expirySeconds || config?.expirySeconds || 300,
         }),

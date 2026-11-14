@@ -201,6 +201,9 @@ try {
             if (stripos($failMsg, 'success') !== false || stripos($failMsg, 'accepted') !== false || stripos($failMsg, 'dispatched') !== false) {
                 $failMsg = 'Failed to send OTP. Please try again.';
             }
+            if (stripos($failMsg, 'internal server error') !== false || ($result['error_code'] ?? '') === 'INTERNAL_SERVER_ERROR') {
+                $failMsg = 'Failed to send OTP. Please try again.';
+            }
             $responseCode = 400;
         }
 
