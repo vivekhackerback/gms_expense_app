@@ -37,15 +37,31 @@ class OtpGatewayClient
     /**
      * Endpoint 1: Request & Send OTP
      * Route: POST /otp/send
+     * 
+     * Note: Meta enforces a strict 15-character limit on template parameter index 1 (purpose).
      */
-    public function sendOtp(string $phone, string $purpose = 'Login Verification', int $expirySeconds = 300): array
+    public function sendOtp(string $phone, string $purpose = 'Verification', int $expirySeconds = 300): array
     {
         // Strip non-digit characters
         $cleanPhone = preg_replace('/\D/', '', $phone);
 
+        // Sanitize purpose to never exceed Meta's 15-character parameter limit (#132018)
+        $cleanPurpose = trim($purpose);
+        if ($cleanPurpose === 'Account Registration') {
+            $cleanPurpose = 'Registration';
+        } elseif ($cleanPurpose === 'Login Verification') {
+            $cleanPurpose = 'Verification';
+        }
+        if (mb_strlen($cleanPurpose) > 15) {
+            $cleanPurpose = mb_substr($cleanPurpose, 0, 15);
+        }
+        if (empty($cleanPurpose)) {
+            $cleanPurpose = 'Verification';
+        }
+
         return $this->request('POST', '/otp/send', [
             'phone'          => $cleanPhone,
-            'purpose'        => $purpose,
+            'purpose'        => $cleanPurpose,
             'expiry_seconds' => $expirySeconds,
         ]);
     }

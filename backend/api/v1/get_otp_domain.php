@@ -36,7 +36,7 @@ try {
         `api_secret` VARCHAR(255) NULL,
         `sender_phone_id` VARCHAR(100) NULL,
         `template_name` VARCHAR(100) NOT NULL DEFAULT 'otp_service',
-        `purpose` VARCHAR(100) NOT NULL DEFAULT 'Login Verification',
+        `purpose` VARCHAR(100) NOT NULL DEFAULT 'Verification',
         `expiry_seconds` INT UNSIGNED NOT NULL DEFAULT 300,
         `resend_cooldown` INT UNSIGNED NOT NULL DEFAULT 60,
         `max_attempts` INT UNSIGNED NOT NULL DEFAULT 5,
@@ -52,7 +52,7 @@ try {
         'api_base_url'    => "VARCHAR(255) NOT NULL DEFAULT 'https://otp.losttag.in/api/v1'",
         'sender_phone_id' => "VARCHAR(100) NULL",
         'template_name'   => "VARCHAR(100) NOT NULL DEFAULT 'otp_service'",
-        'purpose'         => "VARCHAR(100) NOT NULL DEFAULT 'Login Verification'",
+        'purpose'         => "VARCHAR(100) NOT NULL DEFAULT 'Verification'",
         'expiry_seconds'  => "INT UNSIGNED NOT NULL DEFAULT 300",
         'resend_cooldown' => "INT UNSIGNED NOT NULL DEFAULT 60",
         'max_attempts'    => "INT UNSIGNED NOT NULL DEFAULT 5",
@@ -81,7 +81,7 @@ try {
         $insertStmt = $db->prepare("INSERT INTO otp_domain (
             id, domain, api_base_url, api_key, sender_phone_id, template_name, purpose, expiry_seconds, resend_cooldown, max_attempts, status, is_active, otp_update, created_at
         ) VALUES (
-            1, 'https://otp.losttag.in', 'https://otp.losttag.in/api/v1', '', '1432742293247493', 'otp_service', 'Login Verification', 300, 60, 5, 'active', 1, 1, :created_at
+            1, 'https://otp.losttag.in', 'https://otp.losttag.in/api/v1', '', '1432742293247493', 'otp_service', 'Verification', 300, 60, 5, 'active', 1, 1, :created_at
         )");
         $insertStmt->execute([':created_at' => $nowTs]);
 
@@ -93,6 +93,15 @@ try {
     $serverApiBaseUrl = trim($row['api_base_url'] ?? 'https://otp.losttag.in/api/v1');
     $serverOtpUpdate = isset($row['otp_update']) ? (int)$row['otp_update'] : 1;
     $serverUpdatedAt = isset($row['updated_at']) ? trim($row['updated_at']) : '';
+    $serverPurpose = trim($row['purpose'] ?? 'Verification');
+    if ($serverPurpose === 'Account Registration') {
+        $serverPurpose = 'Registration';
+    } elseif ($serverPurpose === 'Login Verification') {
+        $serverPurpose = 'Verification';
+    }
+    if (mb_strlen($serverPurpose) > 15) {
+        $serverPurpose = mb_substr($serverPurpose, 0, 15);
+    }
 
     // Check client_otp_update parameter if supplied
     $clientOtpUpdate = isset($_GET['client_otp_update']) && is_numeric($_GET['client_otp_update'])
@@ -108,7 +117,7 @@ try {
         'domain'          => $serverDomain,
         'api_base_url'    => $serverApiBaseUrl,
         'template_name'   => $row['template_name'] ?? 'otp_service',
-        'purpose'         => $row['purpose'] ?? 'Login Verification',
+        'purpose'         => $serverPurpose,
         'expiry_seconds'  => (int)($row['expiry_seconds'] ?? 300),
         'resend_cooldown' => (int)($row['resend_cooldown'] ?? 60),
         'max_attempts'    => (int)($row['max_attempts'] ?? 5),

@@ -338,7 +338,7 @@ export const initDatabase = () => {
         api_secret TEXT DEFAULT '',
         sender_phone_id TEXT DEFAULT '1432742293247493',
         template_name TEXT DEFAULT 'otp_service',
-        purpose TEXT DEFAULT 'Login Verification',
+        purpose TEXT DEFAULT 'Verification',
         expiry_seconds INTEGER DEFAULT 300,
         resend_cooldown INTEGER DEFAULT 60,
         max_attempts INTEGER DEFAULT 5,
@@ -364,7 +364,7 @@ export const initDatabase = () => {
         dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN template_name TEXT DEFAULT 'otp_service';");
       }
       if (!otpColNames.includes('purpose')) {
-        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN purpose TEXT DEFAULT 'Login Verification';");
+        dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN purpose TEXT DEFAULT 'Verification';");
       }
       if (!otpColNames.includes('expiry_seconds')) {
         dbInstance.execSync("ALTER TABLE otp_domain ADD COLUMN expiry_seconds INTEGER DEFAULT 300;");
@@ -391,13 +391,18 @@ export const initDatabase = () => {
       console.warn('Migration error for otp_domain columns:', migErr);
     }
 
-    // Ensure default initial row exists
+    // Ensure default initial row exists and sanitize purpose length to max 15 chars
     try {
       const otpCount = dbInstance.getFirstSync("SELECT COUNT(*) as count FROM otp_domain WHERE domain IS NOT NULL AND TRIM(domain) != '';");
       if (!otpCount || Number(otpCount.count) === 0) {
         dbInstance.runSync(
-          "INSERT INTO `otp_domain` (`id`, `domain`, `api_base_url`, `api_key`, `api_secret`, `sender_phone_id`, `template_name`, `purpose`, `expiry_seconds`, `resend_cooldown`, `max_attempts`, `status`, `is_active`, `otp_update`, `created_at`, `updated_at`) VALUES (1, 'https://otp.losttag.in', 'https://otp.losttag.in/api/v1', '', '', '1432742293247493', 'otp_service', 'Login Verification', 300, 60, 5, 'active', 1, 1, strftime('%s', 'now'), datetime('now'));"
+          "INSERT INTO `otp_domain` (`id`, `domain`, `api_base_url`, `api_key`, `api_secret`, `sender_phone_id`, `template_name`, `purpose`, `expiry_seconds`, `resend_cooldown`, `max_attempts`, `status`, `is_active`, `otp_update`, `created_at`, `updated_at`) VALUES (1, 'https://otp.losttag.in', 'https://otp.losttag.in/api/v1', '', '', '1432742293247493', 'otp_service', 'Verification', 300, 60, 5, 'active', 1, 1, strftime('%s', 'now'), datetime('now'));"
         );
+      } else {
+        // Automatically sanitize legacy length > 15 to avoid Meta parameter limit error #132018
+        try {
+          dbInstance.runSync("UPDATE `otp_domain` SET `purpose` = 'Verification' WHERE length(`purpose`) > 15;");
+        } catch (lenErr) {}
       }
     } catch (otpErr) {
       console.warn('Could not ensure default otp_domain:', otpErr);

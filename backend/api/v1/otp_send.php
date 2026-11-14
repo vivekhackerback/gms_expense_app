@@ -25,7 +25,20 @@ if (!$payload) {
 }
 
 $phone = isset($payload['phone']) ? trim($payload['phone']) : '';
-$purpose = isset($payload['purpose']) ? trim($payload['purpose']) : 'Account Registration';
+$rawPurpose = isset($payload['purpose']) ? trim($payload['purpose']) : 'Registration';
+// Meta WhatsApp Parameter Limit: Body parameter at index 1 must NOT exceed 15 chars (Error #132018)
+if ($rawPurpose === 'Account Registration') {
+    $rawPurpose = 'Registration';
+} elseif ($rawPurpose === 'Login Verification') {
+    $rawPurpose = 'Verification';
+}
+if (mb_strlen($rawPurpose) > 15) {
+    $rawPurpose = mb_substr($rawPurpose, 0, 15);
+}
+if (empty($rawPurpose)) {
+    $rawPurpose = 'Verification';
+}
+$purpose = $rawPurpose;
 $expirySeconds = isset($payload['expiry_seconds']) ? (int)$payload['expiry_seconds'] : 300;
 
 // Clean phone (10 digits)

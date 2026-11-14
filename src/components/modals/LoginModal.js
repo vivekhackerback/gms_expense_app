@@ -191,7 +191,7 @@ export const LoginModal = () => {
 
     setIsLoading(true);
     try {
-      const res = await otpService.sendOtp(cleanPhone, 'Account Registration');
+      const res = await otpService.sendOtp(cleanPhone, 'Registration');
       if (res && res.success) {
         setChallengeId(res.challenge_id || '');
         setResendCooldown(res.resend_cooldown || 60);
@@ -216,7 +216,7 @@ export const LoginModal = () => {
 
     setIsLoading(true);
     try {
-      const res = await otpService.sendOtp(cleanPhone, 'Account Registration');
+      const res = await otpService.sendOtp(cleanPhone, 'Registration');
       if (res && res.success) {
         setChallengeId(res.challenge_id || '');
         setResendCooldown(res.resend_cooldown || 60);

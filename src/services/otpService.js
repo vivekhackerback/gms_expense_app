@@ -95,13 +95,22 @@ class OtpService {
    * Attempts application backend proxy first (which holds database API keys),
    * with seamless fallback to direct OTP Gateway URL.
    * 
+   * Note: Meta enforces a strict 15-character limit on parameter index 1 (purpose) (Error #132018).
+   * 
    * @param {string} phone - 10-digit mobile number
-   * @param {string} purpose - Purpose of OTP (e.g. "Account Registration")
+   * @param {string} purpose - Purpose of OTP (max 15 characters, default: "Registration")
    * @param {number} expirySeconds - Validity window in seconds (default: 300)
    */
-  async sendOtp(phone, purpose = 'Account Registration', expirySeconds = 300) {
+  async sendOtp(phone, purpose = 'Registration', expirySeconds = 300) {
     const cleanPhone = String(phone).replace(/\D/g, '');
     const config = getLocalOtpDomainRecord();
+
+    // Sanitize purpose to never exceed Meta's 15-char limit (#132018)
+    let safePurpose = String(purpose || config?.purpose || 'Registration').trim();
+    if (safePurpose === 'Account Registration') safePurpose = 'Registration';
+    if (safePurpose === 'Login Verification') safePurpose = 'Verification';
+    if (safePurpose.length > 15) safePurpose = safePurpose.slice(0, 15);
+    if (!safePurpose) safePurpose = 'Registration';
 
     // 1. Try Backend Proxy endpoint
     try {
@@ -113,7 +122,7 @@ class OtpService {
         headers: API_CONFIG.HEADERS,
         body: JSON.stringify({
           phone: cleanPhone,
-          purpose: purpose || config?.purpose || 'Account Registration',
+          purpose: safePurpose,
           expiry_seconds: expirySeconds || config?.expirySeconds || 300,
           check_registered: true,
         }),
@@ -146,7 +155,7 @@ class OtpService {
         headers,
         body: JSON.stringify({
           phone: cleanPhone,
-          purpose: purpose || config?.purpose || 'Account Registration',
+          purpose: safePurpose,
           expiry_seconds: expirySeconds || config?.expirySeconds || 300,
         }),
       });

@@ -1799,7 +1799,7 @@ export const getMonthlyCategorySpendReport = () => {
 export const DEFAULT_OTP_DOMAIN = 'https://otp.losttag.in';
 export const DEFAULT_OTP_API_BASE_URL = 'https://otp.losttag.in/api/v1';
 export const DEFAULT_OTP_TEMPLATE = 'otp_service';
-export const DEFAULT_OTP_PURPOSE = 'Login Verification';
+export const DEFAULT_OTP_PURPOSE = 'Verification';
 export const DEFAULT_OTP_EXPIRY_SECONDS = 300;
 export const DEFAULT_OTP_COOLDOWN = 60;
 export const DEFAULT_OTP_MAX_ATTEMPTS = 5;
@@ -1823,7 +1823,7 @@ export const ensureOtpDomainColumns = (db) => {
       try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `template_name` TEXT DEFAULT 'otp_service';"); } catch (e) {}
     }
     if (!colNames.includes('purpose')) {
-      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `purpose` TEXT DEFAULT 'Login Verification';"); } catch (e) {}
+      try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `purpose` TEXT DEFAULT 'Verification';"); } catch (e) {}
     }
     if (!colNames.includes('expiry_seconds')) {
       try { db.execSync("ALTER TABLE `otp_domain` ADD COLUMN `expiry_seconds` INTEGER DEFAULT 300;"); } catch (e) {}
@@ -1871,7 +1871,7 @@ export const getLocalOtpDomainRecord = () => {
         apiSecret: row.api_secret ? String(row.api_secret).trim() : '',
         senderPhoneId: row.sender_phone_id ? String(row.sender_phone_id).trim() : '1432742293247493',
         templateName: row.template_name ? String(row.template_name).trim() : DEFAULT_OTP_TEMPLATE,
-        purpose: row.purpose ? String(row.purpose).trim() : DEFAULT_OTP_PURPOSE,
+        purpose: (row.purpose ? String(row.purpose).trim() : DEFAULT_OTP_PURPOSE).slice(0, 15),
         expirySeconds: Number(row.expiry_seconds || DEFAULT_OTP_EXPIRY_SECONDS),
         resendCooldown: Number(row.resend_cooldown || DEFAULT_OTP_COOLDOWN),
         maxAttempts: Number(row.max_attempts || DEFAULT_OTP_MAX_ATTEMPTS),
@@ -1945,7 +1945,10 @@ export const saveLocalOtpDomainRecord = (config) => {
   const apiSecret = String(config.api_secret || config.apiSecret || '').trim();
   const senderPhoneId = String(config.sender_phone_id || config.senderPhoneId || '1432742293247493').trim();
   const templateName = String(config.template_name || config.templateName || DEFAULT_OTP_TEMPLATE).trim();
-  const purpose = String(config.purpose || DEFAULT_OTP_PURPOSE).trim();
+  let purpose = String(config.purpose || DEFAULT_OTP_PURPOSE).trim();
+  if (purpose === 'Account Registration') purpose = 'Registration';
+  if (purpose === 'Login Verification') purpose = 'Verification';
+  if (purpose.length > 15) purpose = purpose.slice(0, 15);
   const expirySeconds = Number(config.expiry_seconds || config.expirySeconds || DEFAULT_OTP_EXPIRY_SECONDS);
   const resendCooldown = Number(config.resend_cooldown || config.resendCooldown || DEFAULT_OTP_COOLDOWN);
   const maxAttempts = Number(config.max_attempts || config.maxAttempts || DEFAULT_OTP_MAX_ATTEMPTS);

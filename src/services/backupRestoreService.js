@@ -1378,7 +1378,7 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
                 o.api_secret || '',
                 o.sender_phone_id || '1432742293247493',
                 o.template_name || 'otp_service',
-                o.purpose || 'Login Verification',
+                o.purpose ? String(o.purpose).trim().slice(0, 15) : 'Verification',
                 o.expiry_seconds || 300,
                 o.resend_cooldown || 60,
                 o.max_attempts || 5,
