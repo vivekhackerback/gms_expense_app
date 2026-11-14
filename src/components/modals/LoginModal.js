@@ -204,16 +204,23 @@ export const LoginModal = () => {
     setIsLoading(true);
     try {
       const res = await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode);
-      if (res && res.success) {
-        const cid = res.challenge_id || res.verification_id || res.id || '';
+      if (res && res.success && (res.deliveryStatus === 'success' || res.delivery_status === 'success')) {
+        const cid = res.challenge_id || res.challengeId || res.verification_id || res.id || '';
         setChallengeId(cid);
-        setResendCooldown(res.resend_cooldown || 60);
+        // Start 60s cooldown ONLY when API confirms successful OTP delivery
+        setResendCooldown(res.resend_cooldown || res.resendCooldown || 60);
+        setErrorMessage('');
         setRegStep('otp');
       } else {
-        setErrorMessage(res?.message || 'Unable to dispatch OTP. Please check the mobile number.');
+        // Failure / Timeout / Invalid Response:
+        // Do NOT advance step, do NOT start countdown (resendCooldown = 0), allow immediate retry
+        setResendCooldown(0);
+        setErrorMessage(res?.message || 'Failed to send OTP. Please try again.');
       }
     } catch (e) {
-      setErrorMessage('Failed to send OTP. Please check your internet connection.');
+      setResendCooldown(0);
+      const isTimeout = e?.name === 'AbortError' || e?.message?.toLowerCase().includes('timeout');
+      setErrorMessage(isTimeout ? 'Unable to send OTP. Try again.' : 'Failed to send OTP. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -230,15 +237,21 @@ export const LoginModal = () => {
     setIsLoading(true);
     try {
       const res = await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode);
-      if (res && res.success) {
-        const cid = res.challenge_id || res.verification_id || res.id || '';
+      if (res && res.success && (res.deliveryStatus === 'success' || res.delivery_status === 'success')) {
+        const cid = res.challenge_id || res.challengeId || res.verification_id || res.id || '';
         setChallengeId(cid);
-        setResendCooldown(res.resend_cooldown || 60);
+        // Only start 60s countdown on confirmed successful delivery
+        setResendCooldown(res.resend_cooldown || res.resendCooldown || 60);
+        setErrorMessage('');
       } else {
-        setErrorMessage(res?.message || 'Could not resend OTP. Please wait before retrying.');
+        // Resend failed -> Allow user to retry immediately! Never lock in a countdown!
+        setResendCooldown(0);
+        setErrorMessage(res?.message || 'Failed to send OTP. Please try again.');
       }
     } catch (e) {
-      setErrorMessage('Network error while resending OTP.');
+      setResendCooldown(0);
+      const isTimeout = e?.name === 'AbortError' || e?.message?.toLowerCase().includes('timeout');
+      setErrorMessage(isTimeout ? 'Unable to send OTP. Try again.' : 'Failed to send OTP. Please try again.');
     } finally {
       setIsLoading(false);
     }

@@ -145,14 +145,31 @@ try {
     $challengeId = $result['challenge_id'] ?? $result['verification_id'] ?? $result['id'] ?? null;
     $resendCooldown = isset($result['resend_cooldown']) ? (int)$result['resend_cooldown'] : 60;
 
-    if (!empty($result['success'])) {
+    // Strict Delivery Status Validation
+    // Never assume delivery succeeded merely because of HTTP 200 or truthy object
+    $rawSuccess = $result['success'] ?? false;
+    $statusLower = strtolower(trim((string)($result['status'] ?? '')));
+    $waStatusLower = isset($result['whatsapp']['status']) ? strtolower(trim((string)$result['whatsapp']['status'])) : '';
+    $httpCode = isset($result['http_code']) ? (int)$result['http_code'] : 200;
+
+    $failedStatuses = ['failed', 'failure', 'undelivered', 'rejected', 'error', 'timeout', 'invalid_response'];
+    $isStatusFailed = in_array($statusLower, $failedStatuses, true) || in_array($waStatusLower, ['failed', 'failure', 'undelivered', 'error'], true);
+    $isBooleanSuccess = ($rawSuccess === true || $rawSuccess === 1 || $rawSuccess === '1');
+
+    $isDeliverySuccess = $isBooleanSuccess && !$isStatusFailed && !empty($challengeId) && ($httpCode < 400);
+
+    if ($isDeliverySuccess) {
+        // SUCCESS CASE:
+        // Confirmed successful OTP delivery -> Start 60s resend countdown
         sendJsonResponse([
             'success'             => true,
-            'message'             => isset($result['message']) ? $result['message'] : 'OTP sent successfully via WhatsApp.',
+            'delivery_status'     => 'success',
+            'status'              => 'sent',
+            'message'             => 'OTP sent successfully via WhatsApp.',
             'challenge_id'        => $challengeId,
             'verification_id'     => $challengeId,
-            'status'              => $result['status'] ?? 'pending',
-            'resend_cooldown'     => $resendCooldown,
+            'resend_cooldown'     => $resendCooldown > 0 ? $resendCooldown : 60,
+            'allow_retry'         => false,
             'otp'                 => isset($result['otp']) ? $result['otp'] : null,
             'phone'               => $e164Phone,
             'country_code'        => $countryCode,
@@ -163,13 +180,43 @@ try {
             'service_url'         => $serviceUrl,
         ], 200);
     } else {
-        $errorMsg = isset($result['message']) ? $result['message'] : 'Failed to send OTP via WhatsApp gateway.';
+        // FAILURE CASE:
+        // Categorize error type: timeout, invalid_response, or failed
+        // ALWAYS set resend_cooldown to 0 so the user can retry immediately without waiting!
+        if ($statusLower === 'timeout' || $httpCode === 408 || $httpCode === 504) {
+            $deliveryStatus = 'timeout';
+            $failMsg = 'Unable to send OTP. Try again.';
+            $responseCode = 504;
+        } elseif ($statusLower === 'invalid_response' || $httpCode === 502) {
+            $deliveryStatus = 'invalid_response';
+            $failMsg = 'Unable to verify OTP delivery status';
+            $responseCode = 502;
+        } else {
+            $deliveryStatus = 'failed';
+            $failMsg = !empty($result['message']) ? trim((string)$result['message']) : 'Failed to send OTP. Please try again.';
+            // Sanitize: never echo misleading success wording if delivery failed
+            if (stripos($failMsg, 'success') !== false || stripos($failMsg, 'accepted') !== false || stripos($failMsg, 'dispatched') !== false) {
+                $failMsg = 'Failed to send OTP. Please try again.';
+            }
+            $responseCode = 400;
+        }
+
         sendJsonResponse([
-            'success'     => false,
-            'message'     => $errorMsg,
-            'service_url' => $serviceUrl,
-            'debug'       => $result,
-        ], 400);
+            'success'             => false,
+            'delivery_status'     => $deliveryStatus,
+            'status'              => 'failed',
+            'message'             => $failMsg,
+            'challenge_id'        => null,
+            'verification_id'     => null,
+            'resend_cooldown'     => 0, // NEVER start countdown on failure!
+            'allow_retry'         => true,
+            'phone'               => $e164Phone,
+            'country_code'        => $countryCode,
+            'national_phone'      => $nationalPhone,
+            'gateway_phone'       => $gatewayPhone,
+            'service_url'         => $serviceUrl,
+            'debug'               => $result,
+        ], $responseCode);
     }
 
 } catch (Exception $e) {

@@ -12,6 +12,136 @@ import {
   saveLocalOtpDomainRecord,
 } from '../database/queries';
 
+/**
+ * Evaluates whether an OTP dispatch response represents a genuine delivery success.
+ * Enforces strict delivery validation per required spec:
+ * - Success Case: only when delivery is confirmed by API -> 'OTP sent successfully', starts 60s cooldown
+ * - Failed Case: -> 'Failed to send OTP', resendCooldown = 0 (retry immediately)
+ * - Timeout Case: -> 'Unable to send OTP. Try again.', resendCooldown = 0 (retry immediately)
+ * - Invalid Response: -> 'Unable to verify OTP delivery status', resendCooldown = 0 (retry immediately)
+ */
+export const evaluateOtpResponse = (data, httpStatus = 200) => {
+  if (!data || typeof data !== 'object') {
+    return {
+      success: false,
+      deliveryStatus: 'invalid_response',
+      delivery_status: 'invalid_response',
+      status: 'invalid_response',
+      message: 'Unable to verify OTP delivery status',
+      resendCooldown: 0,
+      resend_cooldown: 0,
+      canRetryImmediately: true,
+      challengeId: '',
+      challenge_id: '',
+      isNetworkError: true,
+    };
+  }
+
+  // Already Registered / Duplicate Phone Conflict
+  if (data.already_registered || data.alreadyRegistered) {
+    return {
+      success: false,
+      alreadyRegistered: true,
+      already_registered: true,
+      deliveryStatus: 'conflict',
+      delivery_status: 'conflict',
+      message: data.message || 'An account with this mobile number already exists. Please sign in instead.',
+      resendCooldown: 0,
+      resend_cooldown: 0,
+      canRetryImmediately: true,
+      challengeId: '',
+      challenge_id: '',
+      isNetworkError: false,
+    };
+  }
+
+  const cid = String(data.challenge_id || data.verification_id || data.id || '').trim();
+  const rawStatus = String(data.status || data.delivery_status || '').toLowerCase().trim();
+  const waStatus = String(data.whatsapp?.status || '').toLowerCase().trim();
+
+  const failedStatuses = ['failed', 'failure', 'undelivered', 'rejected', 'error'];
+  const isStatusFailed = failedStatuses.includes(rawStatus) || failedStatuses.includes(waStatus);
+
+  const isTimeout = rawStatus === 'timeout' || data.delivery_status === 'timeout' || httpStatus === 408 || httpStatus === 504;
+  const isInvalid = rawStatus === 'invalid_response' || data.delivery_status === 'invalid_response' || httpStatus === 502;
+
+  if (isTimeout) {
+    return {
+      success: false,
+      deliveryStatus: 'timeout',
+      delivery_status: 'timeout',
+      status: 'timeout',
+      message: 'Unable to send OTP. Try again.',
+      resendCooldown: 0,
+      resend_cooldown: 0,
+      canRetryImmediately: true,
+      challengeId: '',
+      challenge_id: '',
+      isNetworkError: true,
+    };
+  }
+
+  if (isInvalid) {
+    return {
+      success: false,
+      deliveryStatus: 'invalid_response',
+      delivery_status: 'invalid_response',
+      status: 'invalid_response',
+      message: 'Unable to verify OTP delivery status',
+      resendCooldown: 0,
+      resend_cooldown: 0,
+      canRetryImmediately: true,
+      challengeId: '',
+      challenge_id: '',
+      isNetworkError: true,
+    };
+  }
+
+  const isSuccessFlag = (data.success === true || data.success === 1 || data.success === '1') && data.success !== 'Failed' && data.success !== 'failed';
+
+  // Confirmed Delivery Success:
+  // Requires boolean success === true, HTTP 200/201, valid challenge_id, and NO failed status
+  if (isSuccessFlag && !isStatusFailed && cid && (httpStatus === 200 || httpStatus === 201)) {
+    const cooldown = Number(data.resend_cooldown) > 0 ? Number(data.resend_cooldown) : 60;
+    return {
+      success: true,
+      deliveryStatus: 'success',
+      delivery_status: 'success',
+      status: 'sent',
+      message: 'OTP sent successfully',
+      resendCooldown: cooldown,
+      resend_cooldown: cooldown,
+      canRetryImmediately: false,
+      challengeId: cid,
+      challenge_id: cid,
+      verification_id: cid,
+      otp: data.otp || null,
+      simulated: !!data.simulated,
+      isNetworkError: false,
+    };
+  }
+
+  // Delivery Failure:
+  let failMsg = data.message ? String(data.message).trim() : 'Failed to send OTP';
+  if (failMsg.toLowerCase().includes('success') || failMsg.toLowerCase().includes('dispatched') || failMsg.toLowerCase().includes('accepted')) {
+    failMsg = 'Failed to send OTP. Please try again.';
+  }
+
+  return {
+    success: false,
+    deliveryStatus: 'failed',
+    delivery_status: 'failed',
+    status: 'failed',
+    message: failMsg,
+    resendCooldown: 0,
+    resend_cooldown: 0,
+    canRetryImmediately: true,
+    challengeId: '',
+    challenge_id: '',
+    isNetworkError: false,
+  };
+};
+
 class OtpService {
   /**
    * Fetches latest OTP gateway domain & base URL configuration dynamically from the database.
@@ -154,11 +284,11 @@ class OtpService {
         console.warn('[OtpService] Proxy response was not JSON:', rawText.slice(0, 150));
       }
 
-      if (data && (response.status === 200 || response.status === 400 || response.status === 409 || data.already_registered)) {
-        const cid = data.challenge_id || data.verification_id || data.id || '';
-        data.challenge_id = cid;
-        data.verification_id = cid;
-        return data;
+      const evaluated = evaluateOtpResponse(data, response.status);
+
+      // If proxy returned definitive result (success, duplicate number conflict, or non-500 handled failure)
+      if (evaluated.success || evaluated.alreadyRegistered || response.status === 409 || (data && response.status < 500)) {
+        return evaluated;
       }
     } catch (proxyError) {
       console.warn('[OtpService] Proxy sendOtp failed, attempting direct gateway fallback:', proxyError?.message);
@@ -167,10 +297,10 @@ class OtpService {
     // 2. Direct fallback using dynamic database-stored base URL
     const baseUrl = this.getApiBaseUrl();
     if (!baseUrl) {
-      return {
-        success: false,
-        message: 'No OTP service URL configured in database. Please check connection.',
-      };
+      return evaluateOtpResponse(
+        { status: 'failed', message: 'No OTP service URL configured in database. Please check connection.' },
+        500
+      );
     }
 
     const headers = {
@@ -185,6 +315,9 @@ class OtpService {
     const targetPhone = (dialDigits === '91' || !dialDigits) ? cleanPhone : `${dialDigits}${cleanPhone}`;
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
       const response = await fetch(`${baseUrl}/otp/send`, {
         method: 'POST',
         headers,
@@ -193,7 +326,9 @@ class OtpService {
           purpose: safePurpose,
           expiry_seconds: expirySeconds || config?.expirySeconds || 300,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
 
       const rawText = await response.text();
       let data = null;
@@ -203,23 +338,17 @@ class OtpService {
         console.warn('[OtpService] Direct gateway response was not JSON:', rawText.slice(0, 150));
       }
 
-      if (data) {
-        const cid = data.challenge_id || data.verification_id || data.id || '';
-        data.challenge_id = cid;
-        data.verification_id = cid;
-        return data;
-      }
-
-      return {
-        success: false,
-        message: 'Invalid response from WhatsApp OTP service.',
-      };
+      return evaluateOtpResponse(data, response.status);
     } catch (error) {
       console.error('[OtpService] direct sendOtp error:', error);
-      return {
-        success: false,
-        message: error?.message || 'Unable to connect to WhatsApp OTP service. Please check your internet connection.',
-      };
+      const isTimeout = error?.name === 'AbortError' || error?.message?.toLowerCase().includes('timeout');
+      return evaluateOtpResponse(
+        {
+          status: isTimeout ? 'timeout' : 'failed',
+          message: isTimeout ? 'Unable to send OTP. Try again.' : 'Failed to send OTP. Please try again.',
+        },
+        isTimeout ? 504 : 500
+      );
     }
   }
 

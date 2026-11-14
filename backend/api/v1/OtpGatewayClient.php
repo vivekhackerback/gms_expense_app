@@ -150,19 +150,27 @@ class OtpGatewayClient
         curl_close($ch);
 
         if ($raw === false || empty($raw)) {
+            $isTimeout = (stripos((string)$error, 'timed out') !== false || stripos((string)$error, 'timeout') !== false || $code === 408);
             return [
                 'success'   => false,
-                'message'   => 'HTTP request failed: ' . ($error ?: 'Empty response'),
+                'status'    => $isTimeout ? 'timeout' : 'failed',
+                'message'   => $isTimeout ? 'Unable to send OTP. Try again.' : ('HTTP request failed: ' . ($error ?: 'Empty response')),
                 'http_code' => $code,
             ];
         }
 
         $decoded = json_decode((string)$raw, true);
-        return $decoded ?? [
-            'success'   => false,
-            'message'   => 'Invalid JSON response from OTP gateway',
-            'http_code' => $code,
-            'raw'       => $raw,
-        ];
+        if (!is_array($decoded)) {
+            return [
+                'success'   => false,
+                'status'    => 'invalid_response',
+                'message'   => 'Unable to verify OTP delivery status',
+                'http_code' => $code,
+                'raw'       => $raw,
+            ];
+        }
+
+        $decoded['http_code'] = $code;
+        return $decoded;
     }
 }
