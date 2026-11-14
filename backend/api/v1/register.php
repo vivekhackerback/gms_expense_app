@@ -61,50 +61,74 @@ if (!$db) {
 // Check if user already exists
 // Matches exact E.164, exact digits, or matching country_code + national_phone
 // Prevents cross-country false collisions
-function findExistingUser($db, $e164, $digits, $countryCode, $nationalPhone) {
-    // 1. Direct match on phone = e164 or phone = digits
-    $stmt = $db->prepare("
-        SELECT id, name, phone, email, country_code, national_phone 
-        FROM users 
-        WHERE phone = :e164 
-           OR phone = :digits
-           OR (country_code = :cc AND (national_phone = :nat OR phone = :nat_exact))
-        LIMIT 1
-    ");
-    $stmt->execute([
-        ':e164'      => $e164,
-        ':digits'    => $digits,
-        ':cc'        => $countryCode,
-        ':nat'       => $nationalPhone,
-        ':nat_exact' => $nationalPhone,
-    ]);
-    $user = $stmt->fetch();
-    if ($user) {
-        return $user;
-    }
-
-    // 2. Backward compatibility for un-migrated legacy Indian accounts (+91):
-    // If user registering is +91, check if phone = 10-digit national number
-    if ($countryCode === '+91' || $dialCode === '91') {
-        $stmtLegacy = $db->prepare("
+function findExistingUser($db, $e164, $digits, $countryCode, $nationalPhone, $dialCode) {
+    if (hasUserPhoneColumns($db)) {
+        // 1. Direct match with country_code and national_phone columns
+        $stmt = $db->prepare("
             SELECT id, name, phone, email, country_code, national_phone 
             FROM users 
-            WHERE (country_code IS NULL OR country_code = '+91' OR country_code = '') 
-              AND (phone = :p10 OR phone = :p12)
+            WHERE phone = :e164 
+               OR phone = :digits
+               OR (country_code = :cc AND (national_phone = :nat OR phone = :nat_exact))
             LIMIT 1
         ");
-        $stmtLegacy->execute([
-            ':p10' => $nationalPhone,
-            ':p12' => '91' . $nationalPhone,
+        $stmt->execute([
+            ':e164'      => $e164,
+            ':digits'    => $digits,
+            ':cc'        => $countryCode,
+            ':nat'       => $nationalPhone,
+            ':nat_exact' => $nationalPhone,
         ]);
-        return $stmtLegacy->fetch();
+        $user = $stmt->fetch();
+        if ($user) {
+            return $user;
+        }
+
+        // 2. Backward compatibility for un-migrated legacy Indian accounts (+91):
+        if ($countryCode === '+91' || $dialCode === '91') {
+            $stmtLegacy = $db->prepare("
+                SELECT id, name, phone, email, country_code, national_phone 
+                FROM users 
+                WHERE (country_code IS NULL OR country_code = '+91' OR country_code = '') 
+                  AND (phone = :p10 OR phone = :p12)
+                LIMIT 1
+            ");
+            $stmtLegacy->execute([
+                ':p10' => $nationalPhone,
+                ':p12' => '91' . $nationalPhone,
+            ]);
+            return $stmtLegacy->fetch();
+        }
+    } else {
+        // Fallback when country_code column is not yet added in table
+        $stmt = $db->prepare("
+            SELECT id, name, phone, email 
+            FROM users 
+            WHERE phone = :e164 
+               OR phone = :digits 
+               OR phone = :nat
+               OR phone = :full_nat
+            LIMIT 1
+        ");
+        $stmt->execute([
+            ':e164'     => $e164,
+            ':digits'   => $digits,
+            ':nat'      => $nationalPhone,
+            ':full_nat' => ($dialCode === '91' ? ('91' . $nationalPhone) : ($dialCode . $nationalPhone)),
+        ]);
+        $user = $stmt->fetch();
+        if ($user) {
+            $user['country_code'] = $countryCode;
+            $user['national_phone'] = $nationalPhone;
+            return $user;
+        }
     }
 
     return null;
 }
 
 if ($isCheckOnly) {
-    $existing = findExistingUser($db, $e164Phone, $userDigits, $countryCode, $nationalPhone);
+    $existing = findExistingUser($db, $e164Phone, $userDigits, $countryCode, $nationalPhone, $dialCode);
     if ($existing) {
         sendJsonResponse([
             'success'            => false,
@@ -139,7 +163,7 @@ if (empty($email)) {
 
 try {
     // Check if phone already registered
-    $existing = findExistingUser($db, $e164Phone, $userDigits, $countryCode, $nationalPhone);
+    $existing = findExistingUser($db, $e164Phone, $userDigits, $countryCode, $nationalPhone, $dialCode);
     if ($existing) {
         sendJsonResponse([
             'success' => false,

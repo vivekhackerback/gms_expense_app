@@ -52,57 +52,85 @@ if (!$db) {
 }
 
 try {
-    // 1. Search user by exact international phone number or dial_code + national_phone
-    $stmt = $db->prepare("
-        SELECT * FROM users 
-        WHERE phone = :e164 
-           OR phone = :digits 
-           OR (country_code = :cc AND (national_phone = :nat OR phone = :nat_exact))
-        LIMIT 1
-    ");
-    $stmt->execute([
-        ':e164'      => $e164Phone,
-        ':digits'    => $userDigits,
-        ':cc'        => $countryCode,
-        ':nat'       => $nationalPhone,
-        ':nat_exact' => $nationalPhone,
-    ]);
-    $user = $stmt->fetch();
+    $hasCols = hasUserPhoneColumns($db);
+    $user = null;
 
-    // 2. Backward compatibility for un-migrated legacy accounts (e.g. existing Indian users stored as 10 digits)
-    if (!$user && ($countryCode === '+91' || $dialCode === '91' || empty($countryCodeInput))) {
-        $stmtLegacy = $db->prepare("
+    if ($hasCols) {
+        // 1. Search user with country_code & national_phone columns
+        $stmt = $db->prepare("
             SELECT * FROM users 
-            WHERE (country_code IS NULL OR country_code = '+91' OR country_code = '')
-              AND (phone = :p10 OR phone = :p12 OR phone LIKE :p_like)
+            WHERE phone = :e164 
+               OR phone = :digits 
+               OR (country_code = :cc AND (national_phone = :nat OR phone = :nat_exact))
             LIMIT 1
         ");
-        $stmtLegacy->execute([
-            ':p10'    => $nationalPhone,
-            ':p12'    => '91' . $nationalPhone,
+        $stmt->execute([
+            ':e164'      => $e164Phone,
+            ':digits'    => $userDigits,
+            ':cc'        => $countryCode,
+            ':nat'       => $nationalPhone,
+            ':nat_exact' => $nationalPhone,
+        ]);
+        $user = $stmt->fetch();
+
+        // 2. Backward compatibility for un-migrated legacy accounts (e.g. existing Indian users stored as 10 digits)
+        if (!$user && ($countryCode === '+91' || $dialCode === '91' || empty($countryCodeInput))) {
+            $stmtLegacy = $db->prepare("
+                SELECT * FROM users 
+                WHERE (country_code IS NULL OR country_code = '+91' OR country_code = '')
+                  AND (phone = :p10 OR phone = :p12 OR phone LIKE :p_like)
+                LIMIT 1
+            ");
+            $stmtLegacy->execute([
+                ':p10'    => $nationalPhone,
+                ':p12'    => '91' . $nationalPhone,
+                ':p_like' => '%' . $nationalPhone,
+            ]);
+            $user = $stmtLegacy->fetch();
+
+            // Self-heal: update legacy user row to normalized international format
+            if ($user) {
+                try {
+                    $healStmt = $db->prepare("
+                        UPDATE users 
+                        SET phone = :new_phone, country_code = '+91', national_phone = :nat_phone 
+                        WHERE id = :uid
+                    ");
+                    $healStmt->execute([
+                        ':new_phone'  => $e164Phone,
+                        ':nat_phone'  => $nationalPhone,
+                        ':uid'        => $user['id'],
+                    ]);
+                    $user['phone'] = $e164Phone;
+                    $user['country_code'] = '+91';
+                    $user['national_phone'] = $nationalPhone;
+                } catch (Exception $healEx) {
+                    // Ignore silently
+                }
+            }
+        }
+    } else {
+        // Fallback for databases without country_code column (prevents SQLSTATE 1054 error)
+        $stmt = $db->prepare("
+            SELECT * FROM users 
+            WHERE phone = :e164 
+               OR phone = :digits 
+               OR phone = :nat
+               OR phone = :p12
+               OR phone LIKE :p_like
+            LIMIT 1
+        ");
+        $stmt->execute([
+            ':e164'   => $e164Phone,
+            ':digits' => $userDigits,
+            ':nat'    => $nationalPhone,
+            ':p12'    => ($dialCode === '91' ? ('91' . $nationalPhone) : ($dialCode . $nationalPhone)),
             ':p_like' => '%' . $nationalPhone,
         ]);
-        $user = $stmtLegacy->fetch();
-
-        // Self-heal: update legacy user row to normalized international format if columns exist
+        $user = $stmt->fetch();
         if ($user) {
-            try {
-                $healStmt = $db->prepare("
-                    UPDATE users 
-                    SET phone = :new_phone, country_code = '+91', national_phone = :nat_phone 
-                    WHERE id = :uid
-                ");
-                $healStmt->execute([
-                    ':new_phone'  => $e164Phone,
-                    ':nat_phone'  => $nationalPhone,
-                    ':uid'        => $user['id'],
-                ]);
-                $user['phone'] = $e164Phone;
-                $user['country_code'] = '+91';
-                $user['national_phone'] = $nationalPhone;
-            } catch (Exception $healEx) {
-                // Silently ignore if columns are not yet present in old schema
-            }
+            $user['country_code'] = $countryCode;
+            $user['national_phone'] = $nationalPhone;
         }
     }
 

@@ -416,3 +416,45 @@ function getUserPublicStorageUrl(string $relativePath): string {
 
     return $protocol . $host . $pathPrefix . '/' . ltrim($relativePath, '/');
 }
+
+/**
+ * Checks whether the `users` table has `country_code` and `national_phone` columns.
+ * If missing, automatically attempts to apply the migration on the fly.
+ * Returns true if columns exist or were successfully added, false otherwise.
+ */
+function hasUserPhoneColumns($db): bool {
+    static $hasColumns = null;
+    if ($hasColumns !== null) {
+        return $hasColumns;
+    }
+    if (!$db) {
+        return false;
+    }
+
+    try {
+        $res = $db->query("SHOW COLUMNS FROM users LIKE 'country_code'");
+        if ($res && $res->rowCount() > 0) {
+            $hasColumns = true;
+            return true;
+        }
+
+        // Columns are missing on the live database — try self-healing migration
+        try {
+            @$db->exec("ALTER TABLE users ADD COLUMN country_code VARCHAR(10) NOT NULL DEFAULT '+91' AFTER password_hash");
+            @$db->exec("ALTER TABLE users ADD COLUMN national_phone VARCHAR(25) NULL AFTER phone");
+            @$db->exec("ALTER TABLE users MODIFY COLUMN phone VARCHAR(25) NOT NULL");
+            
+            // Re-verify after ALTER
+            $check2 = $db->query("SHOW COLUMNS FROM users LIKE 'country_code'");
+            $hasColumns = ($check2 && $check2->rowCount() > 0);
+            return (bool)$hasColumns;
+        } catch (Throwable $alterEx) {
+            $hasColumns = false;
+            return false;
+        }
+    } catch (Throwable $e) {
+        $hasColumns = false;
+        return false;
+    }
+}
+

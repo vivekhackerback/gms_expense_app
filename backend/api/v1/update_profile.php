@@ -51,45 +51,84 @@ $nationalPhone = $parsedPhone['national_number'];
 $userDigits = $parsedPhone['digits'];
 
 try {
+    $hasCols = hasUserPhoneColumns($db);
+
     if ($userId > 0) {
         $stmt = $db->prepare("UPDATE users SET name = :name, email = COALESCE(NULLIF(:email, ''), email), updated_at = CURRENT_TIMESTAMP WHERE id = :id");
         $stmt->execute([':name' => $name, ':email' => $email, ':id' => $userId]);
     } else {
-        $stmt = $db->prepare("
-            UPDATE users 
-            SET name = :name, email = COALESCE(NULLIF(:email, ''), email), updated_at = CURRENT_TIMESTAMP 
-            WHERE phone = :e164 
-               OR phone = :digits 
-               OR (country_code = :cc AND national_phone = :nat)
-        ");
-        $stmt->execute([
-            ':name'   => $name,
-            ':email'  => $email,
-            ':e164'   => $e164Phone,
-            ':digits' => $userDigits,
-            ':cc'     => $countryCode,
-            ':nat'    => $nationalPhone,
-        ]);
+        if ($hasCols) {
+            $stmt = $db->prepare("
+                UPDATE users 
+                SET name = :name, email = COALESCE(NULLIF(:email, ''), email), updated_at = CURRENT_TIMESTAMP 
+                WHERE phone = :e164 
+                   OR phone = :digits 
+                   OR (country_code = :cc AND national_phone = :nat)
+            ");
+            $stmt->execute([
+                ':name'   => $name,
+                ':email'  => $email,
+                ':e164'   => $e164Phone,
+                ':digits' => $userDigits,
+                ':cc'     => $countryCode,
+                ':nat'    => $nationalPhone,
+            ]);
+        } else {
+            $stmt = $db->prepare("
+                UPDATE users 
+                SET name = :name, email = COALESCE(NULLIF(:email, ''), email), updated_at = CURRENT_TIMESTAMP 
+                WHERE phone = :e164 
+                   OR phone = :digits 
+                   OR phone = :nat
+            ");
+            $stmt->execute([
+                ':name'   => $name,
+                ':email'  => $email,
+                ':e164'   => $e164Phone,
+                ':digits' => $userDigits,
+                ':nat'    => $nationalPhone,
+            ]);
+        }
     }
 
-    // Fetch updated user
-    $selectStmt = $db->prepare("
-        SELECT id, name, phone, email, currency, country_code, national_phone 
-        FROM users 
-        WHERE id = :id 
-           OR phone = :e164 
-           OR phone = :digits 
-           OR (country_code = :cc AND national_phone = :nat)
-        LIMIT 1
-    ");
-    $selectStmt->execute([
-        ':id'     => $userId,
-        ':e164'   => $e164Phone,
-        ':digits' => $userDigits,
-        ':cc'     => $countryCode,
-        ':nat'    => $nationalPhone,
-    ]);
-    $updatedUser = $selectStmt->fetch();
+    // Fetch updated user (only SELECT columns that exist)
+    if ($hasCols) {
+        $selectStmt = $db->prepare("
+            SELECT id, name, phone, email, currency, country_code, national_phone 
+            FROM users 
+            WHERE id = :id 
+               OR phone = :e164 
+               OR phone = :digits 
+            LIMIT 1
+        ");
+        $selectStmt->execute([
+            ':id'     => $userId,
+            ':e164'   => $e164Phone,
+            ':digits' => $userDigits,
+        ]);
+        $updatedUser = $selectStmt->fetch();
+    } else {
+        $selectStmt = $db->prepare("
+            SELECT id, name, phone, email, currency 
+            FROM users 
+            WHERE id = :id 
+               OR phone = :e164 
+               OR phone = :digits 
+               OR phone = :nat
+            LIMIT 1
+        ");
+        $selectStmt->execute([
+            ':id'     => $userId,
+            ':e164'   => $e164Phone,
+            ':digits' => $userDigits,
+            ':nat'    => $nationalPhone,
+        ]);
+        $updatedUser = $selectStmt->fetch();
+        if ($updatedUser) {
+            $updatedUser['country_code'] = $countryCode;
+            $updatedUser['national_phone'] = $nationalPhone;
+        }
+    }
 
     sendJsonResponse([
         'success' => true,

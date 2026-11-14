@@ -74,35 +74,55 @@ try {
     // 1. If registering, check if phone is already registered
     $checkRegistered = isset($payload['check_registered']) ? (bool)$payload['check_registered'] : true;
     if ($checkRegistered) {
-        $stmt = $db->prepare("
-            SELECT id FROM users 
-            WHERE phone = :e164 
-               OR phone = :digits 
-               OR (country_code = :cc AND (national_phone = :nat OR phone = :nat_exact))
-            LIMIT 1
-        ");
-        $stmt->execute([
-            ':e164'      => $e164Phone,
-            ':digits'    => $userDigits,
-            ':cc'        => $countryCode,
-            ':nat'       => $nationalPhone,
-            ':nat_exact' => $nationalPhone,
-        ]);
-        $exists = (bool)$stmt->fetch();
-
-        // Check legacy un-migrated Indian accounts if registering with +91
-        if (!$exists && ($countryCode === '+91' || $dialCode === '91')) {
-            $stmtLegacy = $db->prepare("
+        $exists = false;
+        if (hasUserPhoneColumns($db)) {
+            $stmt = $db->prepare("
                 SELECT id FROM users 
-                WHERE (country_code IS NULL OR country_code = '+91' OR country_code = '') 
-                  AND (phone = :p10 OR phone = :p12)
+                WHERE phone = :e164 
+                   OR phone = :digits 
+                   OR (country_code = :cc AND (national_phone = :nat OR phone = :nat_exact))
                 LIMIT 1
             ");
-            $stmtLegacy->execute([
-                ':p10' => $nationalPhone,
-                ':p12' => '91' . $nationalPhone,
+            $stmt->execute([
+                ':e164'      => $e164Phone,
+                ':digits'    => $userDigits,
+                ':cc'        => $countryCode,
+                ':nat'       => $nationalPhone,
+                ':nat_exact' => $nationalPhone,
             ]);
-            $exists = (bool)$stmtLegacy->fetch();
+            $exists = (bool)$stmt->fetch();
+
+            // Check legacy un-migrated Indian accounts if registering with +91
+            if (!$exists && ($countryCode === '+91' || $dialCode === '91')) {
+                $stmtLegacy = $db->prepare("
+                    SELECT id FROM users 
+                    WHERE (country_code IS NULL OR country_code = '+91' OR country_code = '') 
+                      AND (phone = :p10 OR phone = :p12)
+                    LIMIT 1
+                ");
+                $stmtLegacy->execute([
+                    ':p10' => $nationalPhone,
+                    ':p12' => '91' . $nationalPhone,
+                ]);
+                $exists = (bool)$stmtLegacy->fetch();
+            }
+        } else {
+            // Fallback when country_code column is not present
+            $stmt = $db->prepare("
+                SELECT id FROM users 
+                WHERE phone = :e164 
+                   OR phone = :digits 
+                   OR phone = :nat
+                   OR phone = :full_nat
+                LIMIT 1
+            ");
+            $stmt->execute([
+                ':e164'     => $e164Phone,
+                ':digits'   => $userDigits,
+                ':nat'      => $nationalPhone,
+                ':full_nat' => ($dialCode === '91' ? ('91' . $nationalPhone) : ($dialCode . $nationalPhone)),
+            ]);
+            $exists = (bool)$stmt->fetch();
         }
 
         if ($exists) {
