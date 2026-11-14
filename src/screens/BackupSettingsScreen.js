@@ -23,6 +23,7 @@ import {
   formatTimeFuture,
   formatFileSize,
 } from '../utils/formatters';
+import { getTimezoneForCountry } from '../constants/countries';
 import API_CONFIG from '../constants/api_config';
 
 const INTERVAL_PRESETS = [
@@ -57,6 +58,8 @@ const RETENTION_PRESETS = [
 export const BackupSettingsScreen = () => {
   const insets = useSafeAreaInsets();
   const {
+    currency,
+    currentUser,
     backupSettings,
     saveBackupSettings,
     isBackupSettingsOpen,
@@ -68,6 +71,8 @@ export const BackupSettingsScreen = () => {
     openLoginModal,
     refreshAll,
   } = useApp();
+
+  const activeTimezone = currency?.timezone || getTimezoneForCountry(currency?.name || currency?.code || currentUser?.country_code);
 
   // Local Form States
   const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
@@ -424,7 +429,7 @@ export const BackupSettingsScreen = () => {
                   {lastSuccessfulTs ? formatTimeAgo(lastSuccessfulTs) : 'Never'}
                 </Text>
                 <Text style={styles.statBoxSub}>
-                  {lastSuccessfulTs ? formatFullDateTime(lastSuccessfulTs).combined : 'No record'}
+                  {lastSuccessfulTs ? formatFullDateTime(lastSuccessfulTs, { timeZone: activeTimezone }).combined : 'No record'}
                 </Text>
               </View>
 
@@ -439,7 +444,7 @@ export const BackupSettingsScreen = () => {
                 </Text>
                 <Text style={styles.statBoxSub}>
                   {autoBackupEnabled && nextScheduledTs
-                    ? formatFullDateTime(nextScheduledTs).combined
+                    ? formatFullDateTime(nextScheduledTs, { timeZone: activeTimezone }).combined
                     : 'Auto-backup OFF'}
                 </Text>
               </View>

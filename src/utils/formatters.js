@@ -1,10 +1,35 @@
 import { DEFAULT_CURRENCY } from '../constants/currencies.js';
+import { DEFAULT_COUNTRY, getTimezoneForCountry } from '../constants/countries.js';
 
 let currentCurrency = { ...DEFAULT_CURRENCY };
+let currentCountry = { ...DEFAULT_COUNTRY };
+let currentTimezone = 'Asia/Kolkata';
+
+export const setGlobalCountry = (country) => {
+  if (country) {
+    currentCountry = typeof country === 'object' ? { ...currentCountry, ...country } : { name: country };
+    currentTimezone = getTimezoneForCountry(country);
+  }
+};
+
+export const getGlobalCountry = () => currentCountry;
+
+export const setGlobalTimezone = (timezone) => {
+  if (timezone) {
+    currentTimezone = getTimezoneForCountry(timezone);
+  }
+};
+
+export const getGlobalTimezone = () => currentTimezone || 'Asia/Kolkata';
 
 export const setGlobalCurrency = (currency) => {
   if (currency && currency.symbol) {
     currentCurrency = { ...currentCurrency, ...currency };
+    if (currency.timezone) {
+      currentTimezone = currency.timezone;
+    } else if (currency.name || currency.code) {
+      currentTimezone = getTimezoneForCountry(currency.name || currency.code);
+    }
   }
 };
 
@@ -45,7 +70,7 @@ export const formatCurrency = (amount, options = {}) => {
 };
 
 // -------------------------------------------------------------
-// Unix Timestamp & Timezone Helpers (Asia/Kolkata / IST)
+// Unix Timestamp & Timezone Helpers (Asia/Kolkata / IANA)
 // -------------------------------------------------------------
 
 export const IST_TIMEZONE = 'Asia/Kolkata';
@@ -70,6 +95,11 @@ export const toUnixTimestamp = (input) => {
     return input > 100000000000 ? Math.floor(input / 1000) : Math.floor(input);
   }
   if (typeof input === 'string') {
+    // If backup filename like expenses_khata_1794660747.db
+    if (input.includes('expenses_khata')) {
+      const extracted = extractTimestampFromBackupFilename(input);
+      if (extracted) return extracted;
+    }
     // If numeric string
     const num = Number(input);
     if (!isNaN(num)) {
@@ -87,6 +117,43 @@ export const toUnixTimestamp = (input) => {
 };
 
 /**
+ * Extracts Unix timestamp from a backup filename, object, or string.
+ * Examples:
+ *   "expenses_khata_1794660747.db" -> 1794660747
+ *   "expenses_khata_1794660747"    -> 1794660747
+ *   { file_name: "expenses_khata_1794660747.db" } -> 1794660747
+ *   1794660747 -> 1794660747
+ * 
+ * @param {string|object|number} input
+ * @returns {number|null} Unix timestamp in seconds, or null if cannot be extracted
+ */
+export const extractTimestampFromBackupFilename = (input) => {
+  if (!input && input !== 0) return null;
+  if (typeof input === 'number') {
+    return input > 100000000000 ? Math.floor(input / 1000) : Math.floor(input);
+  }
+  if (typeof input === 'object' && input !== null) {
+    if (input.backup_time) return extractTimestampFromBackupFilename(input.backup_time);
+    if (input.file_name) return extractTimestampFromBackupFilename(input.file_name);
+    if (input.name) return extractTimestampFromBackupFilename(input.name);
+    if (input.timestamp) return extractTimestampFromBackupFilename(input.timestamp);
+    if (input.created_at) return extractTimestampFromBackupFilename(input.created_at);
+  }
+  const str = String(input).trim();
+  // Extract timestamp from expenses_khata_{timestamp}
+  const match = str.match(/expenses_khata_(\d+)/i) || str.match(/(\d{10,13})/);
+  if (match && match[1]) {
+    const num = Number(match[1]);
+    return num > 100000000000 ? Math.floor(num / 1000) : num;
+  }
+  const pureNum = Number(str);
+  if (!isNaN(pureNum) && pureNum > 0) {
+    return pureNum > 100000000000 ? Math.floor(pureNum / 1000) : pureNum;
+  }
+  return null;
+};
+
+/**
  * Converts any date input to a Javascript Date object
  */
 export const parseToDate = (input) => {
@@ -96,6 +163,10 @@ export const parseToDate = (input) => {
     return new Date(input < 100000000000 ? input * 1000 : input);
   }
   if (typeof input === 'string') {
+    if (input.includes('expenses_khata')) {
+      const extracted = extractTimestampFromBackupFilename(input);
+      if (extracted) return new Date(extracted * 1000);
+    }
     const num = Number(input);
     if (!isNaN(num) && num > 0) {
       return new Date(num < 100000000000 ? num * 1000 : num);
@@ -106,72 +177,178 @@ export const parseToDate = (input) => {
 };
 
 // -------------------------------------------------------------
-// Date Formatters (Display in User's Timezone / Asia/Kolkata)
+// Date Formatters (Display in User's Selected Country Timezone)
 // -------------------------------------------------------------
 
-export const formatDateGroup = (dateInput) => {
-  if (!dateInput && dateInput !== 0) return '';
-  const date = parseToDate(dateInput);
-  const today = new Date();
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
+/**
+ * Formats a timestamp, date, or backup filename into the selected country's IANA timezone.
+ * Returns { date: '14 Nov 2026', time: '06:22 PM', combined: '14 Nov 2026, 06:22 PM' }
+ * 
+ * Supports options:
+ *   - timeZone: IANA timezone string e.g. 'Asia/Kolkata', 'UTC', 'America/New_York'
+ *   - country: Country name or code to resolve timezone for e.g. 'India', 'US'
+ */
+export const formatFullDateTime = (dateInput, options = {}) => {
+  if (!dateInput && dateInput !== 0) return { date: '', time: '', combined: '' };
 
-  if (
-    date.getDate() === today.getDate() &&
-    date.getMonth() === today.getMonth() &&
-    date.getFullYear() === today.getFullYear()
-  ) {
-    return 'Today';
+  let tz = options.timeZone || options.timezone;
+  if (!tz && options.country) {
+    tz = getTimezoneForCountry(options.country);
+  }
+  if (!tz) {
+    tz = getGlobalTimezone();
+  }
+  tz = getTimezoneForCountry(tz);
+
+  let ms;
+  // If backup filename like expenses_khata_1794660747.db
+  if (typeof dateInput === 'string' && dateInput.includes('expenses_khata')) {
+    const extracted = extractTimestampFromBackupFilename(dateInput);
+    if (extracted) ms = extracted * 1000;
   }
 
-  if (
-    date.getDate() === yesterday.getDate() &&
-    date.getMonth() === yesterday.getMonth() &&
-    date.getFullYear() === yesterday.getFullYear()
-  ) {
-    return 'Yesterday';
+  if (ms === undefined) {
+    if (typeof dateInput === 'number') {
+      ms = dateInput < 100000000000 ? dateInput * 1000 : dateInput;
+    } else if (typeof dateInput === 'string') {
+      const num = Number(dateInput);
+      if (!isNaN(num) && num > 0) {
+        ms = num < 100000000000 ? num * 1000 : num;
+      } else {
+        const parsed = new Date(dateInput).getTime();
+        ms = isNaN(parsed) ? null : parsed;
+      }
+    } else if (dateInput instanceof Date) {
+      ms = dateInput.getTime();
+    }
   }
 
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ];
-  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+  if (!ms || isNaN(ms)) return { date: '', time: '', combined: '' };
+  const d = new Date(ms);
+
+  try {
+    const dateParts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }).formatToParts(d);
+
+    const day = (dateParts.find((p) => p.type === 'day') || {}).value || '';
+    const month = (dateParts.find((p) => p.type === 'month') || {}).value || '';
+    const year = (dateParts.find((p) => p.type === 'year') || {}).value || '';
+    const dateFormatted = `${day} ${month} ${year}`;
+
+    const timeParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }).formatToParts(d);
+
+    let hour = (timeParts.find((p) => p.type === 'hour') || {}).value || '12';
+    if (hour.length === 1) hour = '0' + hour;
+    const minute = (timeParts.find((p) => p.type === 'minute') || {}).value || '00';
+    const rawPeriod = (timeParts.find((p) => p.type === 'dayPeriod') || {}).value || 'AM';
+    const ampm = rawPeriod.toUpperCase();
+    const timeFormatted = `${hour}:${minute} ${ampm}`;
+
+    return {
+      date: dateFormatted,
+      time: timeFormatted,
+      combined: `${dateFormatted}, ${timeFormatted}`,
+    };
+  } catch (e) {
+    // Safe fallback to Asia/Kolkata
+    return formatFullDateTime(dateInput, { ...options, timeZone: 'Asia/Kolkata' });
+  }
 };
 
-export const formatFullDateTime = (dateInput) => {
-  if (!dateInput && dateInput !== 0) return { date: '', time: '', combined: '' };
-  const date = parseToDate(dateInput);
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ];
-  const dateFormatted = `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
-  
-  let hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  hours = hours ? hours : 12; // '0' should be '12'
-  const minutesFormatted = minutes < 10 ? '0' + minutes : minutes;
-  const timeFormatted = `${hours}:${minutesFormatted} ${ampm}`;
+/**
+ * Formats a backup snapshot file or filename into the user's selected country timezone.
+ * Handles:
+ *   - Backup file object: { file_name: "expenses_khata_1794660747.db", backup_time: 1794660747, is_latest: true }
+ *   - Filename string: "expenses_khata_1794660747.db"
+ *   - Raw Unix timestamp: 1794660747
+ * 
+ * Returns { date, time, combined, label, timestamp }
+ */
+export const formatBackupDate = (fileOrFilenameOrTimestamp, options = {}) => {
+  if (!fileOrFilenameOrTimestamp && fileOrFilenameOrTimestamp !== 0) {
+    return { date: '', time: '', combined: '', label: 'Cloud Snapshot', timestamp: 0 };
+  }
+
+  let ts = null;
+  let isLatest = false;
+
+  if (typeof fileOrFilenameOrTimestamp === 'object' && fileOrFilenameOrTimestamp !== null) {
+    isLatest = Boolean(fileOrFilenameOrTimestamp.is_latest);
+    if (fileOrFilenameOrTimestamp.backup_time) {
+      ts = Number(fileOrFilenameOrTimestamp.backup_time);
+    } else if (fileOrFilenameOrTimestamp.file_name) {
+      ts = extractTimestampFromBackupFilename(fileOrFilenameOrTimestamp.file_name);
+    }
+  } else {
+    ts = extractTimestampFromBackupFilename(fileOrFilenameOrTimestamp);
+    if (ts === null && typeof fileOrFilenameOrTimestamp === 'number') {
+      ts = fileOrFilenameOrTimestamp > 100000000000 ? Math.floor(fileOrFilenameOrTimestamp / 1000) : fileOrFilenameOrTimestamp;
+    }
+  }
+
+  if (!ts) {
+    return {
+      date: '',
+      time: '',
+      combined: '',
+      label: isLatest ? 'Latest Cloud Backup' : 'Cloud Snapshot',
+      timestamp: 0,
+    };
+  }
+
+  const dt = formatFullDateTime(ts, options);
+  const label = isLatest ? 'Latest Cloud Backup' : `Cloud Snapshot (${dt.combined})`;
 
   return {
-    date: dateFormatted,
-    time: timeFormatted,
-    combined: `${dateFormatted}, ${timeFormatted}`,
+    ...dt,
+    label,
+    timestamp: ts,
   };
 };
 
-export const formatDayNameFullDate = (dateInput) => {
+export const formatDateGroup = (dateInput, options = {}) => {
   if (!dateInput && dateInput !== 0) return '';
-  const date = parseToDate(dateInput);
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const fullMonths = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-  return `${days[date.getDay()]}, ${date.getDate()} ${fullMonths[date.getMonth()]} ${date.getFullYear()}`;
+  const tz = getTimezoneForCountry(options.timeZone || options.timezone || options.country || getGlobalTimezone());
+  const dt = formatFullDateTime(dateInput, { timeZone: tz });
+  const todayDt = formatFullDateTime(Date.now(), { timeZone: tz });
+  const yesterdayDt = formatFullDateTime(Date.now() - 86400000, { timeZone: tz });
+
+  if (dt.date === todayDt.date) {
+    return 'Today';
+  }
+  if (dt.date === yesterdayDt.date) {
+    return 'Yesterday';
+  }
+
+  return dt.date;
+};
+
+export const formatDayNameFullDate = (dateInput, options = {}) => {
+  if (!dateInput && dateInput !== 0) return '';
+  const tz = getTimezoneForCountry(options.timeZone || options.timezone || options.country || getGlobalTimezone());
+  const ms = typeof dateInput === 'number' && dateInput < 100000000000 ? dateInput * 1000 : Number(dateInput);
+  const d = new Date(isNaN(ms) ? dateInput : ms);
+
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(d);
+  } catch (e) {
+    return formatFullDateTime(dateInput, { timeZone: tz }).date;
+  }
 };
 
 // -------------------------------------------------------------

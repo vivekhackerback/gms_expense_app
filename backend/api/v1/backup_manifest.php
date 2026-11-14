@@ -26,6 +26,25 @@ $e164Phone = $parsed['e164'];
 $countryCode = $parsed['country_code'];
 $userDigits = $parsed['digits'];
 
+// Resolve timezone for date formatting
+$tzParam = isset($_GET['timezone']) ? trim($_GET['timezone']) : (isset($payload['timezone']) ? trim($payload['timezone']) : '');
+if (empty($tzParam)) {
+    if ($countryCode === '+91' || $parsed['dial_code'] === '91') {
+        $tzParam = 'Asia/Kolkata';
+    } elseif ($countryCode === '+1') {
+        $tzParam = 'America/New_York';
+    } elseif ($countryCode === '+44') {
+        $tzParam = 'Europe/London';
+    } else {
+        $tzParam = 'Asia/Kolkata';
+    }
+}
+try {
+    $targetTz = new DateTimeZone($tzParam);
+} catch (Exception $e) {
+    $targetTz = new DateTimeZone('Asia/Kolkata');
+}
+
 $userDbDir = getUserUploadDir($rawPhone, $countryCode, 'database');
 $targetDbFile = $userDbDir . '/expenses_khata.db';
 $manifestFile = $userDbDir . '/manifest.json';
@@ -43,7 +62,7 @@ if (is_dir($userDbDir)) {
 
             // Parse timestamp if named expenses_khata_{timestamp}.db
             $parsedTime = $fTime;
-            if (preg_match('/expenses_khata_(\d+)\.db$/', $df, $m)) {
+            if (preg_match('/expenses_khata_(\d+)/', $df, $m)) {
                 $parsedTime = intval($m[1]);
             }
 
@@ -65,7 +84,9 @@ if (is_dir($userDbDir)) {
                 } catch (Exception $e) {}
             }
 
-            $dateStr = date('d M Y, h:i A', $parsedTime);
+            $dt = new DateTime('@' . $parsedTime);
+            $dt->setTimezone($targetTz);
+            $dateStr = $dt->format('d M Y, h:i A');
             $label = $isLatest ? 'Latest Cloud Backup' : 'Cloud Snapshot (' . $dateStr . ')';
 
             $backupFiles[] = [

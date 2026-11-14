@@ -18,7 +18,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
-import { formatFullDateTime, formatTimeAgo } from '../utils/formatters';
+import { formatFullDateTime, formatTimeAgo, formatBackupDate, getGlobalTimezone } from '../utils/formatters';
+import { getTimezoneForCountry } from '../constants/countries';
 import { exportTransactionsToCSV, exportFullJSONBackup, exportTransactionsToPDF } from '../services/exportService';
 import API_CONFIG from '../constants/api_config';
 import { testAllApiEndpoints } from '../services/syncService';
@@ -96,6 +97,7 @@ const getServiceStatusDisplay = (status, isChecking) => {
 export const BackupScreen = () => {
   const insets = useSafeAreaInsets();
   const {
+    currency,
     detailedBackupStats,
     networkStatus,
     isSyncing,
@@ -117,6 +119,9 @@ export const BackupScreen = () => {
     currentUser,
     openLoginModal,
   } = useApp();
+
+  // Active country timezone for date & time conversions
+  const activeTimezone = currency?.timezone || getTimezoneForCountry(currency?.name || currency?.code || currentUser?.country_code) || getGlobalTimezone();
 
   // Pull to refresh & UI state
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -207,7 +212,7 @@ export const BackupScreen = () => {
     const isFailed = log.status === 'failed';
     const statusIcon = isSuccess ? '✅' : isFailed ? '❌' : 'ℹ️';
     const logTs = log.timestamp || log.created_at;
-    const dt = formatFullDateTime(logTs).combined || 'Recently';
+    const dt = formatFullDateTime(logTs, { timeZone: activeTimezone }).combined || 'Recently';
     const timeAgo = formatTimeAgo(logTs);
 
     Alert.alert(
@@ -247,12 +252,12 @@ export const BackupScreen = () => {
     }
   };
 
-  // Format timestamps
+  // Format timestamps in active country timezone
   const textSyncFormatted = transactions.lastSync
-    ? formatFullDateTime(transactions.lastSync).combined
+    ? formatFullDateTime(transactions.lastSync, { timeZone: activeTimezone }).combined
     : 'Not yet synchronized';
   const imageSyncFormatted = images.lastSync
-    ? formatFullDateTime(images.lastSync).combined
+    ? formatFullDateTime(images.lastSync, { timeZone: activeTimezone }).combined
     : 'Not yet uploaded';
 
   // Master status determination
@@ -429,7 +434,7 @@ export const BackupScreen = () => {
     setIsImportConfirmModalOpen(false);
     setIsRestoring(true);
 
-    const targetLabel = selectedBackupFile?.label || 'Cloud Backup';
+    const targetLabel = selectedBackupFile ? formatBackupDate(selectedBackupFile, { timeZone: activeTimezone }).label : 'Cloud Backup';
 
     setProgressModal({
       visible: true,
@@ -461,7 +466,7 @@ export const BackupScreen = () => {
 
       Alert.alert(
         'Data Restored Successfully ✓',
-        `Successfully restored ${restoredTxnCount} transactions, ${restoredPartyCount} parties, and ${res.photosRestored || 0} photos from ${selectedBackupFile?.label || selectedBackupFile?.file_name || 'cloud database'}.`
+        `Successfully restored ${restoredTxnCount} transactions, ${restoredPartyCount} parties, and ${res.photosRestored || 0} photos from ${selectedBackupFile ? formatBackupDate(selectedBackupFile, { timeZone: activeTimezone }).label : (selectedBackupFile?.file_name || 'cloud database')}.`
       );
     } else {
       console.error('❌ [BackupScreen] Restore failed:', res);
@@ -776,7 +781,7 @@ export const BackupScreen = () => {
             <View style={styles.healthTimestampRow}>
               <Ionicons name="time-outline" size={13} color={Colors.textMuted} style={{ marginRight: 4 }} />
               <Text style={styles.healthTimestampText}>
-                Last checked: {formatFullDateTime(serverHealthResult.lastChecked).combined}
+                Last checked: {formatFullDateTime(serverHealthResult.lastChecked, { timeZone: activeTimezone }).combined}
               </Text>
               <TouchableOpacity
                 onPress={() => handleTestServerConnection(false)}
@@ -1027,7 +1032,7 @@ export const BackupScreen = () => {
                 const isSuccess = log.status === 'success';
                 const isFailed = log.status === 'failed';
                 const logTs = log.timestamp || log.created_at;
-                const formattedTime = formatFullDateTime(logTs).time || 'Recent';
+                const formattedTime = formatFullDateTime(logTs, { timeZone: activeTimezone }).time || 'Recent';
                 const timeAgo = formatTimeAgo(logTs);
 
                 return (
@@ -1465,6 +1470,13 @@ export const BackupScreen = () => {
                       ? selectedBackupFile.file_name === file.file_name
                       : idx === 0;
 
+                    // Convert Unix timestamp into selected country's IANA timezone
+                    const backupDateObj = formatBackupDate(file, { timeZone: activeTimezone });
+                    const fileTitle = file.is_latest
+                      ? 'Latest Cloud Backup'
+                      : (backupDateObj.combined ? `Cloud Snapshot (${backupDateObj.combined})` : (file.label || file.file_name));
+                    const fileFormattedTime = backupDateObj.combined || file.formatted_time || 'Snapshot';
+
                     return (
                       <TouchableOpacity
                         key={file.file_name || String(idx)}
@@ -1491,7 +1503,7 @@ export const BackupScreen = () => {
                               ]}
                               numberOfLines={1}
                             >
-                              {file.label || file.file_name}
+                              {fileTitle}
                             </Text>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                               {file.transactions_count !== undefined && (
@@ -1523,7 +1535,7 @@ export const BackupScreen = () => {
                           <View style={styles.backupItemMetaRow}>
                             <Text style={styles.backupItemMeta}>
                               <Ionicons name="time-outline" size={12} color={Colors.textMuted} />{' '}
-                              {file.formatted_time || 'Snapshot'}
+                              {fileFormattedTime}
                             </Text>
                             <Text style={styles.backupItemDot}>•</Text>
                             <Text style={styles.backupItemMeta}>
@@ -1557,6 +1569,13 @@ export const BackupScreen = () => {
                       : cloudBackupInfo?.db_size
                       ? `${(cloudBackupInfo.db_size / 1024).toFixed(1)} KB`
                       : 'N/A')}
+                </Text>
+              </View>
+
+              <View style={styles.importStatsRow}>
+                <Text style={styles.importStatsLabel}>Snapshot Time:</Text>
+                <Text style={[styles.importStatsValue, { color: Colors.primary, fontWeight: Typography.fontWeights.medium }]}>
+                  {formatBackupDate(selectedBackupFile, { timeZone: activeTimezone }).combined || 'N/A'}
                 </Text>
               </View>
 

@@ -1177,11 +1177,15 @@ export const updateAppCurrency = (currency) => {
       code: currency.code,
       symbol: currency.symbol,
       flag: currency.flag,
+      timezone: currency.timezone || (currency.name ? findCurrencyByCodeOrNo(currency.code || currency.name)?.timezone : 'Asia/Kolkata'),
     };
-    // Save full JSON config as well as individual code and symbol keys
+    // Save full JSON config as well as individual code, symbol, and timezone keys
     updateSetting('app_currency', JSON.stringify(clean));
     updateSetting('currency_code', clean.code);
     updateSetting('currency_symbol', clean.symbol);
+    if (clean.timezone) {
+      updateSetting('app_timezone', clean.timezone);
+    }
     setGlobalCurrency(clean);
     return clean;
   } catch (e) {

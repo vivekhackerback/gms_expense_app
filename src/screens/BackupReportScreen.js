@@ -17,6 +17,7 @@ import { useApp } from '../context/AppContext';
 import { Colors } from '../constants/colors';
 import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { formatFullDateTime } from '../utils/formatters';
+import { getTimezoneForCountry } from '../constants/countries';
 import { exportTransactionsToCSV, exportFullJSONBackup, exportTransactionsToPDF } from '../services/exportService';
 import API_CONFIG from '../constants/api_config';
 import { getDatabaseName } from '../database/db';
@@ -33,6 +34,8 @@ const SCHEDULE_PRESETS = [
 export const BackupReportScreen = ({ visible, onClose }) => {
   const insets = useSafeAreaInsets();
   const {
+    currency,
+    currentUser,
     detailedBackupStats,
     networkStatus,
     isSyncing,
@@ -44,6 +47,8 @@ export const BackupReportScreen = ({ visible, onClose }) => {
     eraseLocalDeviceData,
     refreshAll,
   } = useApp();
+
+  const activeTimezone = currency?.timezone || getTimezoneForCountry(currency?.name || currency?.code || currentUser?.country_code);
 
   // Schedule modal state
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -61,10 +66,10 @@ export const BackupReportScreen = ({ visible, onClose }) => {
 
   // Format timestamps
   const textSyncFormatted = transactions.lastSync
-    ? formatFullDateTime(transactions.lastSync).combined
+    ? formatFullDateTime(transactions.lastSync, { timeZone: activeTimezone }).combined
     : 'Not yet synchronized';
   const imageSyncFormatted = images.lastSync
-    ? formatFullDateTime(images.lastSync).combined
+    ? formatFullDateTime(images.lastSync, { timeZone: activeTimezone }).combined
     : 'Not yet uploaded';
 
   // Master status determination

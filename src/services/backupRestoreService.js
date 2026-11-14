@@ -22,7 +22,7 @@ import {
   getAppCurrency,
   updateAppCurrency,
 } from '../database/queries';
-import { setGlobalCurrency } from '../utils/formatters';
+import { setGlobalCurrency, getGlobalTimezone } from '../utils/formatters';
 
 const b64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const b64Lookup = new Uint8Array(256);
@@ -840,7 +840,8 @@ export const fetchCloudBackupInfo = async () => {
 
     const userPhone = auth?.user?.phone || '9876543210';
     const userCountryCode = auth?.user?.country_code || '';
-    const url = `${API_CONFIG.DATABASE_BACKUP_INFO_URL}?phone=${encodeURIComponent(userPhone)}&country_code=${encodeURIComponent(userCountryCode)}`;
+    const userTz = getGlobalTimezone() || 'Asia/Kolkata';
+    const url = `${API_CONFIG.DATABASE_BACKUP_INFO_URL}?phone=${encodeURIComponent(userPhone)}&country_code=${encodeURIComponent(userCountryCode)}&timezone=${encodeURIComponent(userTz)}`;
     console.log('📤 [CLOUD_BACKUP_CHECK] Requesting manifest URL:', url);
 
     const controller = new AbortController();
