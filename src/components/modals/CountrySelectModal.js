@@ -100,7 +100,7 @@ export const CountrySelectModal = ({
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <View style={styles.iconCircle}>
-                <Ionicons name="earth" size={20} color={Colors.primary} />
+                <Ionicons name="globe-outline" size={22} color="#059669" />
               </View>
               <View style={{ marginLeft: 12 }}>
                 <Text style={styles.headerTitle}>Select Country Code</Text>
@@ -201,10 +201,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   iconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.primaryLight,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#ECFDF5',
     alignItems: 'center',
     justifyContent: 'center',
   },
