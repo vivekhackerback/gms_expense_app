@@ -55,6 +55,24 @@ export const evaluateOtpResponse = (data, httpStatus = 200) => {
     };
   }
 
+  // Not Found / Account does not exist (for password reset)
+  if (data.not_found || data.notFound || httpStatus === 404) {
+    return {
+      success: false,
+      notFound: true,
+      not_found: true,
+      deliveryStatus: 'not_found',
+      delivery_status: 'not_found',
+      message: data.message || 'No registered account found with this mobile number. Please create an account.',
+      resendCooldown: 0,
+      resend_cooldown: 0,
+      canRetryImmediately: true,
+      challengeId: '',
+      challenge_id: '',
+      isNetworkError: false,
+    };
+  }
+
   const cid = String(data.challenge_id || data.verification_id || data.id || '').trim();
   const rawStatus = String(data.status || data.delivery_status || '').toLowerCase().trim();
   const waStatus = String(data.whatsapp?.status || '').toLowerCase().trim();
@@ -245,8 +263,9 @@ class OtpService {
    * @param {string} purpose - Purpose of OTP (max 15 characters per Meta limit)
    * @param {number} expirySeconds - Validity window in seconds (default: 300)
    * @param {string} countryCode - International dialing code (e.g. "+91", "+1", "+44")
+   * @param {object} [options={}] - Additional options { checkRegistered, requireRegistered }
    */
-  async sendOtp(phone, purpose = 'Registration', expirySeconds = 300, countryCode = '+91') {
+  async sendOtp(phone, purpose = 'Registration', expirySeconds = 300, countryCode = '+91', options = {}) {
     // 0. Proactively sync latest database configuration
     try {
       await this.syncOtpDomainConfig();
@@ -256,10 +275,14 @@ class OtpService {
     const cleanCountryCode = String(countryCode || '+91').trim();
     const config = getLocalOtpDomainRecord();
 
+    const isReset = options.isPasswordReset || purpose === 'Forgot Password' || purpose === 'reset_password';
+    const checkRegistered = options.checkRegistered !== undefined ? Boolean(options.checkRegistered) : !isReset;
+    const requireRegistered = options.requireRegistered !== undefined ? Boolean(options.requireRegistered) : isReset;
+
     // Sanitize purpose to never exceed Meta's 15-char limit (#132018)
     let safePurpose = String(purpose || config?.purpose || 'Registration').trim();
     if (safePurpose === 'Account Registration') safePurpose = 'Registration';
-    if (safePurpose === 'Login Verification') safePurpose = 'Verification';
+    if (safePurpose === 'Login Verification' || safePurpose === 'Forgot Password' || safePurpose === 'reset_password') safePurpose = 'Verification';
     if (safePurpose.length > 15) safePurpose = safePurpose.slice(0, 15);
     if (!safePurpose) safePurpose = 'Registration';
 
@@ -276,7 +299,8 @@ class OtpService {
           country_code: cleanCountryCode,
           purpose: safePurpose,
           expiry_seconds: expirySeconds || config?.expirySeconds || 300,
-          check_registered: true,
+          check_registered: checkRegistered,
+          require_registered: requireRegistered,
         }),
         signal: controller.signal,
       });
@@ -293,7 +317,7 @@ class OtpService {
       const evaluated = evaluateOtpResponse(data, response.status);
 
       // If proxy returned definitive result (success, duplicate number conflict, or non-500 handled failure)
-      if (evaluated.success || evaluated.alreadyRegistered || response.status === 409 || (data && response.status < 500)) {
+      if (evaluated.success || evaluated.alreadyRegistered || evaluated.notFound || response.status === 409 || response.status === 404 || (data && response.status < 500)) {
         return evaluated;
       }
     } catch (proxyError) {
@@ -358,6 +382,17 @@ class OtpService {
         isTimeout ? 504 : 500
       );
     }
+  }
+
+  /**
+   * Request OTP specifically for Forgot Password / Password Reset
+   */
+  async sendPasswordResetOtp(phone, countryCode = '+91') {
+    return this.sendOtp(phone, 'Verification', 300, countryCode, {
+      isPasswordReset: true,
+      requireRegistered: true,
+      checkRegistered: false,
+    });
   }
 
   /**

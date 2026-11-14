@@ -71,9 +71,68 @@ if (!$db) {
 }
 
 try {
-    // 1. If registering, check if phone is already registered
-    $checkRegistered = isset($payload['check_registered']) ? (bool)$payload['check_registered'] : true;
-    if ($checkRegistered) {
+    // 1. Check registration state based on purpose / payload
+    $requireRegistered = !empty($payload['require_registered']) || ($rawPurpose === 'reset_password') || ($rawPurpose === 'Forgot Password');
+    $checkRegistered = isset($payload['check_registered']) ? (bool)$payload['check_registered'] : !$requireRegistered;
+
+    if ($requireRegistered) {
+        $userExists = false;
+        if (hasUserPhoneColumns($db)) {
+            $stmt = $db->prepare("
+                SELECT id FROM users 
+                WHERE phone = :e164 
+                   OR phone = :digits 
+                   OR (country_code = :cc AND (national_phone = :nat OR phone = :nat_exact))
+                LIMIT 1
+            ");
+            $stmt->execute([
+                ':e164'      => $e164Phone,
+                ':digits'    => $userDigits,
+                ':cc'        => $countryCode,
+                ':nat'       => $nationalPhone,
+                ':nat_exact' => $nationalPhone,
+            ]);
+            $userExists = (bool)$stmt->fetch();
+
+            if (!$userExists && ($countryCode === '+91' || $dialCode === '91')) {
+                $stmtLegacy = $db->prepare("
+                    SELECT id FROM users 
+                    WHERE (country_code IS NULL OR country_code = '+91' OR country_code = '') 
+                      AND (phone = :p10 OR phone = :p12)
+                    LIMIT 1
+                ");
+                $stmtLegacy->execute([
+                    ':p10' => $nationalPhone,
+                    ':p12' => '91' . $nationalPhone,
+                ]);
+                $userExists = (bool)$stmtLegacy->fetch();
+            }
+        } else {
+            $stmt = $db->prepare("
+                SELECT id FROM users 
+                WHERE phone = :e164 
+                   OR phone = :digits 
+                   OR phone = :nat
+                   OR phone = :full_nat
+                LIMIT 1
+            ");
+            $stmt->execute([
+                ':e164'     => $e164Phone,
+                ':digits'   => $userDigits,
+                ':nat'      => $nationalPhone,
+                ':full_nat' => ($dialCode === '91' ? ('91' . $nationalPhone) : ($dialCode . $nationalPhone)),
+            ]);
+            $userExists = (bool)$stmt->fetch();
+        }
+
+        if (!$userExists) {
+            sendJsonResponse([
+                'success'   => false,
+                'not_found' => true,
+                'message'   => 'No registered account found with mobile number ' . htmlspecialchars($e164Phone) . '. Please create an account first.'
+            ], 404);
+        }
+    } elseif ($checkRegistered) {
         $exists = false;
         if (hasUserPhoneColumns($db)) {
             $stmt = $db->prepare("

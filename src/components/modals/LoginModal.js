@@ -30,13 +30,14 @@ export const LoginModal = () => {
     closeLoginModal,
     loginUser,
     registerUser,
+    resetPasswordUser,
     networkStatus,
   } = useApp();
 
-  // Mode: 'login' or 'register'
+  // Mode: 'login', 'register', or 'forgot'
   const [authMode, setAuthMode] = useState('login');
 
-  // Register Steps: 'phone' -> 'otp' -> 'password'
+  // Progressive Steps for Register & Forgot Password: 'phone' -> 'otp' -> 'password'
   const [regStep, setRegStep] = useState('phone');
 
   // Form Fields
@@ -124,10 +125,11 @@ export const LoginModal = () => {
 
   if (!isLoginModalOpen) return null;
 
-  const triggerSuccessAnimation = (userInfo, isNewAccount = false) => {
+  const triggerSuccessAnimation = (userInfo, isNewAccount = false, customTitle = null) => {
     setSuccessInfo({
       name: userInfo?.name || 'User',
       isNewAccount,
+      customTitle,
     });
     successOpacity.setValue(0);
     successScale.setValue(0.4);
@@ -187,9 +189,10 @@ export const LoginModal = () => {
   };
 
   const isRegister = authMode === 'register';
+  const isForgot = authMode === 'forgot';
 
   // -------------------------------------------------------------
-  // Step 1: Send OTP to User's WhatsApp
+  // Step 1: Send OTP to User's WhatsApp (Registration)
   // -------------------------------------------------------------
   const handleRequestOtp = async () => {
     setErrorMessage('');
@@ -227,7 +230,46 @@ export const LoginModal = () => {
   };
 
   // -------------------------------------------------------------
-  // Step 2: Resend OTP
+  // Forgot Password: Step 1 - Send OTP to Registered WhatsApp
+  // -------------------------------------------------------------
+  const handleRequestForgotOtp = async () => {
+    setErrorMessage('');
+    const cleanPhone = phone.trim().replace(/[^0-9]/g, '');
+    const isIndia = selectedCountry.dialCode === '+91';
+
+    if (!cleanPhone || (isIndia && cleanPhone.length < 10) || (!isIndia && cleanPhone.length < 6)) {
+      setErrorMessage(isIndia ? 'Please enter your registered 10-digit mobile number' : 'Please enter your registered mobile number');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await otpService.sendPasswordResetOtp(cleanPhone, selectedCountry.dialCode);
+      if (res && res.success && (res.deliveryStatus === 'success' || res.delivery_status === 'success')) {
+        const cid = res.challenge_id || res.challengeId || res.verification_id || res.id || '';
+        setChallengeId(cid);
+        setResendCooldown(res.resend_cooldown || res.resendCooldown || 60);
+        setErrorMessage('');
+        setRegStep('otp');
+      } else {
+        setResendCooldown(0);
+        if (res?.notFound || res?.not_found) {
+          setErrorMessage(res?.message || 'No registered account found with this mobile number. Please check or create an account.');
+        } else {
+          setErrorMessage(res?.message || 'Failed to send verification code. Please try again.');
+        }
+      }
+    } catch (e) {
+      setResendCooldown(0);
+      const isTimeout = e?.name === 'AbortError' || e?.message?.toLowerCase().includes('timeout');
+      setErrorMessage(isTimeout ? 'Unable to send OTP. Try again.' : 'Failed to send OTP. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Step 2: Resend OTP (Both Registration & Forgot Password)
   // -------------------------------------------------------------
   const handleResendOtp = async () => {
     if (resendCooldown > 0 || isLoading) return;
@@ -238,7 +280,9 @@ export const LoginModal = () => {
     try {
       const res = challengeId
         ? await otpService.resendOtp(challengeId, selectedCountry.dialCode, cleanPhone)
-        : await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode);
+        : (isForgot
+            ? await otpService.sendPasswordResetOtp(cleanPhone, selectedCountry.dialCode)
+            : await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode));
 
       if (res && res.success && (res.deliveryStatus === 'success' || res.delivery_status === 'success')) {
         const cid = res.challenge_id || res.challengeId || res.verification_id || res.id || challengeId || '';
@@ -255,6 +299,77 @@ export const LoginModal = () => {
       setResendCooldown(0);
       const isTimeout = e?.name === 'AbortError' || e?.message?.toLowerCase().includes('timeout');
       setErrorMessage(isTimeout ? 'Unable to send OTP. Try again.' : 'Failed to send OTP. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Forgot Password: Step 2 - Verify OTP Code
+  // -------------------------------------------------------------
+  const handleVerifyForgotOtp = async () => {
+    setErrorMessage('');
+    const cleanOtp = otp.trim().replace(/[^0-9]/g, '');
+    const cleanPhone = phone.trim().replace(/[^0-9]/g, '');
+
+    if (!cleanOtp || cleanOtp.length < 4) {
+      setErrorMessage('Please enter the 6-digit OTP code sent on WhatsApp');
+      return;
+    }
+
+    if (!challengeId && !cleanPhone) {
+      setErrorMessage('Verification session expired. Please tap "Resend on WhatsApp".');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await otpService.verifyOtp(challengeId, cleanOtp, selectedCountry.dialCode, cleanPhone);
+      if (res && res.success && res.verified) {
+        setRegStep('password');
+      } else {
+        const attemptsMsg = res?.attempts_remaining != null ? ` (${res.attempts_remaining} attempts left)` : '';
+        setErrorMessage((res?.message || 'Invalid or expired OTP code.') + attemptsMsg);
+      }
+    } catch (e) {
+      setErrorMessage('Unable to verify OTP. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Forgot Password: Step 3 - Submit New Password
+  // -------------------------------------------------------------
+  const handleResetPasswordSubmit = async () => {
+    setErrorMessage('');
+    const cleanPhone = phone.trim().replace(/[^0-9]/g, '');
+
+    if (!password.trim()) {
+      setErrorMessage('Please enter your new password');
+      return;
+    }
+
+    if (password.length < 4) {
+      setErrorMessage('Password must be at least 4 characters long');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setErrorMessage('Passwords do not match. Please re-enter.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await resetPasswordUser(cleanPhone, password.trim(), selectedCountry.dialCode);
+      if (result.success) {
+        triggerSuccessAnimation(result.user, false, 'Password Reset Successful!');
+      } else {
+        setErrorMessage(result.message || 'Password reset failed. Please check your connection and try again.');
+      }
+    } catch (e) {
+      setErrorMessage('Unable to connect to authentication server.');
     } finally {
       setIsLoading(false);
     }
@@ -394,7 +509,7 @@ export const LoginModal = () => {
                 <Ionicons name="checkmark-circle" size={64} color="#16A34A" />
               </View>
               <Text style={styles.successTitle}>
-                {successInfo.isNewAccount ? 'Account Created!' : 'Login Successful!'}
+                {successInfo.customTitle || (successInfo.isNewAccount ? 'Account Created!' : 'Login Successful!')}
               </Text>
               <Text style={styles.successSub}>
                 Welcome back, <Text style={{ fontWeight: 'bold', color: Colors.textPrimary }}>{successInfo.name}</Text>
@@ -412,10 +527,16 @@ export const LoginModal = () => {
                   <Image source={AppImages.logo} style={styles.modalLogo} resizeMode="contain" />
                   <View style={{ marginLeft: 12 }}>
                     <Text style={styles.title}>
-                      {isRegister ? 'Create Account' : 'User Account Login'}
+                      {isForgot ? 'Reset Password' : isRegister ? 'Create Account' : 'User Account Login'}
                     </Text>
                     <Text style={styles.subtitle}>
-                      {isRegister
+                      {isForgot
+                        ? regStep === 'phone'
+                          ? 'Step 1: Enter mobile for WhatsApp OTP'
+                          : regStep === 'otp'
+                          ? 'Step 2: Verify WhatsApp OTP code'
+                          : 'Step 3: Create your new password'
+                        : isRegister
                         ? regStep === 'phone'
                           ? 'Step 1: Enter mobile for WhatsApp OTP'
                           : regStep === 'otp'
@@ -436,93 +557,106 @@ export const LoginModal = () => {
                 </TouchableOpacity>
               </View>
 
-              {/* Mode Switcher Tabs */}
-              <View style={styles.tabContainer}>
-                <TouchableOpacity
-                  style={[styles.tabBtn, !isRegister && styles.tabBtnActive]}
-                  onPress={() => switchMode('login')}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="log-in-outline"
-                    size={16}
-                    color={!isRegister ? Colors.primaryDark : Colors.textMuted}
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text style={[styles.tabBtnText, !isRegister && styles.tabBtnTextActive]}>
-                    Sign In
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.tabBtn, isRegister && styles.tabBtnActive]}
-                  onPress={() => switchMode('register')}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="person-add-outline"
-                    size={16}
-                    color={isRegister ? '#059669' : '#7E22CE'}
-                    style={{ marginRight: 6 }}
-                  />
-                  {isRegister ? (
-                    <Text style={[styles.tabBtnText, { color: '#059669', fontWeight: 'bold' }]}>
-                      Create Account
+              {/* Mode Switcher Tabs OR Forgot Password Back Bar */}
+              {isForgot ? (
+                <View style={styles.forgotBackBar}>
+                  <TouchableOpacity
+                    style={styles.backToSignInBtn}
+                    onPress={() => switchMode('login')}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="arrow-back" size={16} color="#2563EB" />
+                    <Text style={styles.backToSignInText}>Back to Sign In</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.tabContainer}>
+                  <TouchableOpacity
+                    style={[styles.tabBtn, !isRegister && styles.tabBtnActive]}
+                    onPress={() => switchMode('login')}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="log-in-outline"
+                      size={16}
+                      color={!isRegister ? Colors.primaryDark : Colors.textMuted}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={[styles.tabBtnText, !isRegister && styles.tabBtnTextActive]}>
+                      Sign In
                     </Text>
-                  ) : (
-                    <Animated.Text
-                      style={[
-                        styles.tabBtnText,
-                        {
-                          color: glowTextColor,
-                          opacity: textGlowOpacity,
-                          fontWeight: 'bold',
-                        },
-                      ]}
-                    >
-                      Create Account ✨
-                    </Animated.Text>
-                  )}
-                </TouchableOpacity>
-              </View>
+                  </TouchableOpacity>
 
-              {/* Registration Step Indicator (Pills) */}
-              {isRegister && (
+                  <TouchableOpacity
+                    style={[styles.tabBtn, isRegister && styles.tabBtnActive]}
+                    onPress={() => switchMode('register')}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="person-add-outline"
+                      size={16}
+                      color={isRegister ? '#059669' : '#7E22CE'}
+                      style={{ marginRight: 6 }}
+                    />
+                    {isRegister ? (
+                      <Text style={[styles.tabBtnText, { color: '#059669', fontWeight: 'bold' }]}>
+                        Create Account
+                      </Text>
+                    ) : (
+                      <Animated.Text
+                        style={[
+                          styles.tabBtnText,
+                          {
+                            color: glowTextColor,
+                            opacity: textGlowOpacity,
+                            fontWeight: 'bold',
+                          },
+                        ]}
+                      >
+                        Create Account ✨
+                      </Animated.Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Step Indicator (Pills) for Register & Forgot Password */}
+              {(isRegister || isForgot) && (
                 <View style={styles.stepProgressContainer}>
-                  <View style={[styles.stepItem, regStep === 'phone' && styles.stepItemActive, (regStep === 'otp' || regStep === 'password') && styles.stepItemDone]}>
+                  <View style={[styles.stepItem, regStep === 'phone' && (isForgot ? styles.stepItemActiveForgot : styles.stepItemActive), (regStep === 'otp' || regStep === 'password') && styles.stepItemDone]}>
                     <Ionicons
                       name={regStep === 'otp' || regStep === 'password' ? 'checkmark-circle' : 'call'}
                       size={13}
-                      color={regStep === 'phone' ? '#059669' : (regStep === 'otp' || regStep === 'password' ? '#16A34A' : Colors.textMuted)}
+                      color={regStep === 'phone' ? (isForgot ? '#2563EB' : '#059669') : (regStep === 'otp' || regStep === 'password' ? '#16A34A' : Colors.textMuted)}
                       style={{ marginRight: 4 }}
                     />
-                    <Text style={[styles.stepText, regStep === 'phone' && styles.stepTextActive, (regStep === 'otp' || regStep === 'password') && styles.stepTextDone]}>
+                    <Text style={[styles.stepText, regStep === 'phone' && (isForgot ? styles.stepTextActiveForgot : styles.stepTextActive), (regStep === 'otp' || regStep === 'password') && styles.stepTextDone]}>
                       1. Mobile
                     </Text>
                   </View>
                   <View style={styles.stepLine} />
 
-                  <View style={[styles.stepItem, regStep === 'otp' && styles.stepItemActive, regStep === 'password' && styles.stepItemDone]}>
+                  <View style={[styles.stepItem, regStep === 'otp' && (isForgot ? styles.stepItemActiveForgot : styles.stepItemActive), regStep === 'password' && styles.stepItemDone]}>
                     <Ionicons
                       name={regStep === 'password' ? 'checkmark-circle' : 'shield-checkmark'}
                       size={13}
-                      color={regStep === 'otp' ? '#059669' : (regStep === 'password' ? '#16A34A' : Colors.textMuted)}
+                      color={regStep === 'otp' ? (isForgot ? '#2563EB' : '#059669') : (regStep === 'password' ? '#16A34A' : Colors.textMuted)}
                       style={{ marginRight: 4 }}
                     />
-                    <Text style={[styles.stepText, regStep === 'otp' && styles.stepTextActive, regStep === 'password' && styles.stepTextDone]}>
+                    <Text style={[styles.stepText, regStep === 'otp' && (isForgot ? styles.stepTextActiveForgot : styles.stepTextActive), regStep === 'password' && styles.stepTextDone]}>
                       2. Verify OTP
                     </Text>
                   </View>
                   <View style={styles.stepLine} />
 
-                  <View style={[styles.stepItem, regStep === 'password' && styles.stepItemActive]}>
+                  <View style={[styles.stepItem, regStep === 'password' && (isForgot ? styles.stepItemActiveForgot : styles.stepItemActive)]}>
                     <Ionicons
                       name="lock-closed"
                       size={13}
-                      color={regStep === 'password' ? '#059669' : Colors.textMuted}
+                      color={regStep === 'password' ? (isForgot ? '#2563EB' : '#059669') : Colors.textMuted}
                       style={{ marginRight: 4 }}
                     />
-                    <Text style={[styles.stepText, regStep === 'password' && styles.stepTextActive]}>
+                    <Text style={[styles.stepText, regStep === 'password' && (isForgot ? styles.stepTextActiveForgot : styles.stepTextActive)]}>
                       3. Password
                     </Text>
                   </View>
@@ -539,7 +673,7 @@ export const LoginModal = () => {
                   <View style={styles.offlineNotice}>
                     <Ionicons name="cloud-offline-outline" size={16} color="#DC2626" style={{ marginRight: 6 }} />
                     <Text style={styles.offlineText}>
-                      Internet connection required to {isRegister ? 'create account' : 'sign in'}.
+                      Internet connection required to {isForgot ? 'reset password' : isRegister ? 'create account' : 'sign in'}.
                     </Text>
                   </View>
                 )}
@@ -555,7 +689,7 @@ export const LoginModal = () => {
                 {/* ========================================================= */}
                 {/* MODE A: LOGIN                                              */}
                 {/* ========================================================= */}
-                {!isRegister && (
+                {!isRegister && !isForgot && (
                   <>
                     {/* Mobile Number Field */}
                     <View style={styles.inputGroup}>
@@ -615,6 +749,17 @@ export const LoginModal = () => {
                           />
                         </TouchableOpacity>
                       </View>
+                    </View>
+
+                    {/* Forgot Password Link */}
+                    <View style={styles.forgotPasswordRow}>
+                      <TouchableOpacity
+                        onPress={() => switchMode('forgot')}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                      </TouchableOpacity>
                     </View>
 
                     {/* Submit Button */}
@@ -904,31 +1049,294 @@ export const LoginModal = () => {
                   </>
                 )}
 
-                {/* Switch Mode Prompt Link */}
-                <TouchableOpacity
-                  style={styles.switchModeWrap}
-                  onPress={() => switchMode(isRegister ? 'login' : 'register')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.switchModeText}>
-                    {isRegister ? 'Already have an account? ' : "Don't have an account? "}
-                    {!isRegister ? (
-                      <Animated.Text
-                        style={[
-                          styles.switchModeHighlight,
-                          { color: glowTextColor, opacity: textGlowOpacity },
-                        ]}
+                {/* ========================================================= */}
+                {/* MODE C: FORGOT PASSWORD - STEP 1 (Enter Mobile & Send OTP) */}
+                {/* ========================================================= */}
+                {isForgot && regStep === 'phone' && (
+                  <>
+                    <View style={[styles.quickRegisterNotice, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
+                      <Ionicons name="shield-outline" size={18} color="#2563EB" style={{ marginRight: 8 }} />
+                      <Text style={[styles.quickRegisterText, { color: '#1E40AF' }]}>
+                        Enter your registered mobile number. We will send a 6-digit WhatsApp OTP to verify and reset your password.
+                      </Text>
+                    </View>
+
+                    {/* Mobile Number Field */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Registered Mobile Number *</Text>
+                      <View style={styles.phoneInputWrap}>
+                        <TouchableOpacity
+                          style={styles.countryCodePickerBtn}
+                          onPress={() => setIsCountryModalOpen(true)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={styles.flagEmoji}>{selectedCountry.flag}</Text>
+                          <Text style={styles.countryCodeText}>{selectedCountry.dialCode}</Text>
+                          <Ionicons name="chevron-down" size={13} color={Colors.textSecondary} style={{ marginLeft: 3 }} />
+                        </TouchableOpacity>
+                        <TextInput
+                          style={styles.phoneInput}
+                          placeholder={selectedCountry.dialCode === '+91' ? 'Enter 10-digit mobile' : 'Enter mobile number'}
+                          placeholderTextColor={Colors.textMuted}
+                          value={phone}
+                          onChangeText={(val) => {
+                            setPhone(val);
+                            setErrorMessage('');
+                          }}
+                          keyboardType="phone-pad"
+                          maxLength={selectedCountry.dialCode === '+91' ? 10 : 15}
+                          autoFocus={true}
+                        />
+                      </View>
+                    </View>
+
+                    {/* Send WhatsApp OTP Button */}
+                    <TouchableOpacity
+                      style={[styles.submitBtn, { backgroundColor: '#2563EB' }, isLoading && styles.submitBtnDisabled]}
+                      onPress={handleRequestForgotOtp}
+                      disabled={isLoading}
+                      activeOpacity={0.8}
+                    >
+                      {isLoading ? (
+                        <View style={styles.btnRow}>
+                          <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                          <Text style={styles.submitBtnText}>Sending OTP...</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.btnRow}>
+                          <Ionicons name="logo-whatsapp" size={19} color="#FFFFFF" style={{ marginRight: 8 }} />
+                          <Text style={styles.submitBtnText}>Send WhatsApp OTP</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {/* ========================================================= */}
+                {/* MODE C: FORGOT PASSWORD - STEP 2 (Verify WhatsApp OTP)    */}
+                {/* ========================================================= */}
+                {isForgot && regStep === 'otp' && (
+                  <>
+                    {/* Phone target card with Change option */}
+                    <View style={styles.otpNoticeCard}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <Ionicons name="logo-whatsapp" size={22} color="#16A34A" style={{ marginRight: 8 }} />
+                        <View>
+                          <Text style={styles.otpSentToLabel}>Verification code sent to</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 1 }}>
+                            <Text style={{ fontSize: 16, marginRight: 5 }}>{selectedCountry.flag}</Text>
+                            <Text style={styles.otpSentToNumber}>{selectedCountry.dialCode} {phone}</Text>
+                          </View>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.changePhoneBtn}
+                        onPress={() => {
+                          setRegStep('phone');
+                          setOtp('');
+                          setErrorMessage('');
+                        }}
                       >
-                        Create Account ✨
-                      </Animated.Text>
-                    ) : (
-                      <Text style={styles.switchModeHighlight}>Sign In</Text>
-                    )}
-                  </Text>
-                </TouchableOpacity>
+                        <Text style={styles.changePhoneBtnText}>Change</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* 6-Digit OTP Field */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Enter 6-Digit Verification Code *</Text>
+                      <View style={[styles.singleInputWrap, styles.otpInputWrap]}>
+                        <Ionicons name="key-outline" size={20} color={Colors.textMuted} style={{ marginRight: 10 }} />
+                        <TextInput
+                          style={styles.otpTextInput}
+                          placeholder="• • • • • •"
+                          placeholderTextColor={Colors.textMuted}
+                          value={otp}
+                          onChangeText={(val) => {
+                            setOtp(val);
+                            setErrorMessage('');
+                          }}
+                          keyboardType="number-pad"
+                          maxLength={6}
+                          autoFocus={true}
+                        />
+                      </View>
+                    </View>
+
+                    {/* Resend OTP Row */}
+                    <View style={styles.resendRow}>
+                      <Text style={styles.resendHintText}>Didn't receive code?</Text>
+                      {resendCooldown > 0 ? (
+                        <Text style={styles.resendTimerText}>
+                          Resend in <Text style={{ fontWeight: 'bold' }}>{resendCooldown}s</Text>
+                        </Text>
+                      ) : (
+                        <TouchableOpacity onPress={handleResendOtp} disabled={isLoading}>
+                          <Text style={[styles.resendActionText, { color: '#2563EB' }]}>Resend on WhatsApp</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {/* Verify OTP Button */}
+                    <TouchableOpacity
+                      style={[styles.submitBtn, { backgroundColor: '#2563EB' }, isLoading && styles.submitBtnDisabled]}
+                      onPress={handleVerifyForgotOtp}
+                      disabled={isLoading}
+                      activeOpacity={0.8}
+                    >
+                      {isLoading ? (
+                        <View style={styles.btnRow}>
+                          <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                          <Text style={styles.submitBtnText}>Verifying Code...</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.btnRow}>
+                          <Ionicons name="checkmark-circle-outline" size={20} color="#FFFFFF" style={{ marginRight: 6 }} />
+                          <Text style={styles.submitBtnText}>Verify OTP & Continue</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {/* ========================================================= */}
+                {/* MODE C: FORGOT PASSWORD - STEP 3 (New Password & Reset)   */}
+                {/* ========================================================= */}
+                {isForgot && regStep === 'password' && (
+                  <>
+                    {/* Verified Phone confirmation pill */}
+                    <View style={[styles.verifiedPhoneBadge, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
+                      <Ionicons name="shield-checkmark" size={18} color="#2563EB" style={{ marginRight: 6 }} />
+                      <Text style={[styles.verifiedPhoneText, { color: '#1E40AF' }]}>
+                        Verified Mobile:{' '}
+                        <Text style={{ fontWeight: 'bold' }}>
+                          {selectedCountry.flag} {selectedCountry.dialCode} {phone}
+                        </Text>
+                      </Text>
+                    </View>
+
+                    {/* New Password Field */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>New Password *</Text>
+                      <View style={styles.singleInputWrap}>
+                        <Ionicons name="lock-closed-outline" size={18} color={Colors.textMuted} style={{ marginRight: 8 }} />
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="Choose new password (min 4 chars)"
+                          placeholderTextColor={Colors.textMuted}
+                          value={password}
+                          onChangeText={(val) => {
+                            setPassword(val);
+                            setErrorMessage('');
+                          }}
+                          secureTextEntry={!showPassword}
+                          autoCapitalize="none"
+                          autoFocus={true}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowPassword(!showPassword)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          style={styles.eyeBtn}
+                        >
+                          <Ionicons
+                            name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                            size={20}
+                            color={Colors.textMuted}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* Confirm New Password Field */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Confirm New Password *</Text>
+                      <View style={styles.singleInputWrap}>
+                        <Ionicons name="shield-checkmark-outline" size={18} color={Colors.textMuted} style={{ marginRight: 8 }} />
+                        <TextInput
+                          style={styles.textInput}
+                          placeholder="Re-enter your new password"
+                          placeholderTextColor={Colors.textMuted}
+                          value={confirmPassword}
+                          onChangeText={(val) => {
+                            setConfirmPassword(val);
+                            setErrorMessage('');
+                          }}
+                          secureTextEntry={!showConfirmPassword}
+                          autoCapitalize="none"
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          style={styles.eyeBtn}
+                        >
+                          <Ionicons
+                            name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                            size={20}
+                            color={Colors.textMuted}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* Reset Password Button */}
+                    <TouchableOpacity
+                      style={[styles.submitBtn, { backgroundColor: '#2563EB' }, isLoading && styles.submitBtnDisabled]}
+                      onPress={handleResetPasswordSubmit}
+                      disabled={isLoading}
+                      activeOpacity={0.8}
+                    >
+                      {isLoading ? (
+                        <View style={styles.btnRow}>
+                          <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                          <Text style={styles.submitBtnText}>Resetting Password...</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.btnRow}>
+                          <Ionicons name="key" size={19} color="#FFFFFF" style={{ marginRight: 6 }} />
+                          <Text style={styles.submitBtnText}>Reset Password & Sign In</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {/* Switch Mode Prompt Link */}
+                {isForgot ? (
+                  <TouchableOpacity
+                    style={styles.switchModeWrap}
+                    onPress={() => switchMode('login')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.switchModeText}>
+                      Remember your password?{' '}
+                      <Text style={[styles.switchModeHighlight, { color: '#2563EB' }]}>Sign In</Text>
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.switchModeWrap}
+                    onPress={() => switchMode(isRegister ? 'login' : 'register')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.switchModeText}>
+                      {isRegister ? 'Already have an account? ' : "Don't have an account? "}
+                      {!isRegister ? (
+                        <Animated.Text
+                          style={[
+                            styles.switchModeHighlight,
+                            { color: glowTextColor, opacity: textGlowOpacity },
+                          ]}
+                        >
+                          Create Account ✨
+                        </Animated.Text>
+                      ) : (
+                        <Text style={styles.switchModeHighlight}>Sign In</Text>
+                      )}
+                    </Text>
+                  </TouchableOpacity>
+                )}
 
                 {/* Test hint for development */}
-                {!isRegister && (
+                {!isRegister && !isForgot && (
                   <View style={styles.testHintCard}>
                     <Ionicons name="information-circle-outline" size={16} color={Colors.primary} style={{ marginRight: 6, marginTop: 1 }} />
                     <Text style={styles.testHintText}>
@@ -1371,5 +1779,43 @@ const styles = StyleSheet.create({
     fontSize: Typography.fontSizes.xs,
     fontWeight: Typography.fontWeights.bold,
     color: '#15803D',
+  },
+  forgotPasswordRow: {
+    alignItems: 'flex-end',
+    marginBottom: Spacing.sm,
+    marginTop: -2,
+  },
+  forgotPasswordText: {
+    fontSize: Typography.fontSizes.xs + 1,
+    color: Colors.primaryDark,
+    fontWeight: Typography.fontWeights.semibold,
+  },
+  forgotBackBar: {
+    paddingHorizontal: 4,
+    marginTop: Spacing.sm,
+    marginBottom: 2,
+  },
+  backToSignInBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#EFF6FF',
+    borderRadius: BorderRadius.md,
+  },
+  backToSignInText: {
+    fontSize: Typography.fontSizes.xs + 1,
+    color: '#2563EB',
+    fontWeight: Typography.fontWeights.semibold,
+    marginLeft: 4,
+  },
+  stepItemActiveForgot: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#93C5FD',
+  },
+  stepTextActiveForgot: {
+    color: '#2563EB',
+    fontWeight: Typography.fontWeights.bold,
   },
 });

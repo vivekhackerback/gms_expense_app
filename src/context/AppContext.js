@@ -632,6 +632,47 @@ export const AppProvider = ({ children }) => {
     }
   };
 
+  const resetPasswordUser = async (phone, newPassword, countryCode = '+91') => {
+    try {
+      const net = await checkNetworkConnectivity();
+      if (!net.isConnected) {
+        return { success: false, message: 'Device is offline. Internet connection required to reset password.' };
+      }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const response = await fetch(API_CONFIG.AUTH_RESET_PASSWORD_URL, {
+        method: 'POST',
+        headers: API_CONFIG.HEADERS,
+        body: JSON.stringify({ phone, new_password: newPassword, country_code: countryCode }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+      if (response.ok && data.success === true) {
+        if (data.token && data.user) {
+          saveAuthSession(data.token, data.user);
+          setCurrentUser(data.user);
+          setAuthToken(data.token);
+          setIsLoggedIn(true);
+        }
+        addBackupActivityLog('auth', 'success', `Password reset successful for: ${phone}`);
+        refreshAll();
+        return { success: true, user: data.user, message: data.message || 'Password reset successfully!' };
+      } else {
+        const failMsg = data.message || 'Unable to reset password. Please try again.';
+        addBackupActivityLog('auth', 'failed', `Password reset failed for ${phone}: ${failMsg}`);
+        return { success: false, message: failMsg };
+      }
+    } catch (err) {
+      const errDetail = err.name === 'AbortError' ? 'Connection timeout (12s)' : (err.message || 'Network request failed');
+      addBackupActivityLog('auth', 'failed', `Password reset error: ${errDetail}`);
+      return { success: false, message: `Password reset failed: ${errDetail}` };
+    }
+  };
+
   const logoutUser = async () => {
     try {
       // Optional: notify server
@@ -790,6 +831,7 @@ export const AppProvider = ({ children }) => {
         closeLogoutModal,
         loginUser,
         registerUser,
+        resetPasswordUser,
         updateUserProfile,
         logoutUser,
 
