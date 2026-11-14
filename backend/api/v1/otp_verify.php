@@ -24,7 +24,7 @@ if (!$payload) {
     $payload = $_POST;
 }
 
-$challengeId = isset($payload['challenge_id']) ? trim($payload['challenge_id']) : '';
+$challengeId = isset($payload['challenge_id']) ? trim($payload['challenge_id']) : (isset($payload['verification_id']) ? trim($payload['verification_id']) : '');
 $otp = isset($payload['otp']) ? trim($payload['otp']) : '';
 
 if (empty($challengeId)) {

@@ -205,7 +205,8 @@ export const LoginModal = () => {
     try {
       const res = await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode);
       if (res && res.success) {
-        setChallengeId(res.challenge_id || '');
+        const cid = res.challenge_id || res.verification_id || res.id || '';
+        setChallengeId(cid);
         setResendCooldown(res.resend_cooldown || 60);
         setRegStep('otp');
       } else {
@@ -230,7 +231,8 @@ export const LoginModal = () => {
     try {
       const res = await otpService.sendOtp(cleanPhone, 'Registration', 300, selectedCountry.dialCode);
       if (res && res.success) {
-        setChallengeId(res.challenge_id || '');
+        const cid = res.challenge_id || res.verification_id || res.id || '';
+        setChallengeId(cid);
         setResendCooldown(res.resend_cooldown || 60);
       } else {
         setErrorMessage(res?.message || 'Could not resend OTP. Please wait before retrying.');
@@ -251,6 +253,11 @@ export const LoginModal = () => {
 
     if (!cleanOtp || cleanOtp.length < 4) {
       setErrorMessage('Please enter the 6-digit OTP code sent on WhatsApp');
+      return;
+    }
+
+    if (!challengeId) {
+      setErrorMessage('Verification session expired or missing challenge ID. Please tap "Resend OTP".');
       return;
     }
 

@@ -142,18 +142,24 @@ try {
 
     $serviceUrl = method_exists($otpClient, 'getBaseUrl') ? $otpClient->getBaseUrl() : 'https://otp.losttag.in/api/v1';
 
+    $challengeId = $result['challenge_id'] ?? $result['verification_id'] ?? $result['id'] ?? null;
+    $resendCooldown = isset($result['resend_cooldown']) ? (int)$result['resend_cooldown'] : 60;
+
     if (!empty($result['success'])) {
         sendJsonResponse([
             'success'             => true,
             'message'             => isset($result['message']) ? $result['message'] : 'OTP sent successfully via WhatsApp.',
-            'verification_id'     => isset($result['verification_id']) ? $result['verification_id'] : null,
+            'challenge_id'        => $challengeId,
+            'verification_id'     => $challengeId,
+            'status'              => $result['status'] ?? 'pending',
+            'resend_cooldown'     => $resendCooldown,
             'otp'                 => isset($result['otp']) ? $result['otp'] : null,
             'phone'               => $e164Phone,
             'country_code'        => $countryCode,
             'national_phone'      => $nationalPhone,
             'gateway_phone'       => $gatewayPhone,
             'simulated'           => !empty($result['simulated']),
-            'expires_in_seconds'  => $expirySeconds,
+            'expires_in_seconds'  => isset($result['expires_in_seconds']) ? (int)$result['expires_in_seconds'] : $expirySeconds,
             'service_url'         => $serviceUrl,
         ], 200);
     } else {

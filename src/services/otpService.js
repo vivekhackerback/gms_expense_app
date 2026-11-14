@@ -155,6 +155,9 @@ class OtpService {
       }
 
       if (data && (response.status === 200 || response.status === 400 || response.status === 409 || data.already_registered)) {
+        const cid = data.challenge_id || data.verification_id || data.id || '';
+        data.challenge_id = cid;
+        data.verification_id = cid;
         return data;
       }
     } catch (proxyError) {
@@ -192,8 +195,25 @@ class OtpService {
         }),
       });
 
-      const data = await response.json();
-      return data;
+      const rawText = await response.text();
+      let data = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.warn('[OtpService] Direct gateway response was not JSON:', rawText.slice(0, 150));
+      }
+
+      if (data) {
+        const cid = data.challenge_id || data.verification_id || data.id || '';
+        data.challenge_id = cid;
+        data.verification_id = cid;
+        return data;
+      }
+
+      return {
+        success: false,
+        message: 'Invalid response from WhatsApp OTP service.',
+      };
     } catch (error) {
       console.error('[OtpService] direct sendOtp error:', error);
       return {
