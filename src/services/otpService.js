@@ -1,28 +1,29 @@
 /**
  * WhatsApp OTP Gateway Service
- * Documentation Reference: https://otp.losttag.in/docs
  * 
- * Manages OTP sending, verification, status tracking, and dynamic domain configuration.
+ * Fully configurable & database-driven OTP Gateway Service.
+ * Retrieves base URL and gateway credentials dynamically from the database (MySQL & local SQLite),
+ * ensuring zero hardcoding and seamless migration to any domain or provider without app updates.
  */
 
 import API_CONFIG from '../constants/api_config';
 import {
   getLocalOtpDomainRecord,
   saveLocalOtpDomainRecord,
-  DEFAULT_OTP_DOMAIN,
-  DEFAULT_OTP_API_BASE_URL,
 } from '../database/queries';
 
 class OtpService {
   /**
-   * Fetches latest OTP gateway domain configuration from backend server and updates local SQLite cache if newer.
+   * Fetches latest OTP gateway domain & base URL configuration dynamically from the database.
+   * If the domain or base URL is updated in the database, local SQLite is updated immediately.
    */
   async syncOtpDomainConfig() {
     try {
       const local = getLocalOtpDomainRecord();
       const clientUpdate = local?.otpUpdate ?? 1;
+      const clientBaseUrl = encodeURIComponent(local?.apiBaseUrl || '');
 
-      const url = `${API_CONFIG.GET_OTP_DOMAIN_URL}?client_otp_update=${clientUpdate}&t=${Date.now()}`;
+      const url = `${API_CONFIG.GET_OTP_DOMAIN_URL}?client_otp_update=${clientUpdate}&client_base_url=${clientBaseUrl}&t=${Date.now()}`;
       const response = await fetch(url, {
         method: 'GET',
         headers: API_CONFIG.HEADERS,
@@ -33,11 +34,12 @@ class OtpService {
       }
 
       const data = await response.json();
-      if (data && data.success && data.domain) {
-        if (data.changed) {
+      if (data && data.success && (data.domain || data.api_base_url)) {
+        const serverBaseUrl = data.api_base_url || (data.domain ? `${data.domain.replace(/\/+$/, '')}/api/v1` : '');
+        if (data.changed || serverBaseUrl !== local?.apiBaseUrl) {
           saveLocalOtpDomainRecord({
             domain: data.domain,
-            api_base_url: data.api_base_url,
+            api_base_url: serverBaseUrl,
             template_name: data.template_name,
             purpose: data.purpose,
             expiry_seconds: data.expiry_seconds,
@@ -51,18 +53,24 @@ class OtpService {
         return getLocalOtpDomainRecord();
       }
     } catch (e) {
-      console.warn('[OtpService] syncOtpDomainConfig error (falling back to local cache):', e?.message);
+      console.warn('[OtpService] syncOtpDomainConfig error (falling back to database cache):', e?.message);
     }
 
     return getLocalOtpDomainRecord();
   }
 
   /**
-   * Resolves the active base URL for OTP Gateway endpoints
+   * Resolves the active base URL dynamically from the database.
    */
   getApiBaseUrl() {
     const local = getLocalOtpDomainRecord();
-    return local?.apiBaseUrl || DEFAULT_OTP_API_BASE_URL;
+    if (local?.apiBaseUrl) {
+      return local.apiBaseUrl.replace(/\/+$/, '');
+    }
+    if (local?.domain) {
+      return `${local.domain.replace(/\/+$/, '')}/api/v1`;
+    }
+    return '';
   }
 
   /**
@@ -92,16 +100,21 @@ class OtpService {
 
   /**
    * Endpoint 1: Request & Send OTP
-   * Attempts application backend proxy first (which holds database API keys),
-   * with seamless fallback to direct OTP Gateway URL.
    * 
-   * Note: Meta enforces a strict 15-character limit on parameter index 1 (purpose) (Error #132018).
+   * Dynamically loads active OTP base URL from database before dispatch.
+   * First tries backend proxy (which reads live MySQL `otp_domain` row),
+   * with fallback to direct database-configured `api_base_url`.
    * 
    * @param {string} phone - 10-digit mobile number
-   * @param {string} purpose - Purpose of OTP (max 15 characters, default: "Registration")
+   * @param {string} purpose - Purpose of OTP (max 15 characters per Meta limit)
    * @param {number} expirySeconds - Validity window in seconds (default: 300)
    */
   async sendOtp(phone, purpose = 'Registration', expirySeconds = 300) {
+    // 0. Proactively sync latest database configuration
+    try {
+      await this.syncOtpDomainConfig();
+    } catch (syncErr) {}
+
     const cleanPhone = String(phone).replace(/\D/g, '');
     const config = getLocalOtpDomainRecord();
 
@@ -112,7 +125,7 @@ class OtpService {
     if (safePurpose.length > 15) safePurpose = safePurpose.slice(0, 15);
     if (!safePurpose) safePurpose = 'Registration';
 
-    // 1. Try Backend Proxy endpoint
+    // 1. Try Backend Proxy endpoint (holds live MySQL `otp_domain` credentials)
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -131,7 +144,6 @@ class OtpService {
       clearTimeout(timeoutId);
 
       const data = await response.json();
-      // If endpoint returned response (whether success or business validation like already_registered)
       if (response.status === 200 || response.status === 400 || response.status === 409 || data.already_registered) {
         return data;
       }
@@ -139,8 +151,15 @@ class OtpService {
       console.warn('[OtpService] Proxy sendOtp failed, attempting direct gateway fallback:', proxyError?.message);
     }
 
-    // 2. Fallback to direct OTP Gateway
-    const baseUrl = config?.apiBaseUrl || DEFAULT_OTP_API_BASE_URL;
+    // 2. Direct fallback using dynamic database-stored base URL
+    const baseUrl = this.getApiBaseUrl();
+    if (!baseUrl) {
+      return {
+        success: false,
+        message: 'No OTP service URL configured in database. Please check connection.',
+      };
+    }
+
     const headers = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
@@ -173,7 +192,7 @@ class OtpService {
 
   /**
    * Endpoint 2: Verify OTP
-   * Validates OTP code against active challenge.
+   * Validates OTP code against active challenge using dynamic database URL.
    * 
    * @param {string} challengeId - Challenge ID returned from sendOtp (e.g. "CHL_...")
    * @param {string} otp - 6-digit OTP code entered by user
@@ -206,10 +225,17 @@ class OtpService {
       console.warn('[OtpService] Proxy verifyOtp failed, attempting direct gateway fallback:', proxyError?.message);
     }
 
-    // 2. Direct fallback
-    const config = getLocalOtpDomainRecord();
-    const baseUrl = config?.apiBaseUrl || DEFAULT_OTP_API_BASE_URL;
+    // 2. Direct fallback using dynamic database-stored base URL
+    const baseUrl = this.getApiBaseUrl();
+    if (!baseUrl) {
+      return {
+        success: false,
+        verified: false,
+        message: 'No OTP service URL configured in database.',
+      };
+    }
 
+    const config = getLocalOtpDomainRecord();
     const headers = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
@@ -245,9 +271,12 @@ class OtpService {
    * GET /otp/status/{challenge_id}
    */
   async checkOtpStatus(challengeId) {
-    const config = getLocalOtpDomainRecord();
-    const baseUrl = config?.apiBaseUrl || DEFAULT_OTP_API_BASE_URL;
+    const baseUrl = this.getApiBaseUrl();
+    if (!baseUrl) {
+      return { success: false, message: 'No OTP service URL configured in database.' };
+    }
 
+    const config = getLocalOtpDomainRecord();
     const headers = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
@@ -278,9 +307,12 @@ class OtpService {
    * GET /account/usage
    */
   async getAccountUsage() {
-    const config = getLocalOtpDomainRecord();
-    const baseUrl = config?.apiBaseUrl || DEFAULT_OTP_API_BASE_URL;
+    const baseUrl = this.getApiBaseUrl();
+    if (!baseUrl) {
+      return { success: false, message: 'No OTP service URL configured in database.' };
+    }
 
+    const config = getLocalOtpDomainRecord();
     const headers = {
       'Content-Type': 'application/json',
       Accept: 'application/json',

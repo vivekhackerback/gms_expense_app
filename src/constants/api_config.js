@@ -58,7 +58,11 @@ export const API_CONFIG = {
   OTP_SEND_URL: `${API_BASE}/otp_send.php`,
   /** Endpoint to verify OTP */
   OTP_VERIFY_URL: `${API_BASE}/otp_verify.php`,
-  /** Default WhatsApp OTP Gateway Base URL */
+  /** 
+   * Dynamic OTP Gateway Base URL:
+   * The app dynamically loads and caches the base URL from the database (`otp_domain` table).
+   * It never hardcodes the target domain in the UI flow.
+   */
   OTP_GATEWAY_DEFAULT_BASE_URL: 'https://otp.losttag.in/api/v1',
 
 

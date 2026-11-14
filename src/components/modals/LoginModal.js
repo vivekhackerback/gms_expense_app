@@ -57,6 +57,13 @@ export const LoginModal = () => {
   const successScale = useRef(new Animated.Value(0.4)).current;
   const glowAnim = useRef(new Animated.Value(0)).current;
 
+  // Synchronize latest OTP domain configuration from database whenever modal opens
+  useEffect(() => {
+    if (isLoginModalOpen) {
+      otpService.syncOtpDomainConfig().catch(() => {});
+    }
+  }, [isLoginModalOpen]);
+
   // Resend Countdown Timer
   useEffect(() => {
     let timer;

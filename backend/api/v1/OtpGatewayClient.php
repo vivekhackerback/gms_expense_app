@@ -27,7 +27,14 @@ class OtpGatewayClient
         $stmt = $db->query("SELECT domain, api_base_url, api_key, api_secret FROM otp_domain WHERE is_active = 1 OR status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 1");
         $config = $stmt ? $stmt->fetch(PDO::FETCH_ASSOC) : null;
 
-        $baseUrl = !empty($config['api_base_url']) ? $config['api_base_url'] : 'https://otp.losttag.in/api/v1';
+        $baseUrl = '';
+        if (!empty($config['api_base_url'])) {
+            $baseUrl = trim($config['api_base_url']);
+        } elseif (!empty($config['domain'])) {
+            $baseUrl = rtrim(trim($config['domain']), '/') . '/api/v1';
+        } else {
+            $baseUrl = 'https://otp.losttag.in/api/v1';
+        }
         $apiKey = $config['api_key'] ?? '';
         $apiSecret = $config['api_secret'] ?? null;
 

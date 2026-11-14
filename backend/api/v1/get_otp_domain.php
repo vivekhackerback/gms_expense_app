@@ -103,12 +103,15 @@ try {
         $serverPurpose = mb_substr($serverPurpose, 0, 15);
     }
 
-    // Check client_otp_update parameter if supplied
+    // Check client_otp_update and client_base_url parameters to detect any database migrations
     $clientOtpUpdate = isset($_GET['client_otp_update']) && is_numeric($_GET['client_otp_update'])
         ? (int)$_GET['client_otp_update']
         : null;
+    $clientBaseUrl = isset($_GET['client_base_url']) ? trim($_GET['client_base_url']) : null;
 
-    $isChanged = ($clientOtpUpdate === null || $serverOtpUpdate > $clientOtpUpdate);
+    $isChanged = ($clientOtpUpdate === null 
+        || $serverOtpUpdate > $clientOtpUpdate 
+        || ($clientBaseUrl !== null && rtrim($clientBaseUrl, '/') !== rtrim($serverApiBaseUrl, '/')));
 
     // Never expose private API secret in public client endpoint
     sendJsonResponse([

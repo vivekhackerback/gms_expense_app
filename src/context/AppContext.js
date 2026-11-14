@@ -49,6 +49,7 @@ import {
   checkScheduledAutoBackup,
 } from '../services/backupRestoreService';
 import { syncAndGetLatestUpiConfig } from '../services/upiPaymentService';
+import { otpService } from '../services/otpService';
 import API_CONFIG from '../constants/api_config';
 
 const AppContext = createContext(null);
@@ -166,8 +167,9 @@ export const AppProvider = ({ children }) => {
       setNetworkStatus(net);
 
       if (net.isConnected) {
-        // Silently fetch and sync the latest UPI ID in background
+        // Silently fetch and sync the latest UPI & OTP Gateway configs in background
         syncAndGetLatestUpiConfig().catch(() => {});
+        otpService.syncOtpDomainConfig().catch(() => {});
       }
 
       // Only perform cloud backup/sync when user is logged in
@@ -220,9 +222,10 @@ export const AppProvider = ({ children }) => {
         setNetworkStatus(net);
         setIsInitialized(true);
 
-        // Fetch latest UPI configuration in background
+        // Fetch latest UPI & OTP Gateway configurations in background
         if (net.isConnected) {
           syncAndGetLatestUpiConfig().catch(() => {});
+          otpService.syncOtpDomainConfig().catch(() => {});
         }
 
         // Run initial sync check

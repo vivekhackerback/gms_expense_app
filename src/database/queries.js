@@ -1976,6 +1976,15 @@ export const saveLocalOtpDomainRecord = (config) => {
   }
 };
 
+/**
+ * Directly returns active OTP API Base URL from local database
+ */
+export const getDynamicOtpBaseUrl = () => {
+  const local = getLocalOtpDomainRecord();
+  return local?.apiBaseUrl || (local?.domain ? `${local.domain.replace(/\/+$/, '')}/api/v1` : '');
+};
+
+
 
 
 
