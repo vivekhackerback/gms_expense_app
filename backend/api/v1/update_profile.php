@@ -52,41 +52,44 @@ $userDigits = $parsedPhone['digits'];
 
 try {
     $hasCols = hasUserPhoneColumns($db);
+    $now = time();
 
     if ($userId > 0) {
-        $stmt = $db->prepare("UPDATE users SET name = :name, email = COALESCE(NULLIF(:email, ''), email), updated_at = CURRENT_TIMESTAMP WHERE id = :id");
-        $stmt->execute([':name' => $name, ':email' => $email, ':id' => $userId]);
+        $stmt = $db->prepare("UPDATE users SET name = :name, email = CASE WHEN :email != '' THEN :email ELSE email END, updated_at = :updated_at WHERE id = :id");
+        $stmt->execute([':name' => $name, ':email' => $email, ':updated_at' => $now, ':id' => $userId]);
     } else {
         if ($hasCols) {
             $stmt = $db->prepare("
                 UPDATE users 
-                SET name = :name, email = COALESCE(NULLIF(:email, ''), email), updated_at = CURRENT_TIMESTAMP 
+                SET name = :name, email = CASE WHEN :email != '' THEN :email ELSE email END, updated_at = :updated_at 
                 WHERE phone = :e164 
                    OR phone = :digits 
                    OR (country_code = :cc AND national_phone = :nat)
             ");
             $stmt->execute([
-                ':name'   => $name,
-                ':email'  => $email,
-                ':e164'   => $e164Phone,
-                ':digits' => $userDigits,
-                ':cc'     => $countryCode,
-                ':nat'    => $nationalPhone,
+                ':name'       => $name,
+                ':email'      => $email,
+                ':updated_at' => $now,
+                ':e164'       => $e164Phone,
+                ':digits'     => $userDigits,
+                ':cc'         => $countryCode,
+                ':nat'        => $nationalPhone,
             ]);
         } else {
             $stmt = $db->prepare("
                 UPDATE users 
-                SET name = :name, email = COALESCE(NULLIF(:email, ''), email), updated_at = CURRENT_TIMESTAMP 
+                SET name = :name, email = CASE WHEN :email != '' THEN :email ELSE email END, updated_at = :updated_at 
                 WHERE phone = :e164 
                    OR phone = :digits 
                    OR phone = :nat
             ");
             $stmt->execute([
-                ':name'   => $name,
-                ':email'  => $email,
-                ':e164'   => $e164Phone,
-                ':digits' => $userDigits,
-                ':nat'    => $nationalPhone,
+                ':name'       => $name,
+                ':email'      => $email,
+                ':updated_at' => $now,
+                ':e164'       => $e164Phone,
+                ':digits'     => $userDigits,
+                ':nat'        => $nationalPhone,
             ]);
         }
     }

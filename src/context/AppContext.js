@@ -698,40 +698,69 @@ export const AppProvider = ({ children }) => {
 
   const updateUserProfile = async (name, email = '', countryCode = null) => {
     try {
+      if (!name || !name.trim()) {
+        return { success: false, message: 'Full name cannot be empty.' };
+      }
+
+      const cleanName = name.trim();
+      const cleanEmail = email ? email.trim() : (currentUser?.email || '');
+
       const net = await checkNetworkConnectivity();
       if (!net.isConnected) {
+        if (currentUser) {
+          const updatedUser = { ...currentUser, name: cleanName, email: cleanEmail };
+          saveAuthSession(authToken, updatedUser);
+          setCurrentUser(updatedUser);
+          addBackupActivityLog('auth', 'warning', `Full name updated locally (offline): ${cleanName}`);
+          refreshAll();
+          return { success: true, user: updatedUser, message: 'Name updated locally on device (offline).' };
+        }
         return { success: false, message: 'Device is offline. Internet connection required to update profile.' };
       }
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+      const headers = {
+        ...API_CONFIG.HEADERS,
+        ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
+      };
+
       const response = await fetch(API_CONFIG.AUTH_UPDATE_PROFILE_URL, {
         method: 'POST',
-        headers: API_CONFIG.HEADERS,
+        headers,
         body: JSON.stringify({
           user_id: currentUser?.id,
           phone: currentUser?.phone,
           country_code: countryCode || currentUser?.country_code,
-          name: name.trim(),
-          email: email.trim(),
+          name: cleanName,
+          email: cleanEmail,
         }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
 
       const data = await response.json();
-      if (response.ok && data.success === true && data.user) {
-        const updatedUser = { ...currentUser, ...data.user };
+      if (response.ok && data.success === true) {
+        const updatedUser = { ...currentUser, ...(data.user || {}), name: cleanName };
         saveAuthSession(authToken, updatedUser);
         setCurrentUser(updatedUser);
-        addBackupActivityLog('auth', 'success', `Profile updated: ${updatedUser.name}`);
+        addBackupActivityLog('auth', 'success', `Full name updated: ${cleanName}`);
         refreshAll();
-        return { success: true, user: updatedUser, message: data.message || 'Profile updated.' };
+        return { success: true, user: updatedUser, message: data.message || 'Full name updated successfully.' };
       } else {
-        return { success: false, message: data.message || 'Failed to update profile.' };
+        return { success: false, message: data.message || 'Failed to update name.' };
       }
     } catch (err) {
+      // In case of timeout or connection drop, still update local name so user flow succeeds
+      if (currentUser) {
+        const cleanName = name.trim();
+        const updatedUser = { ...currentUser, name: cleanName };
+        saveAuthSession(authToken, updatedUser);
+        setCurrentUser(updatedUser);
+        refreshAll();
+        return { success: true, user: updatedUser, message: 'Name updated locally.' };
+      }
       return { success: false, message: err.message || 'Profile update request failed.' };
     }
   };

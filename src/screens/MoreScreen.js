@@ -31,6 +31,7 @@ import {
 } from '../services/stressTestService';
 import { FeedbackScreen } from './FeedbackScreen';
 import { CurrencySelectModal } from '../components/modals/CurrencySelectModal';
+import { EditNameModal } from '../components/modals/EditNameModal';
 import { MonthlyBudgetModal } from '../components/modals/MonthlyBudgetModal';
 import { EmiCalculatorModal } from '../components/modals/EmiCalculatorModal';
 import { ExportPdfModal } from '../components/transaction/ExportPdfModal';
@@ -399,7 +400,13 @@ export const MoreScreen = () => {
         {/* User Account / Profile Card */}
         {isLoggedIn && currentUser ? (
           <View style={[styles.userProfileCard, Shadows.sm]}>
-            <View style={styles.userProfileLeft}>
+            <TouchableOpacity
+              style={styles.userProfileLeft}
+              onPress={handleOpenEditProfile}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Change Full Name"
+            >
               <View style={styles.userAvatarCircle}>
                 <Text style={styles.userAvatarText}>
                   {(currentUser.name ? currentUser.name[0] : 'U').toUpperCase()}
@@ -410,15 +417,20 @@ export const MoreScreen = () => {
                   <Text style={styles.userNameText} numberOfLines={1}>
                     {currentUser.name || 'Account User'}
                   </Text>
-                  <View style={styles.onlineBadge}>
-                    <Text style={styles.onlineBadgeText}>● Logged In</Text>
+                  <View style={styles.editPillBtn}>
+                    <Ionicons name="pencil" size={10} color="#2563EB" style={{ marginRight: 2 }} />
+                    <Text style={styles.editPillText}>Change</Text>
                   </View>
                 </View>
-                <Text style={styles.userPhoneText}>
-                  {currentUser.phone?.startsWith('+') ? currentUser.phone : `${currentUser.country_code || '+91'} ${currentUser.phone || '9876543210'}`}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                  <Text style={styles.userPhoneText}>
+                    {currentUser.phone?.startsWith('+') ? currentUser.phone : `${currentUser.country_code || '+91'} ${currentUser.phone || '9876543210'}`}
+                  </Text>
+                  <Text style={{ marginHorizontal: 6, color: Colors.border, fontSize: 10 }}>•</Text>
+                  <Text style={{ fontSize: 10, color: '#16A34A', fontWeight: '600' }}>● Logged In</Text>
+                </View>
               </View>
-            </View>
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.logoutBtn}
@@ -599,6 +611,20 @@ export const MoreScreen = () => {
             </View>
           )}
         </TouchableOpacity>
+
+        {/* Account Profile Section */}
+        {isLoggedIn &&
+          renderSection('MY ACCOUNT', [
+            {
+              icon: 'person-circle-outline',
+              iconColor: '#2563EB',
+              iconBg: '#EFF6FF',
+              label: 'Full Name',
+              sublabel: currentUser?.name || 'Tap to set your full name',
+              rightText: 'Change ✏️',
+              onPress: handleOpenEditProfile,
+            },
+          ])}
 
         {/* Preferences */}
         {renderSection('PREFERENCES', [
@@ -857,6 +883,16 @@ export const MoreScreen = () => {
         onClose={() => setIsCurrencyModalOpen(false)}
         currentCurrency={currency}
         onSelectCurrency={changeCurrency}
+      />
+
+      {/* Change Full Name Modal */}
+      <EditNameModal
+        visible={isEditProfileOpen}
+        onClose={() => setIsEditProfileOpen(false)}
+        currentUser={currentUser}
+        onUpdateName={async (newName) => {
+          return await updateUserProfile(newName);
+        }}
       />
 
       {/* Monthly Budget Target Modal */}
@@ -1202,6 +1238,22 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontWeight: Typography.fontWeights.bold,
     color: '#15803D',
+  },
+  editPillBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    marginLeft: 2,
+  },
+  editPillText: {
+    fontSize: 10,
+    fontWeight: Typography.fontWeights.semibold,
+    color: '#2563EB',
   },
   userPhoneText: {
     fontSize: Typography.fontSizes.xs,
