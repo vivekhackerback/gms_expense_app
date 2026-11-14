@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { initDatabase } from '../database/db';
+import { initDatabase, resolveOrCreateDatabaseNameAsync, getDatabaseName } from '../database/db';
 import {
   getBalances,
   getTransactions,
@@ -31,6 +31,8 @@ import {
   DEFAULT_BACKUP_SETTINGS,
   getAppCurrency,
   updateAppCurrency,
+  isSetupCompleted,
+  setSetupCompleted,
 } from '../database/queries';
 import { DEFAULT_CURRENCY } from '../constants/currencies';
 import { setGlobalCurrency } from '../utils/formatters';
@@ -112,6 +114,7 @@ export const AppProvider = ({ children }) => {
   const [isManagePartiesOpen, setIsManagePartiesOpen] = useState(false);
   const [isBackupReportOpen, setIsBackupReportOpen] = useState(false);
   const [isBackupSettingsOpen, setIsBackupSettingsOpen] = useState(false);
+  const [isCurrencySetupOpen, setIsCurrencySetupOpen] = useState(false);
 
   const autoSyncRunningRef = useRef(false);
 
@@ -204,12 +207,22 @@ export const AppProvider = ({ children }) => {
   useEffect(() => {
     const initialize = async () => {
       try {
-        initDatabase();
+        // Dynamically calculate and resolve database name using Unix timestamp
+        const resolvedDbName = await resolveOrCreateDatabaseNameAsync();
+        initDatabase(resolvedDbName);
+
         const savedCurrency = getAppCurrency();
         if (savedCurrency) {
           setCurrency(savedCurrency);
           setGlobalCurrency(savedCurrency);
         }
+
+        // Show currency setup on first launch if setup has not been completed
+        const setupDone = isSetupCompleted();
+        if (!setupDone) {
+          setIsCurrencySetupOpen(true);
+        }
+
         const session = getAuthSession();
         if (session.isLoggedIn) {
           setCurrentUser(session.user);
@@ -690,6 +703,16 @@ export const AppProvider = ({ children }) => {
     refreshAll();
   }, [refreshAll]);
 
+  const completeCurrencySetup = useCallback((selectedCurrency) => {
+    if (!selectedCurrency) return;
+    updateAppCurrency(selectedCurrency);
+    setSetupCompleted(true);
+    setCurrency(selectedCurrency);
+    setGlobalCurrency(selectedCurrency);
+    setIsCurrencySetupOpen(false);
+    refreshAll();
+  }, [refreshAll]);
+
   const reorderCategories = useCallback((orderedIds) => {
     try {
       updateCategoriesOrder(orderedIds);
@@ -729,6 +752,10 @@ export const AppProvider = ({ children }) => {
         navigateToBackup,
         currency,
         changeCurrency,
+        isCurrencySetupOpen,
+        setIsCurrencySetupOpen,
+        completeCurrencySetup,
+        databaseName: getDatabaseName(),
         balances,
         recentTransactions,
         parties,

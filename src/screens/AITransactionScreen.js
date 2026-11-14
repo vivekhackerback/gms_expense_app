@@ -520,7 +520,7 @@ export const AITransactionScreen = () => {
               <TextInput
                 ref={inputRef}
                 style={styles.naturalInput}
-                placeholder="₹20 cash Surendar ko khane ke liye diya..."
+                placeholder={`${currency?.symbol || '₹'}20 cash Surendar ko khane ke liye diya...`}
                 placeholderTextColor={Colors.textMuted}
                 value={inputText}
                 onChangeText={(t) => {

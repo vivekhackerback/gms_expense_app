@@ -9,6 +9,7 @@ import {
   closeDatabase,
   getDatabase,
   getDatabaseFilePath,
+  getDatabaseName,
   initDatabase,
 } from '../database/db';
 import {
@@ -18,7 +19,10 @@ import {
   getBackupSettings,
   updateBackupSettings,
   getDetailedBackupReportStats,
+  getAppCurrency,
+  updateAppCurrency,
 } from '../database/queries';
+import { setGlobalCurrency } from '../utils/formatters';
 
 const b64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const b64Lookup = new Uint8Array(256);
@@ -151,7 +155,7 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
 
     onProgress?.({ step: 2, totalSteps: 3, title: 'Preparing SQLite Database...', percent: 35 });
 
-    // 3. Commit SQLite WAL checkpoint to ensure all data is in expenses_khata.db file
+    // 3. Commit SQLite WAL checkpoint to ensure all data is flushed to SQLite database file
     console.log('💾 [BACKUP_STEP_3] Executing PRAGMA wal_checkpoint(TRUNCATE)...');
     try {
       checkpointDatabase();
@@ -263,7 +267,8 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
       ? savedLocation
       : API_CONFIG.DATABASE_BACKUP_UPLOAD_URL;
 
-    console.log('📤 [BACKUP_STEP_6] Database filename: expenses_khata.db');
+    const activeDbFileName = getDatabaseName();
+    console.log('📤 [BACKUP_STEP_6] Database filename:', activeDbFileName);
     console.log('📤 [BACKUP_STEP_6] Database size:', fileSize, 'bytes', `(${(fileSize / (1024 * 1024)).toFixed(2)} MB)`);
     console.log('📤 [BACKUP_STEP_6] Target Upload URL:', targetUploadUrl);
 
@@ -409,7 +414,7 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
             }
             const dbBlob = new Blob([bytes], { type: 'application/octet-stream' });
             const formData = new FormData();
-            formData.append('db_file', dbBlob, 'expenses_khata.db');
+            formData.append('db_file', dbBlob, getDatabaseName());
             Object.entries(uploadParameters).forEach(([k, v]) => formData.append(k, v));
 
             const controller = new AbortController();
@@ -457,7 +462,7 @@ export const uploadEntireDatabaseAndImages = async (onProgress) => {
 
         const dbBlob = new Blob([dbBytes], { type: 'application/octet-stream' });
         const formData = new FormData();
-        formData.append('db_file', dbBlob, 'expenses_khata.db');
+        formData.append('db_file', dbBlob, getDatabaseName());
         Object.entries(uploadParameters).forEach(([k, v]) => formData.append(k, v));
 
         const controller = new AbortController();
@@ -975,6 +980,7 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
     }
 
     const userPhone = auth?.user?.phone || '9876543210';
+    const preRestoreCurrency = getAppCurrency();
 
     onProgress?.({ step: 1, totalSteps: 3, title: 'Checking Cloud Backup...', percent: 10 });
 
@@ -1113,6 +1119,7 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
     let stagingImages = [];
     let stagingUpi = [];
     let stagingOtpDomain = [];
+    let stagingSettings = [];
 
     // Attempt A: In-Memory Deserialization (if supported by device SQLite build)
     try {
@@ -1192,6 +1199,7 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       try { stagingImages = stagingDb.getAllSync('SELECT * FROM transaction_images;'); } catch (e) {}
       try { stagingUpi = stagingDb.getAllSync('SELECT * FROM upi_info;'); } catch (e) {}
       try { stagingOtpDomain = stagingDb.getAllSync('SELECT * FROM otp_domain;'); } catch (e) {}
+      try { stagingSettings = stagingDb.getAllSync('SELECT * FROM settings;'); } catch (e) {}
     }
 
     console.log(`📊 [RESTORE_STEP_4] Total transactions ready for ledger: ${stagingTransactions.length}`);
@@ -1397,6 +1405,22 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
           }
         }
 
+        // 7. Settings Table (Preserve/restore currency, backup settings, etc.)
+        if (stagingSettings.length > 0) {
+          try {
+            const stmtSettings = activeDb.prepareSync(
+              'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);'
+            );
+            for (const s of stagingSettings) {
+              stmtSettings.executeSync([s.key, String(s.value)]);
+            }
+            stmtSettings.finalizeSync();
+            console.log(`✅ [RESTORE_STEP_4] Restored ${stagingSettings.length} settings records.`);
+          } catch (settingsErr) {
+            console.warn('Settings table transfer warning:', settingsErr?.message);
+          }
+        }
+
         activeDb.execSync('COMMIT;');
         activeDb.execSync('PRAGMA foreign_keys = ON;');
         console.log('✅ [RESTORE_STEP_4] Atomic SQL transfer completed successfully!');
@@ -1428,6 +1452,21 @@ export const importCloudDataAndRestore = async (onProgress, selectedBackupFile =
       console.log(`✅ [RESTORE_STEP_5] Verified: Live SQLite database now contains ${finalTxCount} transactions and ${finalPartyCount} parties.`);
     } catch (vErr) {
       console.warn('Verification query warning:', vErr?.message);
+    }
+
+    // 5.1 Preserve selected currency across backup/restore
+    try {
+      const restoredCurrency = getAppCurrency();
+      if (restoredCurrency && restoredCurrency.symbol) {
+        setGlobalCurrency(restoredCurrency);
+        console.log(`✅ [RESTORE_STEP_5] Restored app currency: ${restoredCurrency.name} (${restoredCurrency.symbol})`);
+      } else if (preRestoreCurrency && preRestoreCurrency.symbol) {
+        updateAppCurrency(preRestoreCurrency);
+        setGlobalCurrency(preRestoreCurrency);
+        console.log(`✅ [RESTORE_STEP_5] Preserved previous local currency: ${preRestoreCurrency.name} (${preRestoreCurrency.symbol})`);
+      }
+    } catch (currPreserveErr) {
+      console.warn('Currency preservation error post-restore:', currPreserveErr);
     }
 
     // 6. Download and restore all transaction receipt photos

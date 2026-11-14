@@ -281,7 +281,7 @@ export const MoreScreen = () => {
       const isFast = res.elapsedMs < 60;
       Alert.alert(
         '🚀 SQLite Performance Benchmark',
-        `• Total Records Queried: ${res.totalRecords.toLocaleString('en-IN')}\n• Total Got Calculated: ₹${Math.round(res.totalGot).toLocaleString('en-IN')}\n• Total Gave Calculated: ₹${Math.round(res.totalGave).toLocaleString('en-IN')}\n• Monthly Periods Aggregated: ${res.monthsAnalyzed}\n• Paginated Feed Tested: ${res.paginatedRows} rows\n\n⏱️ Execution Time: ${res.elapsedMs} ms\nStatus: ${isFast ? '⚡ Ultra Fast (60 FPS Safe)' : '✅ Optimal Performance'}`
+        `• Total Records Queried: ${res.totalRecords.toLocaleString()}\n• Total Got Calculated: ${formatCurrency(res.totalGot)}\n• Total Gave Calculated: ${formatCurrency(res.totalGave)}\n• Monthly Periods Aggregated: ${res.monthsAnalyzed}\n• Paginated Feed Tested: ${res.paginatedRows} rows\n\n⏱️ Execution Time: ${res.elapsedMs} ms\nStatus: ${isFast ? '⚡ Ultra Fast (60 FPS Safe)' : '✅ Optimal Performance'}`
       );
     } catch (err) {
       Alert.alert('Benchmark Error', err?.message || 'Failed to execute SQLite benchmark');

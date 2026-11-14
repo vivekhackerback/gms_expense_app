@@ -19,6 +19,7 @@ import { Typography, Spacing, BorderRadius, Shadows } from '../constants/theme';
 import { formatFullDateTime } from '../utils/formatters';
 import { exportTransactionsToCSV, exportFullJSONBackup, exportTransactionsToPDF } from '../services/exportService';
 import API_CONFIG from '../constants/api_config';
+import { getDatabaseName } from '../database/db';
 
 const SCHEDULE_PRESETS = [
   { label: '12:00 AM (Midnight)', time: '00:00' },
@@ -600,7 +601,7 @@ export const BackupReportScreen = ({ visible, onClose }) => {
                   </View>
 
                   <View style={styles.eraseBulletList}>
-                    <Text style={styles.bulletItem}>• Erases local SQLite database (`expenses_khata.db`)</Text>
+                    <Text style={styles.bulletItem}>• Erases local SQLite database (`{getDatabaseName()}`)</Text>
                     <Text style={styles.bulletItem}>• Clears local receipt photos from device cache</Text>
                     <Text style={styles.bulletItem}>• Resets local customer lists and custom categories</Text>
                   </View>

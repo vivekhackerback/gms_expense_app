@@ -23,6 +23,7 @@ import { exportTransactionsToCSV, exportFullJSONBackup, exportTransactionsToPDF 
 import API_CONFIG from '../constants/api_config';
 import { testAllApiEndpoints } from '../services/syncService';
 import { clearBackupActivityLogs } from '../database/queries';
+import { getDatabaseName } from '../database/db';
 
 const SCHEDULE_PRESETS = [
   { label: '12:00 AM (Midnight)', time: '00:00' },
@@ -1078,7 +1079,7 @@ export const BackupScreen = () => {
           </View>
 
           <Text style={styles.sectionDesc}>
-            Upload the entire SQLite database file (`expenses_khata.db`) and all transaction photos to your secure cloud server. If data is deleted from your mobile device, use <Text style={{ fontWeight: 'bold' }}>"Import My Data"</Text> to restore everything.
+            Upload the entire SQLite database file (`{getDatabaseName()}`) and all transaction photos to your secure cloud server. If data is deleted from your mobile device, use <Text style={{ fontWeight: 'bold' }}>"Import My Data"</Text> to restore everything.
           </Text>
 
           {/* Action Row */}
@@ -1308,7 +1309,7 @@ export const BackupScreen = () => {
                 </View>
 
                 <View style={styles.eraseBulletList}>
-                  <Text style={styles.bulletItem}>• Erases local SQLite database (`expenses_khata.db`)</Text>
+                  <Text style={styles.bulletItem}>• Erases local SQLite database (`{getDatabaseName()}`)</Text>
                   <Text style={styles.bulletItem}>• Clears local receipt photos from device storage</Text>
                   <Text style={styles.bulletItem}>• Resets local customer lists and custom categories</Text>
                 </View>
@@ -1543,7 +1544,7 @@ export const BackupScreen = () => {
               <View style={styles.importStatsRow}>
                 <Text style={styles.importStatsLabel}>Selected File:</Text>
                 <Text style={[styles.importStatsValue, { color: Colors.primary }]} numberOfLines={1}>
-                  {selectedBackupFile?.file_name || 'expenses_khata.db'}
+                  {selectedBackupFile?.file_name || getDatabaseName()}
                 </Text>
               </View>
 

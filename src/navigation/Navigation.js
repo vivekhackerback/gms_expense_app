@@ -32,6 +32,7 @@ import { ManageCategoriesModal } from '../components/modals/ManageCategoriesModa
 import { ManagePartiesModal } from '../components/modals/ManagePartiesModal';
 import { LoginModal } from '../components/modals/LoginModal';
 import { LogoutModal } from '../components/modals/LogoutModal';
+import { CurrencySetupModal } from '../components/modals/CurrencySetupModal';
 import { FloatingAddButton } from '../components/common/FloatingAddButton';
 
 const TABS = [
@@ -45,7 +46,13 @@ const TABS = [
 
 export const Navigation = () => {
   const insets = useSafeAreaInsets();
-  const { activeTab, setActiveTab } = useApp();
+  const {
+    activeTab,
+    setActiveTab,
+    isCurrencySetupOpen,
+    completeCurrencySetup,
+    currency,
+  } = useApp();
 
   const renderActiveScreen = () => {
     switch (activeTab) {
@@ -126,6 +133,11 @@ export const Navigation = () => {
       <LoginModal />
       <LogoutModal />
       <BackupSettingsScreen />
+      <CurrencySetupModal
+        visible={isCurrencySetupOpen}
+        onComplete={completeCurrencySetup}
+        initialCurrency={currency}
+      />
     </View>
   );
 };

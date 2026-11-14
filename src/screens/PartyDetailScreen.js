@@ -26,6 +26,7 @@ export const PartyDetailScreen = () => {
     deletePartyItem,
     isAddTransactionOpen,
     viewingTransactionId,
+    currency,
   } = useApp();
 
   const [party, setParty] = useState(null);
@@ -117,7 +118,7 @@ export const PartyDetailScreen = () => {
           activeOpacity={0.85}
         >
           <Ionicons name="arrow-up-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-          <Text style={styles.quickBtnText}>You Gave</Text>
+          <Text style={styles.quickBtnText}>You Gave {currency?.symbol || ''}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -126,7 +127,7 @@ export const PartyDetailScreen = () => {
           activeOpacity={0.85}
         >
           <Ionicons name="arrow-down-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-          <Text style={styles.quickBtnText}>You Got</Text>
+          <Text style={styles.quickBtnText}>You Got {currency?.symbol || ''}</Text>
         </TouchableOpacity>
       </View>
 

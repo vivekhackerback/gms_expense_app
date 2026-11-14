@@ -17,11 +17,13 @@ export const formatCurrency = (amount, options = {}) => {
   const num = Math.abs(rawNum);
 
   const symbol = options.symbol !== undefined ? options.symbol : (currentCurrency?.symbol || '₹');
+  const code = options.code || currentCurrency?.code || 'INR';
 
-  // Always use standard normal English numerals (0-9) so the font never changes
+  // Format with commas based on currency code (en-IN for INR Lakh/Crore grouping, en-US for standard 3-digit international grouping)
+  const locale = code === 'INR' ? 'en-IN' : 'en-US';
   let formatted = '';
   try {
-    formatted = num.toLocaleString('en-IN', {
+    formatted = num.toLocaleString(locale, {
       maximumFractionDigits: 2,
       minimumFractionDigits: 0,
     });
@@ -452,14 +454,18 @@ export const formatInputWithCommas = (val) => {
     integerPart = integerPart.replace(/^0+/, '') || '0';
   }
 
-  // Format integer with Indian numbering system
+  // Format integer with commas (Indian numbering for INR, standard international 3-digit for others)
   if (integerPart) {
-    let lastThree = integerPart.substring(integerPart.length - 3);
-    const otherNumbers = integerPart.substring(0, integerPart.length - 3);
-    if (otherNumbers !== '') {
-      lastThree = ',' + lastThree;
+    if ((currentCurrency?.code || 'INR') === 'INR') {
+      let lastThree = integerPart.substring(integerPart.length - 3);
+      const otherNumbers = integerPart.substring(0, integerPart.length - 3);
+      if (otherNumbers !== '') {
+        lastThree = ',' + lastThree;
+      }
+      integerPart = otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + lastThree;
+    } else {
+      integerPart = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
-    integerPart = otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + lastThree;
   }
 
   if (parts.length > 1) {

@@ -5,8 +5,196 @@ import { DEFAULT_CATEGORIES } from '../constants/categories';
 import { getCurrentTimestamp, toUnixTimestamp } from '../utils/formatters';
 
 let dbInstance = null;
+let currentDbName = null;
+
+export const DB_PREFIX = 'expenses_khata_';
+export const DB_META_FILE = 'expenses_khata_meta.json';
+
+/**
+ * Calculates the database name dynamically using the Unix timestamp:
+ * expenses_khata_{unix_timestamp}.db
+ *
+ * @param {number} [timestamp] - Current Unix timestamp in seconds
+ * @param {boolean} [includeExtension=true] - Whether to append .db
+ * @returns {string} Calculated database name e.g. "expenses_khata_1731600000.db"
+ */
+export const calculateDatabaseName = (timestamp = Math.floor(Date.now() / 1000), includeExtension = true) => {
+  const ts = Math.floor(Number(timestamp) || Date.now() / 1000);
+  const base = `${DB_PREFIX}${ts}`;
+  return includeExtension ? `${base}.db` : base;
+};
+
+/**
+ * Returns database base name without .db extension
+ * e.g. "expenses_khata_1731600000"
+ */
+export const getDatabaseBaseName = (dbName = getDatabaseName()) => {
+  return String(dbName || '').replace(/\.db$/, '');
+};
+
+/**
+ * Manually set or override the active database name
+ */
+export const setDatabaseName = (name) => {
+  if (name) {
+    currentDbName = name.endsWith('.db') ? name : `${name}.db`;
+  }
+};
+
+/**
+ * Gets the current database name dynamically.
+ * Never hardcodes the database name.
+ */
+export const getDatabaseName = () => {
+  if (currentDbName) return currentDbName;
+  currentDbName = calculateDatabaseName();
+  return currentDbName;
+};
+
+/**
+ * Saves the active database metadata to disk so it is preserved across app restarts
+ */
+export const saveDatabaseMetaAsync = async (name) => {
+  try {
+    const docDir = FileSystem.documentDirectory;
+    if (!docDir) return;
+    const metaPath = `${docDir.replace(/\/+$/, '')}/${DB_META_FILE}`;
+    const payload = {
+      dbName: name,
+      baseName: getDatabaseBaseName(name),
+      updatedAt: Date.now(),
+    };
+    await FileSystem.writeAsStringAsync(metaPath, JSON.stringify(payload));
+  } catch (e) {
+    console.warn('Could not save database metadata:', e);
+  }
+};
+
+/**
+ * Scans directories for existing timestamped database files matching expenses_khata_{timestamp}.db
+ */
+export const scanForExistingExpensesKhataDbAsync = async () => {
+  const dirs = [];
+  if (SQLite.defaultDatabaseDirectory) {
+    dirs.push(SQLite.defaultDatabaseDirectory);
+  }
+  if (FileSystem.documentDirectory) {
+    dirs.push(`${FileSystem.documentDirectory.replace(/\/+$/, '')}/SQLite`);
+    dirs.push(FileSystem.documentDirectory);
+  }
+
+  const matches = [];
+  for (const dir of dirs) {
+    try {
+      const info = await FileSystem.getInfoAsync(dir);
+      if (info.exists && info.isDirectory) {
+        const files = await FileSystem.readDirectoryAsync(dir);
+        for (const file of files) {
+          const match = file.match(/^expenses_khata_(\d+)(\.db)?$/);
+          if (match) {
+            const ts = parseInt(match[1], 10);
+            const normalizedName = file.endsWith('.db') ? file : `${file}.db`;
+            matches.push({ name: normalizedName, ts });
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (matches.length > 0) {
+    matches.sort((a, b) => b.ts - a.ts);
+    return matches[0].name;
+  }
+  return null;
+};
+
+const findLegacyDbPathAsync = async () => {
+  const docDir = FileSystem.documentDirectory;
+  const sqliteDir = SQLite.defaultDatabaseDirectory;
+  const candidates = [];
+  if (sqliteDir) candidates.push(`${sqliteDir.replace(/\/+$/, '')}/expenses_khata.db`);
+  if (docDir) {
+    const base = docDir.replace(/\/+$/, '');
+    candidates.push(`${base}/SQLite/expenses_khata.db`);
+    candidates.push(`${base}/expenses_khata.db`);
+  }
+  for (const c of candidates) {
+    try {
+      const info = await FileSystem.getInfoAsync(c);
+      if (info && info.exists && info.size > 0) return c;
+    } catch (e) {}
+  }
+  return null;
+};
+
+/**
+ * Resolves the database name on startup:
+ * 1. Checks memory cache
+ * 2. Reads meta config file
+ * 3. Scans SQLite directory for existing timestamped database
+ * 4. Migrates legacy unversioned database if present
+ * 5. Dynamically calculates new database name using current Unix timestamp
+ */
+export const resolveOrCreateDatabaseNameAsync = async () => {
+  if (currentDbName) {
+    await saveDatabaseMetaAsync(currentDbName);
+    return currentDbName;
+  }
+
+  // 1. Try reading saved meta file
+  const docDir = FileSystem.documentDirectory;
+  if (docDir) {
+    try {
+      const metaPath = `${docDir.replace(/\/+$/, '')}/${DB_META_FILE}`;
+      const info = await FileSystem.getInfoAsync(metaPath);
+      if (info.exists) {
+        const raw = await FileSystem.readAsStringAsync(metaPath);
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.dbName) {
+          currentDbName = parsed.dbName;
+          return currentDbName;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Scan directories for existing expenses_khata_{timestamp}.db
+  try {
+    const existing = await scanForExistingExpensesKhataDbAsync();
+    if (existing) {
+      currentDbName = existing;
+      await saveDatabaseMetaAsync(existing);
+      return currentDbName;
+    }
+  } catch (e) {}
+
+  // 3. Migrate legacy expenses_khata.db if present
+  try {
+    const legacyPath = await findLegacyDbPathAsync();
+    if (legacyPath) {
+      const newTimestamp = Math.floor(Date.now() / 1000);
+      const newName = calculateDatabaseName(newTimestamp);
+      const targetDir = SQLite.defaultDatabaseDirectory || `${FileSystem.documentDirectory}SQLite/`;
+      const targetPath = `${targetDir.replace(/\/+$/, '')}/${newName}`;
+      try {
+        await FileSystem.copyAsync({ from: legacyPath, to: targetPath });
+      } catch (copyErr) {}
+      currentDbName = newName;
+      await saveDatabaseMetaAsync(newName);
+      return currentDbName;
+    }
+  } catch (e) {}
+
+  // 4. Fresh dynamic generation using current Unix timestamp
+  const unixTimestamp = Math.floor(Date.now() / 1000);
+  const dynamicName = calculateDatabaseName(unixTimestamp);
+  currentDbName = dynamicName;
+  await saveDatabaseMetaAsync(dynamicName);
+  return currentDbName;
+};
 
 export const getDatabaseFilePath = async () => {
+  const dbName = getDatabaseName();
   // 1. Direct databasePath property on active SQLiteDatabase instance
   try {
     const db = getDatabase();
@@ -38,7 +226,7 @@ export const getDatabaseFilePath = async () => {
   try {
     if (SQLite.defaultDatabaseDirectory) {
       const base = SQLite.defaultDatabaseDirectory.replace(/\/+$/, '');
-      let p = `${base}/expenses_khata.db`;
+      let p = `${base}/${dbName}`;
       if (!p.startsWith('file://')) p = `file://${p}`;
       try {
         const info = await FileSystem.getInfoAsync(p);
@@ -54,10 +242,10 @@ export const getDatabaseFilePath = async () => {
   if (docDir) {
     const baseDoc = docDir.replace(/\/+$/, '');
     const candidates = [
-      `${baseDoc}/SQLite/expenses_khata.db`,
-      `${baseDoc}/expenses_khata.db`,
-      `${baseDoc}/../databases/expenses_khata.db`,
-      `${baseDoc}/databases/expenses_khata.db`,
+      `${baseDoc}/SQLite/${dbName}`,
+      `${baseDoc}/${dbName}`,
+      `${baseDoc}/../databases/${dbName}`,
+      `${baseDoc}/databases/${dbName}`,
     ];
 
     for (const c of candidates) {
@@ -75,8 +263,8 @@ export const getDatabaseFilePath = async () => {
   if (cacheDir) {
     const baseCache = cacheDir.replace(/\/+$/, '');
     const candidates = [
-      `${baseCache}/SQLite/expenses_khata.db`,
-      `${baseCache}/expenses_khata.db`,
+      `${baseCache}/SQLite/${dbName}`,
+      `${baseCache}/${dbName}`,
     ];
     for (const c of candidates) {
       try {
@@ -99,7 +287,7 @@ export const getDatabaseFilePath = async () => {
 
   // 6. Default fallback
   if (docDir) {
-    return `${docDir.replace(/\/+$/, '')}/SQLite/expenses_khata.db`;
+    return `${docDir.replace(/\/+$/, '')}/SQLite/${dbName}`;
   }
 
   return null;
@@ -133,10 +321,14 @@ export const getDatabase = () => {
   return dbInstance;
 };
 
-export const initDatabase = () => {
+export const initDatabase = (customDbName = null) => {
+  if (customDbName) {
+    setDatabaseName(customDbName);
+  }
+  const activeDbName = getDatabaseName();
   if (dbInstance) return dbInstance;
 
-  const purgeAllDatabaseFiles = (name = 'expenses_khata.db') => {
+  const purgeAllDatabaseFiles = (name = activeDbName) => {
     try {
       if (dbInstance) {
         try { dbInstance.closeSync(); } catch (e) {}
@@ -166,7 +358,7 @@ export const initDatabase = () => {
     }
   };
 
-  const openAndSetup = (dbName = 'expenses_khata.db') => {
+  const openAndSetup = (dbName = activeDbName) => {
     // Open synchronously per Expo SQLite SDK 54 specification
     dbInstance = SQLite.openDatabaseSync(dbName);
 
@@ -512,24 +704,27 @@ export const initDatabase = () => {
   };
 
   try {
-    return openAndSetup('expenses_khata.db');
+    return openAndSetup(activeDbName);
   } catch (error) {
     console.error('Failed to initialize database, initiating recovery:', error);
     const errMsg = String(error?.message || '');
     
     // Perform purge of corrupted files
     console.warn('⚠️ Corrupted/non-database file detected. Recreating clean database...');
-    purgeAllDatabaseFiles('expenses_khata.db');
+    purgeAllDatabaseFiles(activeDbName);
 
     try {
-      // Retry opening fresh expenses_khata.db
-      return openAndSetup('expenses_khata.db');
+      // Retry opening fresh dynamic database
+      return openAndSetup(activeDbName);
     } catch (secondErr) {
       console.error('Failed on second attempt, trying fallback database file:', secondErr);
       try {
-        // As a last-resort fallback to ensure app NEVER crashes on launch, use alternate clean DB name
-        purgeAllDatabaseFiles('expenses_khata_recovered.db');
-        return openAndSetup('expenses_khata_recovered.db');
+        // Fallback with fresh dynamically calculated timestamped database name
+        const recoveryTimestamp = Math.floor(Date.now() / 1000);
+        const recoveryName = calculateDatabaseName(recoveryTimestamp);
+        setDatabaseName(recoveryName);
+        purgeAllDatabaseFiles(recoveryName);
+        return openAndSetup(recoveryName);
       } catch (recoveryErr) {
         console.error('Fatal recovery error in initDatabase:', recoveryErr);
         throw recoveryErr;

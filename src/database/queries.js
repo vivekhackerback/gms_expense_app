@@ -1,5 +1,5 @@
 import { getDatabase } from './db';
-import { getCurrentTimestamp, toUnixTimestamp } from '../utils/formatters';
+import { getCurrentTimestamp, toUnixTimestamp, setGlobalCurrency } from '../utils/formatters';
 import { DEFAULT_CATEGORIES } from '../constants/categories';
 import { DEFAULT_CURRENCY, findCurrencyByCodeOrNo } from '../constants/currencies';
 
@@ -1120,14 +1120,50 @@ export const updateSetting = (key, value) => {
   );
 };
 
+export const isSetupCompleted = () => {
+  try {
+    const val = getSetting('is_setup_completed');
+    return val === 'true' || val === '1';
+  } catch (e) {
+    return false;
+  }
+};
+
+export const setSetupCompleted = (completed = true) => {
+  try {
+    updateSetting('is_setup_completed', completed ? 'true' : 'false');
+  } catch (e) {
+    console.error('Failed to set setup completion status:', e);
+  }
+};
+
 export const getAppCurrency = () => {
   try {
     const raw = getSetting('app_currency');
-    if (!raw) return DEFAULT_CURRENCY;
-    const parsed = JSON.parse(raw);
-    if (!parsed || !parsed.symbol) return DEFAULT_CURRENCY;
-    return findCurrencyByCodeOrNo(parsed.code || parsed.name || parsed.no);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && (parsed.symbol || parsed.code)) {
+        const found = findCurrencyByCodeOrNo(parsed.code || parsed.name || parsed.no);
+        if (found) {
+          setGlobalCurrency(found);
+          return found;
+        }
+      }
+    }
+    // Fallback: check individual currency_code / currency_symbol keys
+    const code = getSetting('currency_code');
+    const symbol = getSetting('currency_symbol');
+    if (code || symbol) {
+      const found = findCurrencyByCodeOrNo(code || symbol);
+      if (found) {
+        setGlobalCurrency(found);
+        return found;
+      }
+    }
+    setGlobalCurrency(DEFAULT_CURRENCY);
+    return DEFAULT_CURRENCY;
   } catch (e) {
+    setGlobalCurrency(DEFAULT_CURRENCY);
     return DEFAULT_CURRENCY;
   }
 };
@@ -1142,7 +1178,11 @@ export const updateAppCurrency = (currency) => {
       symbol: currency.symbol,
       flag: currency.flag,
     };
+    // Save full JSON config as well as individual code and symbol keys
     updateSetting('app_currency', JSON.stringify(clean));
+    updateSetting('currency_code', clean.code);
+    updateSetting('currency_symbol', clean.symbol);
+    setGlobalCurrency(clean);
     return clean;
   } catch (e) {
     console.error('Failed to update app currency setting:', e);
